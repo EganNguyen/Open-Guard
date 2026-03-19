@@ -1,0 +1,13 @@
+# Development overrides — additional port mappings and debug options
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  kafka:
+    environment:
+      KAFKA_CFG_LOG_RETENTION_HOURS: 1
