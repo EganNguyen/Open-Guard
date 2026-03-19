@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/openguard/shared/models"
-	sharedmw "github.com/openguard/shared/middleware"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -40,7 +39,6 @@ func (rl *RateLimiter) Middleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			reqID := sharedmw.GetRequestID(ctx)
 
 			// Determine key and limit based on authentication
 			userID := r.Header.Get("X-User-ID")
@@ -69,10 +67,8 @@ func (rl *RateLimiter) Middleware() func(http.Handler) http.Handler {
 			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
 
 			if !allowed {
-				retryAfter := int(rl.window.Seconds())
-				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
-				models.WriteError(w, http.StatusTooManyRequests, "RATE_LIMIT_EXCEEDED",
-					"Too many requests. Please try again later.", reqID)
+				w.Header().Set("Retry-After", strconv.FormatInt(int64(rl.window.Seconds()), 10))
+				models.WriteError(w, http.StatusTooManyRequests, "RATE_LIMIT_EXCEEDED", "Rate limit exceeded. Please try again later.", r)
 				return
 			}
 

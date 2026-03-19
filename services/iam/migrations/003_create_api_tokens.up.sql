@@ -11,3 +11,6 @@ CREATE TABLE api_tokens (
     revoked      BOOLEAN NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE api_tokens ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON api_tokens USING (org_id::text = current_setting('app.org_id', true));

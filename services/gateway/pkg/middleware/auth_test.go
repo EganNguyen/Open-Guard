@@ -8,19 +8,21 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	mw "github.com/openguard/gateway/pkg/middleware"
+	"github.com/openguard/shared/crypto"
 	sharedmw "github.com/openguard/shared/middleware"
 )
 
-const testSecret = "test-secret-key"
+var testKeyring = crypto.NewJWTKeyring([]crypto.JWTKey{
+	{Kid: "test-kid", Secret: "test-secret-key", Algorithm: "HS256", Status: "active"},
+})
 
 func makeToken(claims jwt.MapClaims) string {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, _ := token.SignedString([]byte(testSecret))
+	signed, _ := testKeyring.Sign(claims)
 	return signed
 }
 
 func TestJWTAuth_ValidToken(t *testing.T) {
-	handler := sharedmw.RequestID(mw.JWTAuth(testSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-User-ID") != "user-123" {
 			t.Errorf("expected X-User-ID=user-123, got %s", r.Header.Get("X-User-ID"))
 		}
@@ -34,10 +36,10 @@ func TestJWTAuth_ValidToken(t *testing.T) {
 	})))
 
 	token := makeToken(jwt.MapClaims{
-		"sub":   "user-123",
+		"sub":    "user-123",
 		"org_id": "org-456",
-		"email": "test@example.com",
-		"exp":   time.Now().Add(time.Hour).Unix(),
+		"email":  "test@example.com",
+		"exp":    time.Now().Add(time.Hour).Unix(),
 	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -51,7 +53,7 @@ func TestJWTAuth_ValidToken(t *testing.T) {
 }
 
 func TestJWTAuth_MissingToken(t *testing.T) {
-	handler := sharedmw.RequestID(mw.JWTAuth(testSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	})))
 
@@ -65,7 +67,7 @@ func TestJWTAuth_MissingToken(t *testing.T) {
 }
 
 func TestJWTAuth_InvalidToken(t *testing.T) {
-	handler := sharedmw.RequestID(mw.JWTAuth(testSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	})))
 
@@ -80,15 +82,15 @@ func TestJWTAuth_InvalidToken(t *testing.T) {
 }
 
 func TestJWTAuth_ExpiredToken(t *testing.T) {
-	handler := sharedmw.RequestID(mw.JWTAuth(testSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	})))
 
 	token := makeToken(jwt.MapClaims{
-		"sub":   "user-123",
+		"sub":    "user-123",
 		"org_id": "org-456",
-		"email": "test@example.com",
-		"exp":   time.Now().Add(-time.Hour).Unix(),
+		"email":  "test@example.com",
+		"exp":    time.Now().Add(-time.Hour).Unix(),
 	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -102,7 +104,7 @@ func TestJWTAuth_ExpiredToken(t *testing.T) {
 }
 
 func TestJWTAuth_WrongSigningKey(t *testing.T) {
-	handler := sharedmw.RequestID(mw.JWTAuth(testSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	})))
 
@@ -110,13 +112,15 @@ func TestJWTAuth_WrongSigningKey(t *testing.T) {
 		"sub": "user-123",
 		"exp": time.Now().Add(time.Hour).Unix(),
 	})
-	// Re-sign with a different key
+	
+	// Re-sign with a different key manually to get an invalid signature failure
 	wrongToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub": "user-123",
 		"exp": time.Now().Add(time.Hour).Unix(),
 	})
+	wrongToken.Header["kid"] = "test-kid" // Same KID, wrong secret
 	wrongSigned, _ := wrongToken.SignedString([]byte("wrong-secret"))
-	_ = token // unused, we use wrongSigned
+	_ = token 
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	req.Header.Set("Authorization", "Bearer "+wrongSigned)

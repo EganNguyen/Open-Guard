@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -11,46 +13,55 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/openguard/iam/pkg/repository"
+	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/models"
+	"github.com/openguard/shared/outbox"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// AuthService handles registration, login, logout, and token refresh.
 type AuthService struct {
-	users    *repository.UserRepository
-	orgs     *repository.OrgRepository
-	sessions *repository.SessionRepository
-	producer *kafka.Producer
-	logger   *slog.Logger
-
-	jwtSecret string
-	jwtExpiry time.Duration
+	pool       *pgxpool.Pool
+	users      *repository.UserRepository
+	orgs       *repository.OrgRepository
+	sessions   *repository.SessionRepository
+	mfa        *repository.MFARepository
+	outbox     *outbox.Writer
+	logger     *slog.Logger
+	jwtKeyring *crypto.JWTKeyring
+	aesKeyring *crypto.AESKeyring
+	jwtExpiry  time.Duration
 }
 
-// NewAuthService creates a new AuthService.
 func NewAuthService(
+	pool *pgxpool.Pool,
 	users *repository.UserRepository,
 	orgs *repository.OrgRepository,
 	sessions *repository.SessionRepository,
-	producer *kafka.Producer,
+	mfa *repository.MFARepository,
+	outboxWriter *outbox.Writer,
 	logger *slog.Logger,
-	jwtSecret string,
+	jwtKeyring *crypto.JWTKeyring,
+	aesKeyring *crypto.AESKeyring,
 	jwtExpiry int,
 ) *AuthService {
 	return &AuthService{
-		users:     users,
-		orgs:      orgs,
-		sessions:  sessions,
-		producer:  producer,
-		logger:    logger,
-		jwtSecret: jwtSecret,
-		jwtExpiry: time.Duration(jwtExpiry) * time.Second,
+		pool:       pool,
+		users:      users,
+		orgs:       orgs,
+		sessions:   sessions,
+		mfa:        mfa,
+		outbox:     outboxWriter,
+		logger:     logger,
+		jwtKeyring: jwtKeyring,
+		aesKeyring: aesKeyring,
+		jwtExpiry:  time.Duration(jwtExpiry) * time.Second,
 	}
 }
 
-// RegisterRequest is the input for user registration.
 type RegisterRequest struct {
 	OrgName     string `json:"org_name"`
 	Email       string `json:"email"`
@@ -58,39 +69,30 @@ type RegisterRequest struct {
 	DisplayName string `json:"display_name"`
 }
 
-// RegisterResponse is the output for user registration.
 type RegisterResponse struct {
 	User  *repository.User `json:"user"`
 	Org   *repository.Org  `json:"org"`
 	Token string           `json:"token"`
 }
 
-// Register creates an org and an admin user, returns a JWT.
 func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
-	// Validate inputs
-	if req.OrgName == "" {
-		return nil, fmt.Errorf("org_name is required")
-	}
-	if req.Email == "" {
-		return nil, fmt.Errorf("email is required")
-	}
-	if req.Password == "" {
-		return nil, fmt.Errorf("password is required")
-	}
-	if len(req.Password) < 8 {
-		return nil, fmt.Errorf("password must be at least 8 characters")
+	if req.OrgName == "" || req.Email == "" || len(req.Password) < 8 {
+		return nil, fmt.Errorf("invalid inputs")
 	}
 
-	// Generate slug from org name
 	slug := slugify(req.OrgName)
 
-	// Create org
-	org, err := s.orgs.Create(ctx, req.OrgName, slug)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	org, err := s.orgs.Create(ctx, tx, req.OrgName, slug)
 	if err != nil {
 		return nil, fmt.Errorf("create org: %w", err)
 	}
 
-	// Hash password with bcrypt cost 12
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
@@ -102,20 +104,21 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*Regis
 		displayName = req.Email
 	}
 
-	// Create user
-	user, err := s.users.Create(ctx, org.ID, req.Email, displayName, &hashStr)
+	user, err := s.users.Create(ctx, tx, org.ID, req.Email, displayName, &hashStr)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 
-	// Generate JWT
 	token, err := s.generateJWT(user)
 	if err != nil {
 		return nil, fmt.Errorf("generate jwt: %w", err)
 	}
 
-	// Publish event (best-effort)
-	s.publishEvent(ctx, kafka.TopicAuditTrail, "user.created", user.OrgID, user.ID)
+	s.publishEvent(ctx, tx, kafka.TopicAuditTrail, "user.created", user.OrgID, user.ID)
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
 
 	return &RegisterResponse{
 		User:  user,
@@ -124,13 +127,11 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*Regis
 	}, nil
 }
 
-// LoginRequest is the input for user login.
 type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-// LoginResponse is the output for user login.
 type LoginResponse struct {
 	Token        string           `json:"token"`
 	RefreshToken string           `json:"refresh_token"`
@@ -138,56 +139,50 @@ type LoginResponse struct {
 	User         *repository.User `json:"user"`
 }
 
-// Login authenticates a user with email/password and returns a JWT.
 func (s *AuthService) Login(ctx context.Context, req LoginRequest, ipAddress, userAgent *string) (*LoginResponse, error) {
 	if req.Email == "" || req.Password == "" {
-		return nil, fmt.Errorf("email and password are required")
+		return nil, fmt.Errorf("email and password required")
 	}
 
-	// Find user by email (globally)
-	user, err := s.users.GetByEmailGlobal(ctx, req.Email)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		s.publishEvent(ctx, kafka.TopicAuthEvents, "auth.login.failure", "", "")
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	user, err := s.users.GetByEmailGlobal(ctx, tx, req.Email)
+	if err != nil || user.PasswordHash == nil {
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
-	if user.PasswordHash == nil {
-		s.publishEvent(ctx, kafka.TopicAuthEvents, "auth.login.failure", user.OrgID, user.ID)
-		return nil, fmt.Errorf("invalid credentials")
-	}
-
-	// Compare password
 	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.Password)); err != nil {
-		s.publishEvent(ctx, kafka.TopicAuthEvents, "auth.login.failure", user.OrgID, user.ID)
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
-	// Check user status
 	if user.Status != string(models.UserStatusActive) {
 		return nil, fmt.Errorf("user account is %s", user.Status)
 	}
 
-	// Generate JWT
 	token, err := s.generateJWT(user)
 	if err != nil {
 		return nil, fmt.Errorf("generate jwt: %w", err)
 	}
 
-	// Create session
+	refreshToken := uuid.New().String()
+	hashSum := sha256.Sum256([]byte(refreshToken))
+	refreshHash := hex.EncodeToString(hashSum[:])
+
 	expiresAt := time.Now().Add(s.jwtExpiry)
-	session, err := s.sessions.Create(ctx, user.ID, user.OrgID, ipAddress, userAgent, expiresAt)
+	_, err = s.sessions.Create(ctx, tx, user.ID, user.OrgID, refreshHash, ipAddress, userAgent, nil, expiresAt)
 	if err != nil {
 		s.logger.Error("failed to create session", "error", err)
 	}
 
-	// Generate refresh token (session ID)
-	refreshToken := ""
-	if session != nil {
-		refreshToken = session.ID
-	}
+	s.publishEvent(ctx, tx, kafka.TopicAuthEvents, "auth.login.success", user.OrgID, user.ID)
 
-	// Publish login success event
-	s.publishEvent(ctx, kafka.TopicAuthEvents, "auth.login.success", user.OrgID, user.ID)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
 
 	return &LoginResponse{
 		Token:        token,
@@ -197,36 +192,38 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ipAddress, us
 	}, nil
 }
 
-// Logout revokes a session.
 func (s *AuthService) Logout(ctx context.Context, sessionID, orgID, userID string) error {
-	if sessionID == "" {
-		return fmt.Errorf("session_id is required")
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
 	}
-	if err := s.sessions.Revoke(ctx, sessionID); err != nil {
+	defer tx.Rollback(ctx)
+
+	if err := s.sessions.Revoke(ctx, tx, orgID, sessionID); err != nil {
 		return fmt.Errorf("revoke session: %w", err)
 	}
-	s.publishEvent(ctx, kafka.TopicAuthEvents, "auth.logout", orgID, userID)
-	return nil
+
+	s.publishEvent(ctx, tx, kafka.TopicAuthEvents, "auth.logout", orgID, userID)
+
+	return tx.Commit(ctx)
 }
 
-// generateJWT creates a signed JWT for the given user.
 func (s *AuthService) generateJWT(user *repository.User) (string, error) {
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub":    user.ID,
-		"org_id": user.OrgID,
 		"email":  user.Email,
+		"org_id": user.OrgID,
+		"tier":   user.TierIsolation,
 		"iat":    now.Unix(),
 		"exp":    now.Add(s.jwtExpiry).Unix(),
 		"iss":    "openguard",
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(s.jwtSecret))
+	return s.jwtKeyring.Sign(claims)
 }
 
-// publishEvent publishes an EventEnvelope to Kafka (best-effort, logs errors).
-func (s *AuthService) publishEvent(ctx context.Context, topic, eventType, orgID, actorID string) {
-	if s.producer == nil {
+func (s *AuthService) publishEvent(ctx context.Context, tx pgx.Tx, topic, eventType, orgID, actorID string) {
+	if s.outbox == nil {
 		return
 	}
 
@@ -238,16 +235,12 @@ func (s *AuthService) publishEvent(ctx context.Context, topic, eventType, orgID,
 		ActorID:   actorID,
 		ActorType: "user",
 		Source:    "iam",
-		SchemaVer: "1.0",
+		SchemaVer: "2.0",
 		Payload:   payload,
 	}
 
-	if err := s.producer.PublishEvent(ctx, topic, envelope); err != nil {
-		s.logger.Error("failed to publish event",
-			"topic", topic,
-			"event_type", eventType,
-			"error", err,
-		)
+	if err := s.outbox.Write(ctx, tx, topic, actorID, envelope); err != nil {
+		s.logger.Error("outbox write failed", "error", err)
 	}
 }
 

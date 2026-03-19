@@ -11,6 +11,8 @@ import (
 
 	"github.com/openguard/gateway/pkg/config"
 	"github.com/openguard/gateway/pkg/router"
+	sharedcfg "github.com/openguard/shared/config"
+	"github.com/openguard/shared/crypto"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -55,17 +57,20 @@ func main() {
 		logger.Info("Redis connected", "addr", cfg.RedisAddr)
 	}
 
+	// Load Keyring
+	keyring := crypto.NewJWTKeyring(cfg.JWTKeys)
+
 	// Build router
 	r, err := router.New(router.Config{
-		JWTSecret:      cfg.JWTSecret,
+		JWTKeyring:     keyring,
 		Redis:          rdb,
 		Logger:         logger,
-		IAMAddr:        config.Default("IAM_TARGET", "http://localhost:8081"),
-		PolicyAddr:     serviceAddr("POLICY_TARGET", "http://localhost:8082"),
-		ThreatAddr:     serviceAddr("THREAT_TARGET", "http://localhost:8083"),
-		AuditAddr:      serviceAddr("AUDIT_TARGET", "http://localhost:8084"),
-		AlertingAddr:   serviceAddr("ALERTING_TARGET", "http://localhost:8085"),
-		ComplianceAddr: serviceAddr("COMPLIANCE_TARGET", "http://localhost:8086"),
+		IAMAddr:        sharedcfg.Default("IAM_TARGET", "http://localhost:8081"),
+		PolicyAddr:     sharedcfg.Default("POLICY_TARGET", ""),
+		ThreatAddr:     sharedcfg.Default("THREAT_TARGET", ""),
+		AuditAddr:      sharedcfg.Default("AUDIT_TARGET", ""),
+		AlertingAddr:   sharedcfg.Default("ALERTING_TARGET", ""),
+		ComplianceAddr: sharedcfg.Default("COMPLIANCE_TARGET", ""),
 	})
 	if err != nil {
 		logger.Error("failed to build router", "error", err)
@@ -106,8 +111,4 @@ func main() {
 		logger.Error("redis close error", "error", err)
 	}
 	logger.Info("gateway stopped")
-}
-
-func serviceAddr(targetEnv, defaultTarget string) string {
-	return config.Default(targetEnv, defaultTarget)
 }

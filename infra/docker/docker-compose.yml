@@ -11,7 +11,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openguard}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openguard}" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,7 +24,7 @@ services:
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -38,7 +38,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -72,7 +72,7 @@ services:
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      test: [ "CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list" ]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -90,48 +90,10 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
     healthcheck:
-      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      test: [ "CMD", "clickhouse-client", "--query", "SELECT 1" ]
       interval: 5s
       timeout: 5s
       retries: 5
-
-  iam:
-    build:
-      context: ../../
-      dockerfile: services/iam/Dockerfile
-    container_name: openguard-iam
-    env_file:
-      - ../../.env
-    environment:
-      POSTGRES_HOST: postgres
-      KAFKA_BROKERS: kafka:9092
-      REDIS_ADDR: redis:6379
-      GATEWAY_JWT_SECRET: ${GATEWAY_JWT_SECRET:-secret}
-    ports:
-      - "8081:8081"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  gateway:
-    build:
-      context: ../../
-      dockerfile: services/gateway/Dockerfile
-    container_name: openguard-gateway
-    env_file:
-      - ../../.env
-    environment:
-      REDIS_ADDR: redis:6379
-      KAFKA_BROKERS: kafka:9092
-      IAM_TARGET: http://iam:8081
-      GATEWAY_JWT_SECRET: ${GATEWAY_JWT_SECRET:-secret}
-    ports:
-      - "8080:8080"
-    depends_on:
-      redis:
-        condition: service_healthy
-      iam:
-        condition: service_started
 
 volumes:
   postgres_data:

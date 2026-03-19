@@ -1,43 +1,83 @@
 # OpenGuard
 
-Open-source, self-hostable **organization security platform** inspired by Atlassian Guard.
+> **Enterprise-scale, open-source organization security platform.**
 
-## Features
+OpenGuard is a self-hostable identity and data security platform, inspired by Atlassian Guard. It provides Fortune-500 grade identity management, real-time policy evaluation, threat detection, and cryptographically verifiable audit trails—all designed with **zero cross-tenant data leakage** and **fail-closed** security principles.
 
-- **Identity & Access Management (IAM):** SSO (SAML 2.0 / OIDC), SCIM provisioning, MFA enforcement, API token lifecycle.
-- **Policy Engine:** Data security rules — export restrictions, anonymous access controls, RBAC.
-- **Threat Detection:** Real-time anomaly scoring on login and data-access event streams.
-- **Audit Log:** Immutable, queryable record of all admin, user, and system actions.
-- **Alerting:** Rule-based and ML-scored alerts with SIEM webhook export.
-- **Compliance Reporting:** GDPR, SOC 2, HIPAA report generation.
-- **Admin Dashboard:** Next.js web console for all of the above.
+## 🛡️ Core Capabilities
 
-## Quick Start
+- **Identity & Access Management (IAM):** SSO (SAML 2.0 / OIDC), SCIM 2.0 provisioning, TOTP/WebAuthn MFA, and API token lifecycle.
+- **Real-Time Policy Engine:** Sub-30ms RBAC evaluation, data security rules, and session limits. Fails closed when unavailable.
+- **Threat Detection:** Streaming anomaly scoring for brute-force attacks, impossible travel, and privilege escalation.
+- **Verifiable Audit Log:** Append-only, hash-chained event trail stored in MongoDB to guarantee tamper-evident compliance.
+- **Compliance & Analytics:** ClickHouse-powered reporting for GDPR, SOC 2, and HIPAA with PDF generation.
+- **Alerting:** SIEM webhook export with HMAC signatures, and Slack/email delivery.
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/openguard/openguard.git && cd openguard
+## 🏗️ Enterprise Architecture Guarantees
 
-# 2. Copy environment file
-cp .env.example .env
+OpenGuard is built to operate at scale (100k+ users, millions of events/day) without compromising integrity:
 
-# 3. Start all infrastructure and services for local development
-make dev
+- **Transactional Outbox Pattern:** Every Kafka publish is buffered in PostgreSQL via a transactional outbox. Guarantees exactly-once audit trails and eliminates the dual-write problem.
+- **Row-Level Security (RLS):** Multi-tenancy isolation is enforced at the database layer (PostgreSQL). A bug in application code cannot expose another organization's data.
+- **Resilience & Circuit Breakers:** Every inter-service HTTP call wraps a circuit breaker. Fails gracefully (or fails closed for security decisions).
+- **CQRS & Saga Pattern:** Read/write splitting for audit logs. Complex provisioning operations use choreography-based Sagas for atomic distributed transactions.
+- **Zero-Trust internals:** All internal service-to-service calls use mTLS.
+- **Secret Rotation:** Multi-key JWT signing and AES-encrypted MFA secrets support zero-downtime rotation.
 
-# 4. Run migrations
-make migrate
+## 💻 Tech Stack
 
-# 5. Testing
-# Unit tests:
-make test
-# Integration tests:
-make test-integration
-# End-to-end tests:
-# make test-e2e
+- **Backend:** Go 1.22 (Microservices: Gateway, IAM, Policy, Threat, Audit, Alerting, Compliance)
+- **Frontend:** Next.js 14
+- **Databases:** PostgreSQL 16 (Primary data & Outbox), MongoDB 7 (Audit Logs), ClickHouse 24 (Analytics & Compliance)
+- **Event Bus & Cache:** Kafka 3.6, Redis 7
+- **Observability:** OpenTelemetry, Prometheus, Grafana, Jaeger
+
+## 📂 Repository Layout
+
+```text
+openguard/
+├── services/           # Go microservices (gateway, iam, policy, threat, etc.)
+├── shared/             # Shared Go module (Kafka outbox, RLS middleware, crypto, models)
+├── web/                # Next.js 14 Admin Console
+├── infra/              # Docker Compose, K8s manifests, Kafka topics
+├── proto/              # Protobuf definitions
+└── loadtest/           # k6 load testing scripts
 ```
 
-## Documentation
+## 🚀 Getting Started
 
-- [Architecture](docs/architecture.md)
-- [Contributing](docs/contributing.md)
-- [API Documentation](docs/api/)
+### Prerequisites
+- Docker & Docker Compose
+- Make
+- Go 1.22+ and Node.js 20+
+
+### Local Development
+
+1. **Bootstrap the environment:**
+   Copy the example environment configuration:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Generate mTLS Certificates for internal services:**
+   ```bash
+   make certs
+   ```
+
+3. **Start Infrastructure (Postgres, Mongo, Redis, Kafka, ClickHouse):**
+   ```bash
+   docker-compose -f infra/docker/docker-compose.yml up -d
+   ```
+
+4. **Run Database Migrations & Create Kafka Topics:**
+   ```bash
+   make migrate
+   ./scripts/create-topics.sh
+   ```
+
+5. **Start Services:**
+   ```bash
+   make dev
+   ```
+
+*See the `docs/` folder for detailed phase specifications, runbooks, and API documentation.*

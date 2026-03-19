@@ -2,17 +2,23 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"strconv"
+
+	sharedcfg "github.com/openguard/shared/config"
+	"github.com/openguard/shared/crypto"
 )
 
-// IAMConfig holds all configuration for the IAM service.
 type IAMConfig struct {
-	Port         string
-	JWTSecret    string
-	JWTExpiry    int // seconds
-	AppEnv       string
-	LogLevel     string
+	Port      string
+	JWTKeys   []crypto.JWTKey
+	MFAKeys   []crypto.AESKey
+	JWTExpiry int
+	AppEnv    string
+	LogLevel  string
+
+	// mTLS
+	TLSCertPath string
+	TLSKeyPath  string
+	CACertPath  string
 
 	// PostgreSQL
 	PostgresHost     string
@@ -26,60 +32,39 @@ type IAMConfig struct {
 	KafkaBrokers string
 }
 
-// Load reads IAM configuration from environment variables.
 func Load() *IAMConfig {
+	var jwtKeys []crypto.JWTKey
+	sharedcfg.MustJSON("IAM_JWT_KEYS_JSON", &jwtKeys)
+
+	var mfaKeys []crypto.AESKey
+	sharedcfg.MustJSON("IAM_MFA_ENCRYPTION_KEYS_JSON", &mfaKeys)
+
 	return &IAMConfig{
-		Port:      Default("IAM_PORT", "8081"),
-		JWTSecret: Must("GATEWAY_JWT_SECRET"),
-		JWTExpiry: DefaultInt("GATEWAY_JWT_EXPIRY", 3600),
-		AppEnv:    Default("APP_ENV", "development"),
-		LogLevel:  Default("LOG_LEVEL", "info"),
+		Port:      sharedcfg.Default("IAM_PORT", "8081"),
+		JWTKeys:   jwtKeys,
+		MFAKeys:   mfaKeys,
+		JWTExpiry: sharedcfg.DefaultInt("GATEWAY_JWT_EXPIRY", 3600),
+		AppEnv:    sharedcfg.Default("APP_ENV", "development"),
+		LogLevel:  sharedcfg.Default("LOG_LEVEL", "info"),
 
-		PostgresHost:     Default("POSTGRES_HOST", "localhost"),
-		PostgresPort:     Default("POSTGRES_PORT", "5432"),
-		PostgresUser:     Default("POSTGRES_USER", "openguard"),
-		PostgresPassword: Default("POSTGRES_PASSWORD", "change-me"),
-		PostgresDB:       Default("POSTGRES_DB", "openguard"),
-		PostgresSSLMode:  Default("POSTGRES_SSLMODE", "disable"),
+		TLSCertPath: sharedcfg.Must("TLS_CERT_PATH"),
+		TLSKeyPath:  sharedcfg.Must("TLS_KEY_PATH"),
+		CACertPath:  sharedcfg.Must("CA_CERT_PATH"),
 
-		KafkaBrokers: Default("KAFKA_BROKERS", "localhost:9094"),
+		PostgresHost:     sharedcfg.Default("POSTGRES_HOST", "localhost"),
+		PostgresPort:     sharedcfg.Default("POSTGRES_PORT", "5432"),
+		PostgresUser:     sharedcfg.Default("POSTGRES_USER", "openguard"),
+		PostgresPassword: sharedcfg.Default("POSTGRES_PASSWORD", "change-me"),
+		PostgresDB:       sharedcfg.Default("POSTGRES_DB", "openguard"),
+		PostgresSSLMode:  sharedcfg.Default("POSTGRES_SSLMODE", "disable"),
+
+		KafkaBrokers: sharedcfg.Default("KAFKA_BROKERS", "localhost:9094"),
 	}
 }
 
-// PostgresDSN returns the PostgreSQL connection string.
 func (c *IAMConfig) PostgresDSN() string {
 	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
 		c.PostgresUser, c.PostgresPassword,
 		c.PostgresHost, c.PostgresPort,
 		c.PostgresDB, c.PostgresSSLMode)
-}
-
-// Must returns the value of an environment variable or panics.
-func Must(key string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		panic(fmt.Sprintf("required environment variable %q is not set", key))
-	}
-	return v
-}
-
-// Default returns the value of an environment variable or a fallback.
-func Default(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-// DefaultInt returns an integer env variable or a fallback.
-func DefaultInt(key string, fallback int) int {
-	v := os.Getenv(key)
-	if v == "" {
-		return fallback
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
-		return fallback
-	}
-	return n
 }

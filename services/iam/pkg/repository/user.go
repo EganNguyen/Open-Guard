@@ -6,40 +6,41 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/openguard/shared/rls"
 )
 
-// User represents a user row in the database (includes password_hash).
 type User struct {
-	ID           string     `json:"id"`
-	OrgID        string     `json:"org_id"`
-	Email        string     `json:"email"`
-	DisplayName  string     `json:"display_name"`
-	PasswordHash *string    `json:"-"` // never exposed in JSON
-	Status       string     `json:"status"`
-	MFAEnabled   bool       `json:"mfa_enabled"`
-	SCIMExtID    *string    `json:"scim_external_id,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
-	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
+	ID                 string     `json:"id"`
+	OrgID              string     `json:"org_id"`
+	Email              string     `json:"email"`
+	DisplayName        string     `json:"display_name"`
+	PasswordHash       *string    `json:"-"`
+	Status             string     `json:"status"`
+	MFAEnabled         bool       `json:"mfa_enabled"`
+	MFAMethod          *string    `json:"mfa_method"`
+	SCIMExtID          *string    `json:"scim_external_id,omitempty"`
+	ProvisioningStatus string     `json:"provisioning_status"`
+	TierIsolation      string     `json:"tier_isolation"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
 }
 
-// UserRepository handles user CRUD operations.
-type UserRepository struct {
-	pool *pgxpool.Pool
+type UserRepository struct{}
+
+func NewUserRepository() *UserRepository {
+	return &UserRepository{}
 }
 
-// NewUserRepository creates a new UserRepository.
-func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
-	return &UserRepository{pool: pool}
-}
+const userColumns = `id, org_id, email, display_name, password_hash, status, mfa_enabled, mfa_method, scim_external_id, provisioning_status, tier_isolation, created_at, updated_at, deleted_at`
 
 func scanUser(row pgx.Row) (*User, error) {
 	u := &User{}
 	err := row.Scan(
 		&u.ID, &u.OrgID, &u.Email, &u.DisplayName,
-		&u.PasswordHash, &u.Status, &u.MFAEnabled,
-		&u.SCIMExtID, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
+		&u.PasswordHash, &u.Status, &u.MFAEnabled, &u.MFAMethod,
+		&u.SCIMExtID, &u.ProvisioningStatus, &u.TierIsolation, 
+		&u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -47,13 +48,14 @@ func scanUser(row pgx.Row) (*User, error) {
 	return u, nil
 }
 
-const userColumns = `id, org_id, email, display_name, password_hash, status, mfa_enabled, scim_external_id, created_at, updated_at, deleted_at`
+func (r *UserRepository) Create(ctx context.Context, tx pgx.Tx, orgID, email, displayName string, passwordHash *string) (*User, error) {
+	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		return nil, fmt.Errorf("rls config: %w", err)
+	}
 
-// Create inserts a new user.
-func (r *UserRepository) Create(ctx context.Context, orgID, email, displayName string, passwordHash *string) (*User, error) {
-	row := r.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO users (org_id, email, display_name, password_hash)
-		 VALUES ($1, $2, $3, $4)
+	row := tx.QueryRow(ctx,
+		fmt.Sprintf(`INSERT INTO users (org_id, email, display_name, password_hash, provisioning_status, tier_isolation)
+		 VALUES ($1, $2, $3, $4, 'complete', 'shared')
 		 RETURNING %s`, userColumns),
 		orgID, email, displayName, passwordHash,
 	)
@@ -64,62 +66,58 @@ func (r *UserRepository) Create(ctx context.Context, orgID, email, displayName s
 	return u, nil
 }
 
-// GetByID retrieves a user by ID (excludes soft-deleted).
-func (r *UserRepository) GetByID(ctx context.Context, id string) (*User, error) {
-	row := r.pool.QueryRow(ctx,
+func (r *UserRepository) GetByID(ctx context.Context, tx pgx.Tx, orgID, id string) (*User, error) {
+	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		return nil, fmt.Errorf("rls config: %w", err)
+	}
+
+	row := tx.QueryRow(ctx,
 		fmt.Sprintf(`SELECT %s FROM users WHERE id = $1 AND deleted_at IS NULL`, userColumns),
 		id,
 	)
-	u, err := scanUser(row)
-	if err != nil {
-		return nil, fmt.Errorf("get user by id: %w", err)
-	}
-	return u, nil
+	return scanUser(row)
 }
 
-// GetByEmail retrieves a user by org_id and email.
-func (r *UserRepository) GetByEmail(ctx context.Context, orgID, email string) (*User, error) {
-	row := r.pool.QueryRow(ctx,
+func (r *UserRepository) GetByEmail(ctx context.Context, tx pgx.Tx, orgID, email string) (*User, error) {
+	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		return nil, fmt.Errorf("rls config: %w", err)
+	}
+
+	row := tx.QueryRow(ctx,
 		fmt.Sprintf(`SELECT %s FROM users WHERE org_id = $1 AND email = $2 AND deleted_at IS NULL`, userColumns),
 		orgID, email,
 	)
-	u, err := scanUser(row)
-	if err != nil {
-		return nil, fmt.Errorf("get user by email: %w", err)
-	}
-	return u, nil
+	return scanUser(row)
 }
 
-// GetByEmailGlobal retrieves a user by email across all orgs (for login).
-func (r *UserRepository) GetByEmailGlobal(ctx context.Context, email string) (*User, error) {
-	row := r.pool.QueryRow(ctx,
+func (r *UserRepository) GetByEmailGlobal(ctx context.Context, tx pgx.Tx, email string) (*User, error) {
+	// Global lookup requires bypassing RLS
+	if err := rls.SetSessionVar(ctx, tx, ""); err != nil {
+		return nil, fmt.Errorf("rls config: %w", err)
+	}
+
+	row := tx.QueryRow(ctx,
 		fmt.Sprintf(`SELECT %s FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`, userColumns),
 		email,
 	)
-	u, err := scanUser(row)
-	if err != nil {
-		return nil, fmt.Errorf("get user by email global: %w", err)
-	}
-	return u, nil
+	return scanUser(row)
 }
 
-// ListByOrg returns paginated users for an org.
-func (r *UserRepository) ListByOrg(ctx context.Context, orgID string, page, perPage int) ([]*User, int, error) {
-	// Count total
+func (r *UserRepository) ListByOrg(ctx context.Context, tx pgx.Tx, orgID string, page, perPage int) ([]*User, int, error) {
+	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		return nil, 0, fmt.Errorf("rls config: %w", err)
+	}
+
 	var total int
-	err := r.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM users WHERE org_id = $1 AND deleted_at IS NULL`,
-		orgID,
-	).Scan(&total)
+	err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE deleted_at IS NULL`).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count users: %w", err)
 	}
 
 	offset := (page - 1) * perPage
-	rows, err := r.pool.Query(ctx,
-		fmt.Sprintf(`SELECT %s FROM users WHERE org_id = $1 AND deleted_at IS NULL
-		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`, userColumns),
-		orgID, perPage, offset,
+	rows, err := tx.Query(ctx,
+		fmt.Sprintf(`SELECT %s FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1 OFFSET $2`, userColumns),
+		perPage, offset,
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list users: %w", err)
@@ -128,12 +126,7 @@ func (r *UserRepository) ListByOrg(ctx context.Context, orgID string, page, perP
 
 	var users []*User
 	for rows.Next() {
-		u := &User{}
-		err := rows.Scan(
-			&u.ID, &u.OrgID, &u.Email, &u.DisplayName,
-			&u.PasswordHash, &u.Status, &u.MFAEnabled,
-			&u.SCIMExtID, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
-		)
+		u, err := scanUser(rows)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scan user: %w", err)
 		}
@@ -143,44 +136,23 @@ func (r *UserRepository) ListByOrg(ctx context.Context, orgID string, page, perP
 	return users, total, nil
 }
 
-// Update updates user fields.
-func (r *UserRepository) Update(ctx context.Context, id, displayName, status string) (*User, error) {
-	row := r.pool.QueryRow(ctx,
-		fmt.Sprintf(`UPDATE users SET display_name = $2, status = $3, updated_at = NOW()
-		 WHERE id = $1 AND deleted_at IS NULL
-		 RETURNING %s`, userColumns),
-		id, displayName, status,
-	)
-	u, err := scanUser(row)
-	if err != nil {
-		return nil, fmt.Errorf("update user: %w", err)
+func (r *UserRepository) UpdateStatus(ctx context.Context, tx pgx.Tx, orgID, id, status string) (*User, error) {
+	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		return nil, fmt.Errorf("rls config: %w", err)
 	}
-	return u, nil
+
+	row := tx.QueryRow(ctx,
+		fmt.Sprintf(`UPDATE users SET status = $1, updated_at = NOW()
+		 WHERE id = $2 AND deleted_at IS NULL RETURNING %s`, userColumns),
+		status, id,
+	)
+	return scanUser(row)
 }
 
-// SoftDelete sets the deleted_at timestamp.
-func (r *UserRepository) SoftDelete(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE users SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
-		id,
-	)
-	if err != nil {
-		return fmt.Errorf("soft delete user: %w", err)
+func (r *UserRepository) SoftDelete(ctx context.Context, tx pgx.Tx, orgID, id string) error {
+	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		return fmt.Errorf("rls config: %w", err)
 	}
-	return nil
-}
-
-// UpdateStatus updates only the user's status.
-func (r *UserRepository) UpdateStatus(ctx context.Context, id, status string) (*User, error) {
-	row := r.pool.QueryRow(ctx,
-		fmt.Sprintf(`UPDATE users SET status = $2, updated_at = NOW()
-		 WHERE id = $1 AND deleted_at IS NULL
-		 RETURNING %s`, userColumns),
-		id, status,
-	)
-	u, err := scanUser(row)
-	if err != nil {
-		return nil, fmt.Errorf("update user status: %w", err)
-	}
-	return u, nil
+	_, err := tx.Exec(ctx, `UPDATE users SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, id)
+	return err
 }

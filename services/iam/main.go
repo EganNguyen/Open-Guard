@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"log/slog"
 	"net/http"
 	"os"
@@ -16,24 +18,20 @@ import (
 	"github.com/openguard/iam/pkg/repository"
 	"github.com/openguard/iam/pkg/router"
 	"github.com/openguard/iam/pkg/service"
+	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/kafka"
+	"github.com/openguard/shared/outbox"
 )
 
 func main() {
-	// Config
 	cfg := config.Load()
 
-	// Logger
 	var logLevel slog.Level
 	switch cfg.LogLevel {
-	case "debug":
-		logLevel = slog.LevelDebug
-	case "warn":
-		logLevel = slog.LevelWarn
-	case "error":
-		logLevel = slog.LevelError
-	default:
-		logLevel = slog.LevelInfo
+	case "debug": logLevel = slog.LevelDebug
+	case "warn":  logLevel = slog.LevelWarn
+	case "error": logLevel = slog.LevelError
+	default:      logLevel = slog.LevelInfo
 	}
 
 	var handler slog.Handler
@@ -44,8 +42,11 @@ func main() {
 	}
 	logger := slog.New(handler).With("service", "iam")
 
+	// Global Context
+	ctx, cancelGlobal := context.WithCancel(context.Background())
+	defer cancelGlobal()
+
 	// Database
-	ctx := context.Background()
 	pool, err := db.Connect(ctx, cfg.PostgresDSN())
 	if err != nil {
 		logger.Error("failed to connect to database", "error", err)
@@ -54,7 +55,7 @@ func main() {
 	defer pool.Close()
 	logger.Info("connected to PostgreSQL")
 
-	// Kafka producer (best-effort — service starts even if Kafka is down)
+	// Kafka Producer
 	brokers := strings.Split(cfg.KafkaBrokers, ",")
 	producer := kafka.NewProducer(brokers, []string{
 		kafka.TopicAuthEvents,
@@ -62,15 +63,27 @@ func main() {
 	}, logger)
 	defer producer.Close()
 
+	// Distributed Transaction Outbox
+	outboxWriter := outbox.NewWriter()
+	outboxRelay := outbox.NewRelay(pool, producer)
+	
+	// Start daemon loop in background
+	go outboxRelay.Start(ctx)
+
+	// Keyrings
+	jwtKeyring := crypto.NewJWTKeyring(cfg.JWTKeys)
+	aesKeyring := crypto.NewAESKeyring(cfg.MFAKeys)
+
 	// Repositories
-	orgRepo := repository.NewOrgRepository(pool)
-	userRepo := repository.NewUserRepository(pool)
-	sessionRepo := repository.NewSessionRepository(pool)
-	tokenRepo := repository.NewAPITokenRepository(pool)
+	orgRepo := repository.NewOrgRepository()
+	userRepo := repository.NewUserRepository()
+	sessionRepo := repository.NewSessionRepository()
+	tokenRepo := repository.NewAPITokenRepository()
+	mfaRepo := repository.NewMFARepository()
 
 	// Services
-	authService := service.NewAuthService(userRepo, orgRepo, sessionRepo, producer, logger, cfg.JWTSecret, cfg.JWTExpiry)
-	userService := service.NewUserService(userRepo, sessionRepo, tokenRepo, producer, logger)
+	authService := service.NewAuthService(pool, userRepo, orgRepo, sessionRepo, mfaRepo, outboxWriter, logger, jwtKeyring, aesKeyring, cfg.JWTExpiry)
+	userService := service.NewUserService(pool, userRepo, sessionRepo, tokenRepo, outboxWriter, logger)
 
 	// Handlers
 	authHandler := handlers.NewAuthHandler(authService)
@@ -89,10 +102,25 @@ func main() {
 		Logger:       logger,
 	})
 
-	// HTTP server
+	// Setup mTLS Server
+	caCert, err := os.ReadFile(cfg.CACertPath)
+	if err != nil {
+		logger.Error("failed to load CA cert for mtls", "error", err)
+		os.Exit(1)
+	}
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	tlsConfig := &tls.Config{
+		ClientCAs:  caCertPool,
+		ClientAuth: tls.RequireAndVerifyClientCert,
+		MinVersion: tls.VersionTLS12,
+	}
+
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      r,
+		TLSConfig:    tlsConfig,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -100,8 +128,8 @@ func main() {
 
 	// Start server
 	go func() {
-		logger.Info("IAM service starting", "port", cfg.Port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Info("IAM service mTLS server starting", "port", cfg.Port)
+		if err := srv.ListenAndServeTLS(cfg.TLSCertPath, cfg.TLSKeyPath); err != nil && err != http.ErrServerClosed {
 			logger.Error("server error", "error", err)
 			os.Exit(1)
 		}
@@ -113,13 +141,15 @@ func main() {
 	<-quit
 
 	logger.Info("shutting down IAM service...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	// Cancel the root context to unblock the Relay daemon
+	cancelGlobal()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("server shutdown error", "error", err)
 	}
-	pool.Close()
-	producer.Close()
+	
 	logger.Info("IAM service stopped")
 }

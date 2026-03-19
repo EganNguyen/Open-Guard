@@ -77,6 +77,27 @@ func (p *Producer) PublishEvent(ctx context.Context, topic string, envelope mode
 	return nil
 }
 
+// PublishRaw publishes a pre-serialized raw payload to the specified topic.
+func (p *Producer) PublishRaw(ctx context.Context, topic string, key []byte, payload []byte) error {
+	writer, ok := p.writers[topic]
+	if !ok {
+		return fmt.Errorf("no writer configured for topic %q", topic)
+	}
+
+	err := writer.WriteMessages(ctx, kafkago.Message{
+		Key:   key,
+		Value: payload,
+	})
+	if err != nil {
+		p.logger.Error("failed to publish raw event",
+			"topic", topic,
+			"error", err,
+		)
+		return fmt.Errorf("publish raw to %q: %w", topic, err)
+	}
+	return nil
+}
+
 // Close closes all underlying writers.
 func (p *Producer) Close() error {
 	var lastErr error

@@ -5,35 +5,27 @@ import (
 	"net/http"
 
 	"github.com/openguard/iam/pkg/service"
-	"github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/models"
 )
 
-// AuthHandler handles authentication HTTP endpoints.
 type AuthHandler struct {
 	authService *service.AuthService
 }
 
-// NewAuthHandler creates a new AuthHandler.
 func NewAuthHandler(authService *service.AuthService) *AuthHandler {
 	return &AuthHandler{authService: authService}
 }
 
-// Register handles POST /auth/register
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
-	reqID := middleware.GetRequestID(r.Context())
-
 	var req service.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST",
-			"Invalid JSON body", reqID)
+		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body", r)
 		return
 	}
 
 	resp, err := h.authService.Register(r.Context(), req)
 	if err != nil {
-		models.WriteError(w, http.StatusBadRequest, "REGISTRATION_FAILED",
-			err.Error(), reqID)
+		models.WriteError(w, http.StatusBadRequest, "REGISTRATION_FAILED", err.Error(), r)
 		return
 	}
 
@@ -42,14 +34,10 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// Login handles POST /auth/login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	reqID := middleware.GetRequestID(r.Context())
-
 	var req service.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST",
-			"Invalid JSON body", reqID)
+		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body", r)
 		return
 	}
 
@@ -58,8 +46,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.authService.Login(r.Context(), req, &ip, &ua)
 	if err != nil {
-		models.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED",
-			"Invalid credentials", reqID)
+		models.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Invalid credentials", r)
 		return
 	}
 
@@ -67,16 +54,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// Logout handles POST /auth/logout
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	reqID := middleware.GetRequestID(r.Context())
-
 	var req struct {
 		SessionID string `json:"session_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST",
-			"Invalid JSON body", reqID)
+		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body", r)
 		return
 	}
 
@@ -84,8 +67,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 
 	if err := h.authService.Logout(r.Context(), req.SessionID, orgID, userID); err != nil {
-		models.WriteError(w, http.StatusInternalServerError, "LOGOUT_FAILED",
-			err.Error(), reqID)
+		models.WriteError(w, http.StatusInternalServerError, "LOGOUT_FAILED", err.Error(), r)
 		return
 	}
 
@@ -93,30 +75,18 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-// Refresh handles POST /auth/refresh — stub for Phase 1.
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
-	reqID := middleware.GetRequestID(r.Context())
-	models.WriteError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
-		"Token refresh is not yet implemented", reqID)
+	models.WriteError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "Token refresh is not yet implemented", r)
 }
 
-// SAMLCallback handles POST /auth/saml/callback — stub.
 func (h *AuthHandler) SAMLCallback(w http.ResponseWriter, r *http.Request) {
-	reqID := middleware.GetRequestID(r.Context())
-	models.WriteError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
-		"SAML SSO is not yet implemented", reqID)
+	models.WriteError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "SAML SSO is not yet implemented", r)
 }
 
-// OIDCLogin handles GET /auth/oidc/login — stub.
 func (h *AuthHandler) OIDCLogin(w http.ResponseWriter, r *http.Request) {
-	reqID := middleware.GetRequestID(r.Context())
-	models.WriteError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
-		"OIDC SSO is not yet implemented", reqID)
+	models.WriteError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "OIDC SSO is not yet implemented", r)
 }
 
-// OIDCCallback handles GET /auth/oidc/callback — stub.
 func (h *AuthHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
-	reqID := middleware.GetRequestID(r.Context())
-	models.WriteError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
-		"OIDC SSO is not yet implemented", reqID)
+	models.WriteError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "OIDC SSO is not yet implemented", r)
 }

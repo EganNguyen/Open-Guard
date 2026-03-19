@@ -2,7 +2,7 @@
 
 # Start all infrastructure and services for local development
 dev:
-	docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.dev.yml up -d
+	docker compose -f services/docker-compose.yml up -d
 	@echo "Infrastructure and services started."
 
 # Run all tests across the workspace

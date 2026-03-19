@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
+	"github.com/openguard/shared/rls"
 )
 
-// APIToken represents an API token record in the database.
 type APIToken struct {
 	ID         string     `json:"id"`
 	UserID     string     `json:"user_id"`
@@ -23,20 +23,19 @@ type APIToken struct {
 	CreatedAt  time.Time  `json:"created_at"`
 }
 
-// APITokenRepository handles API token CRUD operations.
-type APITokenRepository struct {
-	pool *pgxpool.Pool
+type APITokenRepository struct{}
+
+func NewAPITokenRepository() *APITokenRepository {
+	return &APITokenRepository{}
 }
 
-// NewAPITokenRepository creates a new APITokenRepository.
-func NewAPITokenRepository(pool *pgxpool.Pool) *APITokenRepository {
-	return &APITokenRepository{pool: pool}
-}
+func (r *APITokenRepository) Create(ctx context.Context, tx pgx.Tx, userID, orgID, name, tokenHash, prefix string, scopes []string, expiresAt *time.Time) (*APIToken, error) {
+	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		return nil, fmt.Errorf("rls config: %w", err)
+	}
 
-// Create inserts a new API token.
-func (r *APITokenRepository) Create(ctx context.Context, userID, orgID, name, tokenHash, prefix string, scopes []string, expiresAt *time.Time) (*APIToken, error) {
 	t := &APIToken{}
-	err := r.pool.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
 		`INSERT INTO api_tokens (user_id, org_id, name, token_hash, prefix, scopes, expires_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING id, user_id, org_id, name, token_hash, prefix, scopes, expires_at, last_used_at, revoked, created_at`,
@@ -48,9 +47,12 @@ func (r *APITokenRepository) Create(ctx context.Context, userID, orgID, name, to
 	return t, nil
 }
 
-// ListByUser returns all tokens for a user.
-func (r *APITokenRepository) ListByUser(ctx context.Context, userID string) ([]*APIToken, error) {
-	rows, err := r.pool.Query(ctx,
+func (r *APITokenRepository) ListByUser(ctx context.Context, tx pgx.Tx, orgID, userID string) ([]*APIToken, error) {
+	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		return nil, fmt.Errorf("rls config: %w", err)
+	}
+
+	rows, err := tx.Query(ctx,
 		`SELECT id, user_id, org_id, name, token_hash, prefix, scopes, expires_at, last_used_at, revoked, created_at
 		 FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC`,
 		userID,
@@ -71,14 +73,11 @@ func (r *APITokenRepository) ListByUser(ctx context.Context, userID string) ([]*
 	return tokens, nil
 }
 
-// Revoke marks a token as revoked.
-func (r *APITokenRepository) Revoke(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE api_tokens SET revoked = TRUE WHERE id = $1`,
-		id,
-	)
-	if err != nil {
-		return fmt.Errorf("revoke api token: %w", err)
+func (r *APITokenRepository) Revoke(ctx context.Context, tx pgx.Tx, orgID, id string) error {
+	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		return fmt.Errorf("rls config: %w", err)
 	}
-	return nil
+
+	_, err := tx.Exec(ctx, `UPDATE api_tokens SET revoked = TRUE WHERE id = $1`, id)
+	return err
 }

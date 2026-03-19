@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
+	"github.com/openguard/shared/rls"
 )
 
-// Org represents an organization in the database.
 type Org struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
@@ -18,20 +18,19 @@ type Org struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// OrgRepository handles org CRUD operations.
-type OrgRepository struct {
-	pool *pgxpool.Pool
+type OrgRepository struct{}
+
+func NewOrgRepository() *OrgRepository {
+	return &OrgRepository{}
 }
 
-// NewOrgRepository creates a new OrgRepository.
-func NewOrgRepository(pool *pgxpool.Pool) *OrgRepository {
-	return &OrgRepository{pool: pool}
-}
+func (r *OrgRepository) Create(ctx context.Context, tx pgx.Tx, name, slug string) (*Org, error) {
+	if err := rls.SetSessionVar(ctx, tx, ""); err != nil { // system operation
+		return nil, fmt.Errorf("rls config: %w", err)
+	}
 
-// Create inserts a new organization and returns it.
-func (r *OrgRepository) Create(ctx context.Context, name, slug string) (*Org, error) {
 	org := &Org{}
-	err := r.pool.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
 		`INSERT INTO orgs (name, slug) VALUES ($1, $2)
 		 RETURNING id, name, slug, plan, created_at, updated_at`,
 		name, slug,
@@ -42,10 +41,13 @@ func (r *OrgRepository) Create(ctx context.Context, name, slug string) (*Org, er
 	return org, nil
 }
 
-// GetByID retrieves an org by its ID.
-func (r *OrgRepository) GetByID(ctx context.Context, id string) (*Org, error) {
+func (r *OrgRepository) GetByID(ctx context.Context, tx pgx.Tx, id string) (*Org, error) {
+	if err := rls.SetSessionVar(ctx, tx, ""); err != nil {
+		return nil, fmt.Errorf("rls config: %w", err)
+	}
+
 	org := &Org{}
-	err := r.pool.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
 		`SELECT id, name, slug, plan, created_at, updated_at FROM orgs WHERE id = $1`,
 		id,
 	).Scan(&org.ID, &org.Name, &org.Slug, &org.Plan, &org.CreatedAt, &org.UpdatedAt)
@@ -55,10 +57,13 @@ func (r *OrgRepository) GetByID(ctx context.Context, id string) (*Org, error) {
 	return org, nil
 }
 
-// GetBySlug retrieves an org by its slug.
-func (r *OrgRepository) GetBySlug(ctx context.Context, slug string) (*Org, error) {
+func (r *OrgRepository) GetBySlug(ctx context.Context, tx pgx.Tx, slug string) (*Org, error) {
+	if err := rls.SetSessionVar(ctx, tx, ""); err != nil {
+		return nil, fmt.Errorf("rls config: %w", err)
+	}
+
 	org := &Org{}
-	err := r.pool.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
 		`SELECT id, name, slug, plan, created_at, updated_at FROM orgs WHERE slug = $1`,
 		slug,
 	).Scan(&org.ID, &org.Name, &org.Slug, &org.Plan, &org.CreatedAt, &org.UpdatedAt)

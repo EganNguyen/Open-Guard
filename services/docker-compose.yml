@@ -1,0 +1,61 @@
+services:
+  iam:
+    build:
+      context: ../../
+      dockerfile: services/iam/Dockerfile
+    container_name: openguard-iam
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+      GATEWAY_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
+      IAM_MFA_ENCRYPTION_KEYS_JSON: '[{"id":"v1","secret":"Y2hhbmdlLW1lLXRvLWEtc2VjdXJlLTMyLWJ5dGUta2V5IQ==","status":"active"}]'
+      TLS_CERT_PATH: /app/certs/server.crt
+      TLS_KEY_PATH: /app/certs/server.key
+      CA_CERT_PATH: /app/certs/ca.crt
+    ports:
+      - "8081:8081"
+    volumes:
+      - ../certs/ca.crt:/app/certs/ca.crt:ro
+      - ../certs/iam.crt:/app/certs/server.crt:ro
+      - ../certs/iam.key:/app/certs/server.key:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ../../
+      dockerfile: services/gateway/Dockerfile
+    container_name: openguard-gateway
+    env_file:
+      - ../../.env
+    environment:
+      REDIS_ADDR: redis:6379
+      KAFKA_BROKERS: kafka:9092
+      IAM_TARGET: https://iam:8081
+      GATEWAY_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
+      TLS_CERT_PATH: /app/certs/server.crt
+      TLS_KEY_PATH: /app/certs/server.key
+      CA_CERT_PATH: /app/certs/ca.crt
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../certs/ca.crt:/app/certs/ca.crt:ro
+      - ../certs/gateway.crt:/app/certs/server.crt:ro
+      - ../certs/gateway.key:/app/certs/server.key:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      iam:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:
+  zookeeper_data:
+  kafka_data:
+  clickhouse_data:

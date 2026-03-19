@@ -2,60 +2,44 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/models"
-	sharedmw "github.com/openguard/shared/middleware"
 )
 
 type contextKey string
 
 const (
-	UserIDKey  contextKey = "user_id"
-	OrgIDKey   contextKey = "org_id"
-	EmailKey   contextKey = "user_email"
+	UserIDKey contextKey = "user_id"
+	OrgIDKey  contextKey = "org_id"
+	EmailKey  contextKey = "user_email"
 )
 
 // JWTAuth validates Bearer tokens and injects user identity headers for downstream services.
-func JWTAuth(secret string) func(http.Handler) http.Handler {
+func JWTAuth(keyring *crypto.JWTKeyring) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			reqID := sharedmw.GetRequestID(r.Context())
-
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
 				models.WriteError(w, http.StatusUnauthorized, "MISSING_TOKEN",
-					"Authorization header is required", reqID)
+					"Authorization header is required", r)
 				return
 			}
 
 			parts := strings.SplitN(authHeader, " ", 2)
 			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 				models.WriteError(w, http.StatusUnauthorized, "INVALID_TOKEN",
-					"Authorization header must be: Bearer <token>", reqID)
+					"Authorization header must be: Bearer <token>", r)
 				return
 			}
 
 			tokenStr := parts[1]
-			token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-				}
-				return []byte(secret), nil
-			})
-			if err != nil || !token.Valid {
+			claims, err := keyring.Verify(tokenStr)
+			if err != nil {
 				models.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED",
-					"Invalid or expired token", reqID)
-				return
-			}
-
-			claims, ok := token.Claims.(jwt.MapClaims)
-			if !ok {
-				models.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED",
-					"Invalid token claims", reqID)
+					"Invalid or expired token", r)
 				return
 			}
 
