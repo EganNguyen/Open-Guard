@@ -44,6 +44,7 @@ services:
       CA_CERT_PATH: /app/certs/ca.crt
       IAM_TARGET: https://iam:8081
       POLICY_TARGET: http://policy:8082
+      LOG_LEVEL: debug
       GATEWAY_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
       TLS_CERT_PATH: /app/certs/server.crt
       TLS_KEY_PATH: /app/certs/server.key

@@ -70,30 +70,33 @@ func New(cfg Config) (*chi.Mux, error) {
 	})
 
 	r.Group(func(r chi.Router) {
-		r.Use(mw.JWTAuth(cfg.JWTKeyring))
+		r.Use(mw.JWTAuth(cfg.JWTKeyring, cfg.Logger))
 		
-		pc := mw.NewPolicyClient(cfg.PolicyAddr, cfg.Logger)
-		r.Use(pc.Middleware())
-
 		r.Handle("/api/v1/users", iamStripHandler)
 		r.Handle("/api/v1/users/*", iamStripHandler)
 
 		policyHandler := serviceUnavailableHandler("policy", cfg.PolicyAddr, cfg.Logger, cfg.TLSConfig)
-		threatHandler := serviceUnavailableHandler("threat", cfg.ThreatAddr, cfg.Logger, cfg.TLSConfig)
-		auditHandler := serviceUnavailableHandler("audit", cfg.AuditAddr, cfg.Logger, cfg.TLSConfig)
-		alertingHandler := serviceUnavailableHandler("alerting", cfg.AlertingAddr, cfg.Logger, cfg.TLSConfig)
-		complianceHandler := serviceUnavailableHandler("compliance", cfg.ComplianceAddr, cfg.Logger, cfg.TLSConfig)
-
 		r.Handle("/api/v1/policies", policyHandler)
 		r.Handle("/api/v1/policies/*", policyHandler)
-		r.Handle("/api/v1/threats", threatHandler)
-		r.Handle("/api/v1/threats/*", threatHandler)
-		r.Handle("/api/v1/audit", auditHandler)
-		r.Handle("/api/v1/audit/*", auditHandler)
-		r.Handle("/api/v1/alerts", alertingHandler)
-		r.Handle("/api/v1/alerts/*", alertingHandler)
-		r.Handle("/api/v1/compliance", complianceHandler)
-		r.Handle("/api/v1/compliance/*", complianceHandler)
+
+		r.Group(func(r chi.Router) {
+			pc := mw.NewPolicyClient(cfg.PolicyAddr, cfg.Logger)
+			r.Use(pc.Middleware())
+
+			threatHandler := serviceUnavailableHandler("threat", cfg.ThreatAddr, cfg.Logger, cfg.TLSConfig)
+			auditHandler := serviceUnavailableHandler("audit", cfg.AuditAddr, cfg.Logger, cfg.TLSConfig)
+			alertingHandler := serviceUnavailableHandler("alerting", cfg.AlertingAddr, cfg.Logger, cfg.TLSConfig)
+			complianceHandler := serviceUnavailableHandler("compliance", cfg.ComplianceAddr, cfg.Logger, cfg.TLSConfig)
+
+			r.Handle("/api/v1/threats", threatHandler)
+			r.Handle("/api/v1/threats/*", threatHandler)
+			r.Handle("/api/v1/audit", auditHandler)
+			r.Handle("/api/v1/audit/*", auditHandler)
+			r.Handle("/api/v1/alerts", alertingHandler)
+			r.Handle("/api/v1/alerts/*", alertingHandler)
+			r.Handle("/api/v1/compliance", complianceHandler)
+			r.Handle("/api/v1/compliance/*", complianceHandler)
+		})
 	})
 
 	return r, nil

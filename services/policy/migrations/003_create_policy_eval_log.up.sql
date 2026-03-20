@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS policy_eval_log (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id       UUID NOT NULL,
-    user_id      UUID NOT NULL,
+    user_id      UUID,
     action       TEXT NOT NULL,
     resource     TEXT NOT NULL,
     result       BOOLEAN NOT NULL,

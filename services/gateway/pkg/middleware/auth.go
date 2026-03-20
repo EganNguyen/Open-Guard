@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -18,7 +19,7 @@ const (
 )
 
 // JWTAuth validates Bearer tokens and injects user identity headers for downstream services.
-func JWTAuth(keyring *crypto.JWTKeyring) func(http.Handler) http.Handler {
+func JWTAuth(keyring *crypto.JWTKeyring, logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -51,6 +52,8 @@ func JWTAuth(keyring *crypto.JWTKeyring) func(http.Handler) http.Handler {
 			r.Header.Set("X-User-ID", userID)
 			r.Header.Set("X-Org-ID", orgID)
 			r.Header.Set("X-User-Email", email)
+
+			logger.Debug("JWTAuth injected identity", "user_id", userID, "org_id", orgID)
 
 			ctx := context.WithValue(r.Context(), UserIDKey, userID)
 			ctx = context.WithValue(ctx, OrgIDKey, orgID)

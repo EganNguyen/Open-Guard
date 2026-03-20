@@ -9,17 +9,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/openguard/policy/pkg/handlers"
+	"github.com/openguard/policy/pkg/tenant"
 	sharedmw "github.com/openguard/shared/middleware"
-)
-
-// ContextKey is a typed string for context keys to avoid collisions with other packages.
-type ContextKey string
-
-const (
-	// OrgIDKey is the context key for the organization ID injected by the gateway.
-	OrgIDKey ContextKey = "org_id"
-	// UserIDKey is the context key for the user ID injected by the gateway.
-	UserIDKey ContextKey = "user_id"
 )
 
 // Config holds the router's dependencies.
@@ -73,22 +64,20 @@ func injectOrgContext(next http.Handler) http.Handler {
 			})
 			return
 		}
-		ctx := context.WithValue(r.Context(), OrgIDKey, orgID)
-		ctx = context.WithValue(ctx, UserIDKey, userID)
+		ctx := context.WithValue(r.Context(), tenant.OrgIDKey, orgID)
+		ctx = context.WithValue(ctx, tenant.UserIDKey, userID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
 // OrgIDFromContext retrieves the org ID stored by injectOrgContext.
 func OrgIDFromContext(ctx context.Context) string {
-	v, _ := ctx.Value(OrgIDKey).(string)
-	return v
+	return tenant.OrgIDFromContext(ctx)
 }
 
 // UserIDFromContext retrieves the user ID stored by injectOrgContext.
 func UserIDFromContext(ctx context.Context) string {
-	v, _ := ctx.Value(UserIDKey).(string)
-	return v
+	return tenant.UserIDFromContext(ctx)
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {

@@ -9,22 +9,17 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/openguard/policy/pkg/service"
+	"github.com/openguard/policy/pkg/tenant"
 	"github.com/openguard/shared/models"
-)
-
-// contextKey is a typed string matching router.ContextKey — must stay in sync.
-// We avoid importing router from handler to prevent circular dependencies.
-type contextKey string
-
-const (
-	orgIDCtxKey  contextKey = "org_id"
-	userIDCtxKey contextKey = "user_id"
 )
 
 // orgIDFromCtx reads the org ID set by the router's injectOrgContext middleware.
 func orgIDFromCtx(ctx context.Context) string {
-	v, _ := ctx.Value(orgIDCtxKey).(string)
-	return v
+	return tenant.OrgIDFromContext(ctx)
+}
+
+func userIDFromCtx(ctx context.Context) string {
+	return tenant.UserIDFromContext(ctx)
 }
 
 // PolicyHandler handles CRUD and evaluation of policies.
@@ -73,6 +68,7 @@ func (h *PolicyHandler) Evaluate(w http.ResponseWriter, r *http.Request) {
 // Create handles POST /policies
 func (h *PolicyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	orgID := orgIDFromCtx(r.Context())
+	userID := userIDFromCtx(r.Context())
 	if orgID == "" {
 		writeError(w, r, http.StatusUnauthorized, "UNAUTHORIZED", "missing org context")
 		return
@@ -84,6 +80,7 @@ func (h *PolicyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.OrgID = orgID
+	p.CreatedBy = userID
 
 	if err := h.policySvc.Create(r.Context(), &p); err != nil {
 		h.logger.Error("create policy error", "error", err)

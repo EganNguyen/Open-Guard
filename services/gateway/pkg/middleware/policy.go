@@ -26,13 +26,15 @@ func NewPolicyClient(addr string, logger *slog.Logger) *PolicyClient {
 }
 
 type EvalRequest struct {
-	Action   string `json:"action"`
-	Resource string `json:"resource"`
-	Context  map[string]string `json:"context"`
+	OrgID      string `json:"org_id"`
+	UserID     string `json:"user_id"`
+	Action     string `json:"action"`
+	Resource   string `json:"resource"`
+	IPAddress  string `json:"ip_address,omitempty"`
 }
 
 type EvalResponse struct {
-	Result bool `json:"result"`
+	Permitted bool `json:"permitted"`
 }
 
 // PolicyMiddleware returns a middleware that evaluates access via the Policy service.
@@ -41,32 +43,25 @@ func (pc *PolicyClient) Middleware() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			
-			// Assume JWTAuth has already run and populated context
-			userData, ok := ctx.Value("user").(map[string]interface{})
-			if !ok {
-				// If not authenticated, skip policy check or fail based on config.
-				// For public routes, this middleware shouldn't be reached.
-				next.ServeHTTP(w, r)
-				return
-			}
+			// Assume JWTAuth has already run and populated headers
+			orgID := r.Header.Get("X-Org-ID")
+			userID := r.Header.Get("X-User-ID")
 
-			orgID, _ := userData["org_id"].(string)
-			userID, _ := userData["user_id"].(string)
+			pc.logger.Debug("PolicyMiddleware check", "org_id", orgID, "user_id", userID, "headers", r.Header)
 
 			if orgID == "" {
 				pc.logger.Warn("missing org_id in context for policy check")
-				http.Error(w, "Unauthorized: missing tenant context", http.StatusUnauthorized)
+				models.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing org context", r)
 				return
 			}
 
 			// Prepare evaluation request
 			evalReq := EvalRequest{
-				Action:   r.Method,
-				Resource: r.URL.Path,
-				Context: map[string]string{
-					"ip": r.RemoteAddr,
-					"ua": r.UserAgent(),
-				},
+				OrgID:      orgID,
+				UserID:     userID,
+				Action:     r.Method,
+				Resource:   r.URL.Path,
+				IPAddress:  r.RemoteAddr,
 			}
 
 			body, _ := json.Marshal(evalReq)
@@ -81,6 +76,8 @@ func (pc *PolicyClient) Middleware() func(http.Handler) http.Handler {
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-Org-ID", orgID)
 			req.Header.Set("X-User-ID", userID)
+
+			pc.logger.Debug("PolicyClient sending evaluation request", "org_id", orgID, "user_id", userID, "action", evalReq.Action, "resource", evalReq.Resource)
 
 			resp, err := pc.client.Do(req)
 			if err != nil {
@@ -103,7 +100,7 @@ func (pc *PolicyClient) Middleware() func(http.Handler) http.Handler {
 				return
 			}
 
-			if !evalResp.Result {
+			if !evalResp.Permitted {
 				pc.logger.Info("access denied by policy engine", "user_id", userID, "org_id", orgID, "path", r.URL.Path)
 				pc.deny(w, r)
 				return

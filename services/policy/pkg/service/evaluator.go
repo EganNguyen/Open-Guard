@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
@@ -35,18 +36,21 @@ type EvalResponse struct {
 // EvaluatorService handles real-time RBAC policy evaluation with Redis caching.
 // Fail closed: if evaluation fails due to DB error, access is denied.
 type EvaluatorService struct {
-	repo         *repository.PolicyRepository
+	repo         PolicyRepository
 	redis        *redis.Client
 	cacheTTL     time.Duration
 	logger       *slog.Logger
 }
 
 func NewEvaluatorService(
-	repo *repository.PolicyRepository,
+	repo PolicyRepository,
 	rdb *redis.Client,
 	cacheTTLSeconds int,
 	logger *slog.Logger,
 ) *EvaluatorService {
+	if logger == nil {
+		logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	}
 	return &EvaluatorService{
 		repo:     repo,
 		redis:    rdb,
@@ -272,7 +276,7 @@ func (s *EvaluatorService) InvalidateCacheForOrg(ctx context.Context, orgID stri
 // Key format: "policy:eval:{org_id}:{sha256(action+resource+user_id+sorted(user_groups))}"
 func evalCacheKey(req EvalRequest) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%s|%s", req.Action, req.Resource, req.UserID)
+	fmt.Fprintf(h, "%s|%s|%s|%s", req.Action, req.Resource, req.UserID, req.IPAddress)
 	for _, g := range req.UserGroups {
 		fmt.Fprintf(h, "|%s", g)
 	}

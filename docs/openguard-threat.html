@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenGuard — Threat Detection</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0d0f14;
+      --surface: #13161e;
+      --surface2: #1a1e28;
+      --border: #252a38;
+      --border2: #2f3548;
+      --text: #e8ecf4;
+      --muted: #7a849e;
+      --accent: #4f7cff;
+      --accent-glow: rgba(79, 124, 255, 0.18);
+      --green: #22d98f;
+      --green-bg: rgba(34, 217, 143, 0.1);
+      --amber: #f5a623;
+      --amber-bg: rgba(245, 166, 35, 0.1);
+      --red: #ff4f6b;
+      --red-bg: rgba(255, 79, 107, 0.1);
+      --purple: #a78bfa;
+      --purple-bg: rgba(167, 139, 250, 0.1);
+      --nav-w: 220px;
+      --radius: 10px;
+      --font: 'DM Sans', sans-serif;
+      --mono: 'DM Mono', monospace;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13.5px;
+      line-height: 1.55;
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border2);
+      border-radius: 2px;
+    }
+
+    /* ─────────── SIDEBAR ─────────── */
+    .sidebar {
+      width: var(--nav-w);
+      min-height: 100vh;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 20px 18px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo-mark {
+      width: 30px;
+      height: 30px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 14px var(--accent-glow);
+    }
+
+    .logo-mark svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .logo-text {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+    }
+
+    .logo-text span {
+      color: var(--accent);
+    }
+
+    .org-switcher {
+      margin: 12px 10px;
+      padding: 8px 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+
+    .org-switcher:hover {
+      border-color: var(--border2);
+    }
+
+    .org-avatar {
+      width: 22px;
+      height: 22px;
+      background: linear-gradient(135deg, #4f7cff, #a78bfa);
+      border-radius: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .org-name {
+      flex: 1;
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .org-caret {
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    nav {
+      padding: 6px 10px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .nav-section {
+      margin-bottom: 6px;
+    }
+
+    .nav-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--muted);
+      padding: 10px 8px 5px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 9px;
+      border-radius: 7px;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 450;
+      transition: all 0.12s;
+      position: relative;
+      text-decoration: none;
+    }
+
+    .nav-item:hover {
+      background: var(--surface2);
+      color: var(--text);
+    }
+
+    .nav-item.active {
+      background: var(--accent-glow);
+      color: #a8c1ff;
+      font-weight: 500;
+    }
+
+    .nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 20%;
+      bottom: 20%;
+      width: 2.5px;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+
+    .nav-icon {
+      width: 15px;
+      height: 15px;
+      flex-shrink: 0;
+      opacity: 0.8;
+    }
+
+    .nav-item.active .nav-icon {
+      opacity: 1;
+    }
+
+    .nav-badge {
+      margin-left: auto;
+      background: var(--red);
+      color: #fff;
+      font-size: 9.5px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 99px;
+      font-family: var(--mono);
+    }
+
+    .nav-badge.amber {
+      background: var(--amber);
+    }
+
+    .sidebar-footer {
+      padding: 12px 10px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .user-avatar {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #22d98f, #4f7cff);
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .user-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .user-name {
+      font-size: 12.5px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .user-role {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* ─────────── MAIN ─────────── */
+    .main {
+      margin-left: var(--nav-w);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* ─────────── TOPBAR ─────────── */
+    .topbar {
+      height: 54px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      gap: 12px;
+      background: var(--surface);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .page-title {
+      font-size: 14.5px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+    }
+
+    .topbar-spacer {
+      flex: 1;
+    }
+
+    .search-box {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      width: 220px;
+      cursor: text;
+      transition: border-color 0.15s;
+    }
+
+    .search-box:hover {
+      border-color: var(--border2);
+    }
+
+    .search-box input {
+      background: none;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 12.5px;
+      width: 100%;
+    }
+
+    .search-box input::placeholder {
+      color: var(--muted);
+    }
+
+    .trial-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      background: var(--amber-bg);
+      border: 1px solid rgba(245, 166, 35, 0.25);
+      border-radius: 99px;
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--amber);
+    }
+
+    .topbar-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+
+    .topbar-btn:hover {
+      border-color: var(--border2);
+      color: var(--text);
+    }
+
+    .notif-btn {
+      position: relative;
+    }
+
+    .notif-dot {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 6px;
+      height: 6px;
+      background: var(--red);
+      border-radius: 50%;
+      border: 1.5px solid var(--surface);
+    }
+
+    /* ─────────── CONTENT ─────────── */
+    .content {
+      padding: 24px;
+      flex: 1;
+      max-width: 1200px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* ─────────── HEADER AREA ─────────── */
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      animation: fadeUp 0.3s ease both;
+    }
+
+    .page-header-text h1 {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+      margin-bottom: 4px;
+    }
+
+    .page-header-text p {
+      color: var(--muted);
+      font-size: 13.5px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 16px;
+      border-radius: 7px;
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      border: none;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+
+    .btn-primary:hover {
+      background: #6b8fff;
+      box-shadow: 0 0 22px rgba(79, 124, 255, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .btn-ghost {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .btn-ghost:hover {
+      border-color: var(--border2);
+      background: var(--border);
+    }
+
+    /* ─────────── STAT CARDS ─────────── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      position: relative;
+      cursor: default;
+      transition: border-color 0.15s, transform 0.15s;
+      animation: fadeUp 0.35s ease both;
+    }
+
+    .stat-card:hover {
+      border-color: var(--border2);
+      transform: translateY(-1px);
+    }
+
+    .stat-label {
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .stat-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .stat-value {
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.8px;
+      font-family: var(--mono);
+      margin-bottom: 4px;
+    }
+
+    .stat-sub {
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .stat-trend {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .trend-up {
+      background: var(--red-bg);
+      color: var(--red);
+    }
+
+    .trend-down {
+      background: var(--green-bg);
+      color: var(--green);
+    }
+
+    .trend-neutral {
+      background: var(--amber-bg);
+      color: var(--amber);
+    }
+
+    /* ─────────── ALERT BOARD PANEL ─────────── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      animation: fadeUp 0.4s ease both;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-title {
+      font-size: 13.5px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* ─────────── CHIP GROUP ─────────── */
+    .chip-group {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 12px;
+      border-radius: 99px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      font-size: 11.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+
+    .chip:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .chip.active {
+      background: var(--accent-glow);
+      border-color: var(--accent);
+      color: #a8c1ff;
+    }
+
+    /* ─────────── ALERT ROWS ─────────── */
+    .alert-header {
+      display: grid;
+      grid-template-columns: 80px 2.5fr 1.5fr 120px 100px 40px;
+      gap: 16px;
+      padding: 12px 20px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      font-size: 10.5px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--muted);
+    }
+
+    .alert-row {
+      display: grid;
+      grid-template-columns: 80px 2.5fr 1.5fr 120px 100px 40px;
+      gap: 16px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+      transition: background 0.15s;
+      cursor: pointer;
+    }
+
+    .alert-row:hover {
+      background: var(--surface2);
+    }
+
+    .alert-row.expanded {
+      background: var(--surface2);
+      border-bottom-color: transparent;
+    }
+
+    .time-col {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--muted);
+    }
+
+    .event-col {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .event-name {
+      font-weight: 500;
+      font-size: 13.5px;
+      color: var(--text);
+    }
+
+    .event-meta {
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .actor-col {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+    }
+
+    .actor-avatar {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: var(--mono);
+    }
+
+    .tag-red {
+      background: var(--red-bg);
+      color: var(--red);
+      border: 1px solid rgba(255, 79, 107, 0.3);
+    }
+
+    .tag-amber {
+      background: var(--amber-bg);
+      color: var(--amber);
+      border: 1px solid rgba(245, 166, 35, 0.3);
+    }
+
+    .tag-green {
+      background: var(--green-bg);
+      color: var(--green);
+    }
+
+    .tag-blue {
+      background: var(--accent-glow);
+      color: #a8c1ff;
+      border: 1px solid rgba(79, 124, 255, 0.3);
+    }
+
+    .tag-gray {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .icon-btn {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+
+    .icon-btn:hover {
+      border-color: var(--border);
+      background: var(--surface2);
+      color: var(--text);
+    }
+
+    .expand-icon {
+      transition: transform 0.2s;
+    }
+
+    .alert-row.expanded .expand-icon {
+      transform: rotate(180deg);
+    }
+
+    /* ─────────── THREAT DETAILS EXPANSION ─────────── */
+    .threat-details {
+      display: none;
+      background: #0f1218;
+      border-bottom: 1px solid var(--border);
+      padding: 20px 20px 20px 116px;
+      /* align with the second column */
+    }
+
+    .threat-details.open {
+      display: block;
+      animation: fadeUp 0.2s ease both;
+    }
+
+    .threat-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .threat-section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .signal-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .signal-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12.5px;
+      color: var(--text);
+    }
+
+    .signal-item svg {
+      margin-top: 2px;
+      color: var(--amber);
+      flex-shrink: 0;
+    }
+
+    .signal-item.critical svg {
+      color: var(--red);
+    }
+
+    .action-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .action-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 12.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: left;
+    }
+
+    .action-btn:hover {
+      border-color: var(--border2);
+      background: var(--border);
+    }
+
+    .action-btn.danger:hover {
+      border-color: var(--red);
+      background: var(--red-bg);
+      color: var(--red);
+    }
+
+    .timeline-badge {
+      display: inline-flex;
+      padding: 2px 6px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: var(--muted);
+    }
+
+    /* ─────────── ANIMATE ─────────── */
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .stats-row>*:nth-child(1) {
+      animation-delay: 0.1s;
+    }
+
+    .stats-row>*:nth-child(2) {
+      animation-delay: 0.15s;
+    }
+
+    .stats-row>*:nth-child(3) {
+      animation-delay: 0.2s;
+    }
+
+    .stats-row>*:nth-child(4) {
+      animation-delay: 0.25s;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ═══════════════ SIDEBAR ═══════════════ -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        </svg>
+      </div>
+      <span class="logo-text">Open<span>Guard</span></span>
+    </div>
+
+    <div class="org-switcher">
+      <div class="org-avatar">A</div>
+      <span class="org-name">Acme Corp</span>
+      <span class="org-caret">⌄</span>
+    </div>
+
+    <nav>
+      <div class="nav-section">
+        <div class="nav-label">Overview</div>
+        <div class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              d="M2 10a8 8 0 1116 0A8 8 0 012 10zm8-3a1 1 0 100 2 1 1 0 000-2zm0 4a3 3 0 11-3-3 1 1 0 110 2 1 1 0 000 2 3 3 0 010 6 1 1 0 110-2 1 1 0 000-2z" />
+          </svg>
+          Overview
+        </div>
+        <div class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              d="M10 2a8 8 0 100 16A8 8 0 0010 2zm0 2a6 6 0 110 12A6 6 0 0110 4zm0 2a1 1 0 100 2 1 1 0 000-2zm1 5a1 1 0 11-2 0V9a1 1 0 112 0v4z" />
+          </svg>
+          Security guide
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-label">User security</div>
+        <div class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M9 12l-2-2 1.4-1.4L9 9.2l4.6-4.6L15 6l-6 6z" />
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-2 0a6 6 0 11-12 0 6 6 0 0112 0z" />
+          </svg>
+          Authentication policies
+        </div>
+        <div class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v1h8v-1zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-1a5.97 5.97 0 00-1.4-3.86A3 3 0 0119 17v1h-3zM4.4 13.14A5.97 5.97 0 003 17v1H0v-1a3 3 0 013.4-2.86z" />
+          </svg>
+          External users
+        </div>
+        <div class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd"
+              d="M5 9V7a5 5 0 0110 0v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" />
+          </svg>
+          Access policies
+        </div>
+        <div class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" />
+          </svg>
+          Identity providers
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-label">Data protection</div>
+        <div class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12l-6-3-6 3V4z" />
+          </svg>
+          Data classification
+        </div>
+        <div class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd"
+              d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" />
+          </svg>
+          Data security policy
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-label">Detection</div>
+        <div class="nav-item active">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
+          </svg>
+          Threat detection
+          <span class="nav-badge">3</span>
+        </div>
+        <div class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd"
+              d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3z" />
+          </svg>
+          Audit log
+        </div>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-avatar">JD</div>
+      <div class="user-info">
+        <div class="user-name">Jane Doe</div>
+        <div class="user-role">Org Admin</div>
+      </div>
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" style="color:var(--muted);flex-shrink:0">
+        <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z" />
+      </svg>
+    </div>
+  </aside>
+
+  <!-- ═══════════════ MAIN ═══════════════ -->
+  <main class="main">
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <span class="page-title">Threat detection</span>
+      <div class="topbar-spacer"></div>
+      <div class="search-box">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor" style="color:var(--muted);flex-shrink:0">
+          <path fill-rule="evenodd"
+            d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" />
+        </svg>
+        <input type="text" placeholder="Search alerts...">
+      </div>
+      <div class="topbar-btn notif-btn">
+        <div class="notif-dot"></div>
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+          <path
+            d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
+        </svg>
+      </div>
+      <div class="topbar-btn">
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd"
+            d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" />
+        </svg>
+      </div>
+    </header>
+
+    <div class="content">
+
+      <!-- HEADER -->
+      <div class="page-header">
+        <div class="page-header-text">
+          <h1>Threat Detection & Alerts</h1>
+          <p>Monitor and investigate anomalous behavior, policy violations, and active threats.</p>
+        </div>
+        <div style="display:flex; gap: 8px;">
+          <button class="btn btn-ghost">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd"
+                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" />
+            </svg>
+            Acknowledge All
+          </button>
+          <button class="btn btn-primary">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd"
+                d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
+                clip-rule="evenodd" />
+            </svg>
+            Export Report
+          </button>
+        </div>
+      </div>
+
+      <!-- STATS -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">
+            <div class="stat-dot" style="background:var(--red)"></div>Critical Alerts
+          </div>
+          <div class="stat-value" style="color:var(--text)">12</div>
+          <div class="stat-sub"><span class="stat-trend trend-up">+3</span> requires immediate action</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">
+            <div class="stat-dot" style="background:var(--amber)"></div>High Alerts
+          </div>
+          <div class="stat-value" style="color:var(--text)">34</div>
+          <div class="stat-sub"><span class="stat-trend trend-down">-2</span> vs prior week</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">
+            <div class="stat-dot" style="background:var(--green)"></div>Blocked Threats
+          </div>
+          <div class="stat-value" style="color:var(--green)">1,204</div>
+          <div class="stat-sub"><span class="stat-trend trend-neutral">—</span> auto-mitigated</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">
+            <div class="stat-dot" style="background:var(--purple)"></div>Avg Triage Time
+          </div>
+          <div class="stat-value" style="color:var(--text)">14m</div>
+          <div class="stat-sub"><span class="stat-trend trend-down">-5m</span> improving MTTR</div>
+        </div>
+      </div>
+
+      <!-- THREAT BOARD -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            Active Threat Alerts
+          </div>
+          <div class="panel-actions">
+            <div class="chip-group">
+              <div class="chip active">All Alerts</div>
+              <div class="chip">Critical</div>
+              <div class="chip">High</div>
+              <div class="chip">Investigating</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Table Header -->
+        <div class="alert-header">
+          <div>Time</div>
+          <div>Alert Details</div>
+          <div>Entity Involved</div>
+          <div>Severity</div>
+          <div>Status</div>
+          <div></div>
+        </div>
+
+        <!-- Alert Row 1: Credential Stuffing (Critical) -->
+        <div class="alert-row" onclick="toggleDetails('alert-1')">
+          <div class="time-col">14:22 PM</div>
+          <div class="event-col">
+            <span class="event-name">Credential Stuffing Attack Detected</span>
+            <span class="event-meta">
+              <span class="timeline-badge">T1110.004</span> Multiple failed logins across 50+ accounts
+            </span>
+          </div>
+          <div class="actor-col">
+            <div class="actor-avatar" style="background:var(--surface2);border:1px solid var(--border)">IP</div>
+            89.12.3.44 (RU)
+          </div>
+          <div><span class="tag tag-red">CRITICAL</span></div>
+          <div><span class="tag tag-gray">OPEN</span></div>
+          <div>
+            <svg class="expand-icon" width="16" height="16" viewBox="0 0 20 20" fill="currentColor"
+              style="color:var(--muted)">
+              <path fill-rule="evenodd"
+                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+            </svg>
+          </div>
+        </div>
+        <div id="alert-1" class="threat-details">
+          <div class="threat-grid">
+            <div>
+              <div class="threat-section-title">Context & Signals</div>
+              <ul class="signal-list">
+                <li class="signal-item critical">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Observed 1,402 failed login attempts originating from a single IP subnet within 5 minutes.
+                </li>
+                <li class="signal-item">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Authentication targeted internal HR application (app_internal_hr).
+                </li>
+                <li class="signal-item">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Threat Intel Score for 89.12.3.44 is currently <span
+                    style="color:var(--red);font-family:var(--mono)">94/100</span> (Known Tor Exit Node).
+                </li>
+              </ul>
+            </div>
+            <div>
+              <div class="threat-section-title">Recommended Actions</div>
+              <div class="action-list">
+                <button class="action-btn danger">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Block IP Subnet
+                </button>
+                <button class="action-btn">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path
+                      d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2V7a5 5 0 00-5-5zm3 7H7V7a3 3 0 016 0v2z" />
+                  </svg>
+                  Force Password Reset (Targeted Users)
+                </button>
+                <button class="action-btn">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Acknowledge Alert
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alert Row 2: Impossible Travel (High) -->
+        <div class="alert-row" onclick="toggleDetails('alert-2')">
+          <div class="time-col">13:14 PM</div>
+          <div class="event-col">
+            <span class="event-name">Impossible Travel Activity</span>
+            <span class="event-meta">
+              <span class="timeline-badge">T1078.001</span> Logins from US and SG within 2 hours
+            </span>
+          </div>
+          <div class="actor-col">
+            <div class="actor-avatar" style="background:linear-gradient(135deg,#22d98f,#4f7cff)">BK</div>
+            bob.k@acme.com
+          </div>
+          <div><span class="tag tag-amber">HIGH</span></div>
+          <div><span class="tag tag-blue">INVESTIGATING</span></div>
+          <div>
+            <svg class="expand-icon" width="16" height="16" viewBox="0 0 20 20" fill="currentColor"
+              style="color:var(--muted)">
+              <path fill-rule="evenodd"
+                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+            </svg>
+          </div>
+        </div>
+        <div id="alert-2" class="threat-details">
+          <div class="threat-grid">
+            <div>
+              <div class="threat-section-title">Context & Signals</div>
+              <ul class="signal-list">
+                <li class="signal-item critical">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Calculated travel velocity exceeds 12,000 km/h between last known location and current login.
+                </li>
+                <li class="signal-item">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Previous session: San Francisco, US (11:10 AM). Current session: Singapore, SG (13:14 PM).
+                </li>
+                <li class="signal-item">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM9 9V5a1 1 0 112 0v4h2a1 1 0 110 2h-3a1 1 0 01-1-1z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  MFA was satisfied for the Singapore session (Push Notification).
+                </li>
+              </ul>
+            </div>
+            <div>
+              <div class="threat-section-title">Recommended Actions</div>
+              <div class="action-list">
+                <button class="action-btn danger">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path
+                      d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v1h8v-1zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-1a5.97 5.97 0 00-1.4-3.86A3 3 0 0119 17v1h-3zM4.4 13.14A5.97 5.97 0 003 17v1H0v-1a3 3 0 013.4-2.86z" />
+                  </svg>
+                  Suspend User Account
+                </button>
+                <button class="action-btn">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Revoke All Active Sessions
+                </button>
+                <button class="action-btn">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Mark as False Positive (VPN)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alert Row 3: Admin Privilege Escalation (High) -->
+        <div class="alert-row" onclick="toggleDetails('alert-3')">
+          <div class="time-col">09:05 AM</div>
+          <div class="event-col">
+            <span class="event-name">Anomalous Admin Role Assignment</span>
+            <span class="event-meta">
+              <span class="timeline-badge">T1098</span> User added to "SuperAdmin" outside regular hours
+            </span>
+          </div>
+          <div class="actor-col">
+            <div class="actor-avatar" style="background:linear-gradient(135deg,#a78bfa,#4f7cff)">SA</div>
+            svc.admin.api
+          </div>
+          <div><span class="tag tag-amber">HIGH</span></div>
+          <div><span class="tag tag-gray">OPEN</span></div>
+          <div>
+            <svg class="expand-icon" width="16" height="16" viewBox="0 0 20 20" fill="currentColor"
+              style="color:var(--muted)">
+              <path fill-rule="evenodd"
+                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+            </svg>
+          </div>
+        </div>
+        <div id="alert-3" class="threat-details">
+          <div class="threat-grid">
+            <div>
+              <div class="threat-section-title">Context & Signals</div>
+              <ul class="signal-list">
+                <li class="signal-item">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Service Account "svc.admin.api" granted SuperAdmin privileges to user "temp.contractor@acme.com".
+                </li>
+                <li class="signal-item">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM9 9V5a1 1 0 112 0v4h2a1 1 0 110 2h-3a1 1 0 01-1-1z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Action occurred outside of standard operational baseline (03:05 AM Local Time).
+                </li>
+              </ul>
+            </div>
+            <div>
+              <div class="threat-section-title">Recommended Actions</div>
+              <div class="action-list">
+                <button class="action-btn danger">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Revert Privilege Assignment
+                </button>
+                <button class="action-btn">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Investigate API Key Usage
+                </button>
+                <button class="action-btn">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                      clip-rule="evenodd" />
+                  </svg>
+                  Acknowledge Alert
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    // Toggle expanding threat details
+    function toggleDetails(id) {
+      const detailsDiv = document.getElementById(id);
+      const row = detailsDiv.previousElementSibling;
+
+      if (detailsDiv.classList.contains('open')) {
+        detailsDiv.classList.remove('open');
+        row.classList.remove('expanded');
+      } else {
+        detailsDiv.classList.add('open');
+        row.classList.add('expanded');
+      }
+    }
+
+    // Handle filter chips interaction
+    document.querySelectorAll('.chip').forEach(chip => {
+      chip.addEventListener('click', function () {
+        document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+        this.classList.add('active');
+      });
+    });
+  </script>
+</body>
+
+</html>

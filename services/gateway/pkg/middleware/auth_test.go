@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -22,7 +23,7 @@ func makeToken(claims jwt.MapClaims) string {
 }
 
 func TestJWTAuth_ValidToken(t *testing.T) {
-	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring, slog.Default())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-User-ID") != "user-123" {
 			t.Errorf("expected X-User-ID=user-123, got %s", r.Header.Get("X-User-ID"))
 		}
@@ -53,7 +54,7 @@ func TestJWTAuth_ValidToken(t *testing.T) {
 }
 
 func TestJWTAuth_MissingToken(t *testing.T) {
-	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring, slog.Default())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	})))
 
@@ -67,7 +68,7 @@ func TestJWTAuth_MissingToken(t *testing.T) {
 }
 
 func TestJWTAuth_InvalidToken(t *testing.T) {
-	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring, slog.Default())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	})))
 
@@ -82,7 +83,7 @@ func TestJWTAuth_InvalidToken(t *testing.T) {
 }
 
 func TestJWTAuth_ExpiredToken(t *testing.T) {
-	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring, slog.Default())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	})))
 
@@ -104,7 +105,7 @@ func TestJWTAuth_ExpiredToken(t *testing.T) {
 }
 
 func TestJWTAuth_WrongSigningKey(t *testing.T) {
-	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := sharedmw.RequestID(mw.JWTAuth(testKeyring, slog.Default())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	})))
 

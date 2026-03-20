@@ -15,12 +15,23 @@ var ErrBadRequest = errors.New("bad request")
 // ErrNotFound is returned when a resource is not found.
 var ErrNotFound = errors.New("not found")
 
-// PolicyService is the thin business logic layer wrapping the repository.
-type PolicyService struct {
-	repo *repository.PolicyRepository
+// PolicyRepository defines the persistence interface for policies.
+type PolicyRepository interface {
+	Create(ctx context.Context, p *models.Policy) error
+	GetByID(ctx context.Context, orgID, policyID string) (*models.Policy, error)
+	ListByOrg(ctx context.Context, orgID string) ([]*models.Policy, error)
+	ListEnabledForOrg(ctx context.Context, orgID string) ([]*models.Policy, error)
+	Update(ctx context.Context, p *models.Policy) error
+	Delete(ctx context.Context, orgID, policyID string) error
+	LogEvaluation(ctx context.Context, log *repository.EvalLog) error
 }
 
-func NewPolicyService(repo *repository.PolicyRepository) *PolicyService {
+// PolicyService is the thin business logic layer wrapping the repository.
+type PolicyService struct {
+	repo PolicyRepository
+}
+
+func NewPolicyService(repo PolicyRepository) *PolicyService {
 	return &PolicyService{repo: repo}
 }
 
