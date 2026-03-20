@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.gitignore
+*.md
+e2e
+tests
+playwright-report
+test-results
+openguard-dashboard.html

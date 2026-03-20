@@ -80,4 +80,12 @@ openguard/
    make dev
    ```
 
+6. **Run E2E Tests:**
+   ```bash
+   cd web
+   npx playwright test e2e/login.spec.ts --headed
+   npx playwright test e2e/register.spec.ts --headed
+   npx playwright test e2e/dashboard.spec.ts --headed
+   ```
+
 *See the `docs/` folder for detailed phase specifications, runbooks, and API documentation.*

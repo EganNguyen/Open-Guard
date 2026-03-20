@@ -1,16 +1,78 @@
 services:
+  # ─────────── Infrastructure ───────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: openguard-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-openguard}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openguard}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: openguard-redis
+    command: redis-server --requirepass "${REDIS_PASSWORD:-}"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: openguard-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: openguard-kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # ─────────── Backend Services ───────────
   iam:
     build:
-      context: ../../
+      context: ../
       dockerfile: services/iam/Dockerfile
     container_name: openguard-iam
     env_file:
-      - ../../.env
+      - ../.env
     environment:
       POSTGRES_HOST: postgres
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
-      GATEWAY_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
+      IAM_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
       IAM_MFA_ENCRYPTION_KEYS_JSON: '[{"id":"v1","secret":"Y2hhbmdlLW1lLXRvLWEtc2VjdXJlLTMyLWJ5dGUta2V5IQ==","status":"active"}]'
       TLS_CERT_PATH: /app/certs/server.crt
       TLS_KEY_PATH: /app/certs/server.key
@@ -18,20 +80,22 @@ services:
     ports:
       - "8081:8081"
     volumes:
-      - ../certs/ca.crt:/app/certs/ca.crt:ro
-      - ../certs/iam.crt:/app/certs/server.crt:ro
-      - ../certs/iam.key:/app/certs/server.key:ro
+      - ../infra/certs/ca.crt:/app/certs/ca.crt:ro
+      - ../infra/certs/iam.crt:/app/certs/server.crt:ro
+      - ../infra/certs/iam.key:/app/certs/server.key:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
 
   gateway:
     build:
-      context: ../../
+      context: ../
       dockerfile: services/gateway/Dockerfile
     container_name: openguard-gateway
     env_file:
-      - ../../.env
+      - ../.env
     environment:
       REDIS_ADDR: redis:6379
       KAFKA_BROKERS: kafka:9092
@@ -43,19 +107,31 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ../certs/ca.crt:/app/certs/ca.crt:ro
-      - ../certs/gateway.crt:/app/certs/server.crt:ro
-      - ../certs/gateway.key:/app/certs/server.key:ro
+      - ../infra/certs/ca.crt:/app/certs/ca.crt:ro
+      - ../infra/certs/gateway.crt:/app/certs/server.crt:ro
+      - ../infra/certs/gateway.key:/app/certs/server.key:ro
     depends_on:
       redis:
         condition: service_healthy
       iam:
         condition: service_started
 
+  # ─────────── Frontend ───────────
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+    container_name: openguard-web
+    environment:
+      NEXT_PUBLIC_API_URL: http://gateway:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      gateway:
+        condition: service_started
+
 volumes:
   postgres_data:
-  mongo_data:
   redis_data:
   zookeeper_data:
   kafka_data:
-  clickhouse_data:
