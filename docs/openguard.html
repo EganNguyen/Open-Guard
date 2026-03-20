@@ -1,0 +1,1289 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenGuard — Integrated Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <style>
+    /* --- Core Variables & Theming --- */
+    :root {
+      --bg: #0d0f14;
+      --surface: #13161e;
+      --surface2: #1a1e28;
+      --surface3: #222736;
+      --border: #252a38;
+      --border2: #2f3548;
+      --text: #e8ecf4;
+      --muted: #7a849e;
+      --accent: #4f7cff;
+      --accent-hover: #6a90ff;
+      --accent-glow: rgba(79, 124, 255, 0.18);
+      --green: #22d98f;
+      --green-bg: rgba(34, 217, 143, 0.1);
+      --amber: #f5a623;
+      --amber-bg: rgba(245, 166, 35, 0.1);
+      --red: #ff4f6b;
+      --red-bg: rgba(255, 79, 107, 0.1);
+
+      --sidebar-width: 260px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* --- Typography & Utilities --- */
+    h1,
+    h2,
+    h3,
+    h4 {
+      font-weight: 500;
+    }
+
+    .text-muted {
+      color: var(--muted);
+    }
+
+    .text-green {
+      color: var(--green);
+    }
+
+    .text-amber {
+      color: var(--amber);
+    }
+
+    .text-red {
+      color: var(--red);
+    }
+
+    .mono {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.85em;
+    }
+
+    .flex {
+      display: flex;
+    }
+
+    .items-center {
+      align-items: center;
+    }
+
+    .justify-between {
+      justify-content: space-between;
+    }
+
+    .gap-2 {
+      gap: 8px;
+    }
+
+    .gap-3 {
+      gap: 12px;
+    }
+
+    .gap-4 {
+      gap: 16px;
+    }
+
+    .mb-4 {
+      margin-bottom: 16px;
+    }
+
+    .mb-6 {
+      margin-bottom: 24px;
+    }
+
+    /* --- Layout: Sidebar --- */
+    .sidebar {
+      width: var(--sidebar-width);
+      background-color: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+    }
+
+    .brand {
+      height: 72px;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--border);
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+      gap: 10px;
+    }
+
+    .brand-icon {
+      width: 24px;
+      height: 24px;
+      background: linear-gradient(135deg, var(--accent), var(--green));
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .nav-section {
+      padding: 24px 0;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .nav-group-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+      padding: 0 24px;
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 24px;
+      color: var(--muted);
+      text-decoration: none;
+      gap: 12px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border-right: 3px solid transparent;
+    }
+
+    .nav-item:hover {
+      color: var(--text);
+      background-color: rgba(255, 255, 255, 0.02);
+    }
+
+    .nav-item.active {
+      color: var(--accent);
+      background-color: var(--accent-glow);
+      border-right-color: var(--accent);
+    }
+
+    .nav-item svg {
+      width: 18px;
+      height: 18px;
+      opacity: 0.8;
+    }
+
+    .nav-item.active svg {
+      opacity: 1;
+    }
+
+    /* --- Layout: Main Panel & Topbar --- */
+    .main-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .topbar {
+      height: 72px;
+      background-color: var(--bg);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+    }
+
+    .page-title {
+      font-size: 1.25rem;
+      font-weight: 500;
+    }
+
+    .role-switcher {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 6px 16px;
+      border-radius: 20px;
+    }
+
+    .role-switcher select {
+      background: transparent;
+      color: var(--text);
+      border: none;
+      font-family: inherit;
+      font-size: 0.9rem;
+      outline: none;
+      cursor: pointer;
+    }
+
+    /* --- Layout: Content Area & Views --- */
+    .content-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 32px;
+    }
+
+    .view-section {
+      display: none;
+      animation: fadeIn 0.3s ease forwards;
+    }
+
+    .view-section.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* --- Reusable Components --- */
+    /* Grid Layouts */
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    /* Stat Cards */
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 600;
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .trend-up {
+      color: var(--green);
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .trend-down {
+      color: var(--red);
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Tables */
+    .table-container {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .table-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: 16px 24px;
+      text-align: left;
+      border-bottom: 1px solid var(--border2);
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: var(--surface2);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr.expandable {
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    tr.expandable:hover {
+      background: var(--surface2);
+    }
+
+    .actor-cell {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 500;
+    }
+
+    .mini-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .event-type {
+      background: var(--surface2);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.85rem;
+      border: 1px solid var(--border);
+    }
+
+    /* Buttons & Actions */
+    .action-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      color: var(--text);
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .action-btn:hover {
+      background: var(--border);
+    }
+
+    .action-btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .action-btn.primary:hover {
+      background: var(--accent-hover);
+    }
+
+    /* Chips & Tags */
+    .chip {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid transparent;
+    }
+
+    .chip.green {
+      background: var(--green-bg);
+      color: var(--green);
+      border-color: rgba(34, 217, 143, 0.2);
+    }
+
+    .chip.amber {
+      background: var(--amber-bg);
+      color: var(--amber);
+      border-color: rgba(245, 166, 35, 0.2);
+    }
+
+    .chip.red {
+      background: var(--red-bg);
+      color: var(--red);
+      border-color: rgba(255, 79, 107, 0.2);
+    }
+
+    .chip.outline {
+      background: transparent;
+      border-color: var(--border2);
+      color: var(--muted);
+    }
+
+    /* Toggle Switch */
+    .toggle-switch {
+      width: 40px;
+      height: 22px;
+      border-radius: 11px;
+      background: var(--border2);
+      position: relative;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+
+    .toggle-switch[data-state="true"] {
+      background: var(--accent);
+    }
+
+    .toggle-switch.strict[data-state="true"] {
+      background: var(--green);
+    }
+
+    .toggle-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+    }
+
+    .toggle-switch[data-state="true"] .toggle-thumb {
+      transform: translateX(18px);
+    }
+
+    /* Policy Rows */
+    .policy-row {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr auto auto;
+      gap: 16px;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border2);
+      align-items: center;
+    }
+
+    .policy-row:last-child {
+      border-bottom: none;
+    }
+
+    .policy-row.disabled {
+      opacity: 0.5;
+    }
+
+    /* JSON Viewer */
+    .json-details {
+      display: none;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      padding: 24px;
+      border-left: 3px solid var(--accent);
+    }
+
+    .json-details.open {
+      display: block;
+    }
+
+    .json-block {
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 16px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.85rem;
+      white-space: pre-wrap;
+      line-height: 1.5;
+      color: var(--text);
+    }
+
+    .j-key {
+      color: var(--accent);
+    }
+
+    .j-str {
+      color: var(--green);
+    }
+
+    .j-num {
+      color: var(--amber);
+    }
+
+    /* Threat Cards */
+    .threat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      border-left: 4px solid var(--red);
+    }
+
+    .threat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+      </div>
+      OpenGuard
+    </div>
+
+    <!-- Admin Navigation Group -->
+    <div class="nav-section" id="nav-group-admin">
+      <div class="nav-group-title">Platform</div>
+
+      <a class="nav-item active" onclick="navigate('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="9"></rect>
+          <rect x="14" y="3" width="7" height="5"></rect>
+          <rect x="14" y="12" width="7" height="9"></rect>
+          <rect x="3" y="16" width="7" height="5"></rect>
+        </svg>
+        Dashboard
+      </a>
+
+      <a class="nav-item" onclick="navigate('policy')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+        Access Policies
+      </a>
+
+      <a class="nav-item" onclick="navigate('audit')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+          <polyline points="10 9 9 9 8 9"></polyline>
+        </svg>
+        Audit & Events
+      </a>
+
+      <a class="nav-item" onclick="navigate('threat')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+          <line x1="12" y1="9" x2="12" y2="13"></line>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+        Threat Detection
+      </a>
+
+      <a class="nav-item" onclick="navigate('analytics')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+        Compliance & Analytics
+      </a>
+    </div>
+
+    <!-- User Navigation Group (Hidden by default) -->
+    <div class="nav-section" id="nav-group-user" style="display: none;">
+      <div class="nav-group-title">My Portal</div>
+
+      <a class="nav-item" onclick="navigate('user-home')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          <polyline points="9 22 9 12 15 12 15 22"></polyline>
+        </svg>
+        Home
+      </a>
+
+      <a class="nav-item" onclick="navigate('user-access')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        My Access & Keys
+      </a>
+
+      <a class="nav-item" onclick="navigate('user-activity')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+        </svg>
+        Recent Activity
+      </a>
+    </div>
+
+  </aside>
+
+  <!-- Main Application Area -->
+  <main class="main-panel">
+
+    <!-- Topbar -->
+    <header class="topbar">
+      <h1 class="page-title" id="page-title">Security Dashboard</h1>
+
+      <div class="flex items-center gap-4">
+        <!-- Role Switcher -->
+        <div class="role-switcher">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+          <select id="role-select" onchange="handleRoleSwitch(this.value)">
+            <option value="admin">Admin View</option>
+            <option value="user">User View</option>
+          </select>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content Area (Scrollable) -->
+    <div class="content-area">
+
+      <!-- ========================================== -->
+      <!-- ADMIN VIEWS                                -->
+      <!-- ========================================== -->
+
+      <!-- Admin: Dashboard View -->
+      <section id="view-dashboard" class="view-section active">
+        <div class="grid-4 mb-6">
+          <div class="stat-card">
+            <div class="stat-label">Total Authentications (24h)</div>
+            <div class="stat-value">124,592</div>
+            <div class="trend-up"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+                <polyline points="17 6 23 6 23 12"></polyline>
+              </svg> 12% vs yesterday</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Active Threats Blocked</div>
+            <div class="stat-value text-amber">47</div>
+            <div class="trend-up"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+                <polyline points="17 6 23 6 23 12"></polyline>
+              </svg> 3.2% vs yesterday</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Failed Login Attempts</div>
+            <div class="stat-value text-red">892</div>
+            <div class="trend-down"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <polyline points="23 18 13.5 8.5 8.5 13.5 1 6"></polyline>
+                <polyline points="17 18 23 18 23 12"></polyline>
+              </svg> 5% vs yesterday</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Active Sessions</div>
+            <div class="stat-value text-green">3,405</div>
+            <div class="text-muted" style="font-size: 0.85rem;">Currently online</div>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <div class="table-header">
+            <h3 style="font-size: 1.1rem;">Recent Global Activity</h3>
+            <button class="action-btn">View All</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Actor</th>
+                <th>Event Type</th>
+                <th>Target Resource</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <div class="actor-cell">
+                    <div class="mini-avatar" style="background:linear-gradient(135deg,#f5a623,#ff4f6b)">SY</div>
+                    System
+                  </div>
+                </td>
+                <td><span class="event-type">auth.mfa.enrolled</span></td>
+                <td class="mono">usr_prod_db</td>
+                <td class="text-muted">Just now</td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="actor-cell">
+                    <div class="mini-avatar" style="background:linear-gradient(135deg,#a78bfa,#22d98f)">AP</div>
+                    Alice P.
+                  </div>
+                </td>
+                <td><span class="event-type">user.login.success</span></td>
+                <td class="mono">dashboard.app</td>
+                <td class="text-muted">42m ago</td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="actor-cell">
+                    <div class="mini-avatar" style="background:linear-gradient(135deg,#4f7cff,#a78bfa)">JD</div>
+                    John D.
+                  </div>
+                </td>
+                <td><span class="event-type">policy.update</span></td>
+                <td class="mono">iam:admin_role</td>
+                <td class="text-muted">1h ago</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Admin: Policy View -->
+      <section id="view-policy" class="view-section">
+        <div class="flex justify-between items-center mb-6">
+          <p class="text-muted">Manage access rules, role definitions, and strict enforcement configurations.</p>
+          <button class="action-btn primary">+ Create New Policy</button>
+        </div>
+
+        <div class="table-container">
+          <div class="table-header">
+            <h3 style="font-size: 1.1rem;">Active Rule Definitions</h3>
+            <div class="flex gap-2">
+              <span class="chip active outline">All</span>
+              <span class="chip outline">Identity</span>
+              <span class="chip outline">Network</span>
+            </div>
+          </div>
+
+          <div class="policy-list">
+            <!-- Row 1 -->
+            <div class="policy-row">
+              <div>
+                <h4 style="margin-bottom: 4px;">Require MFA on External IP</h4>
+                <p class="text-muted" style="font-size: 0.85rem;">Enforces multi-factor authentication if IP is outside
+                  corporate CIDR.</p>
+              </div>
+              <div><span class="chip green">Identity</span></div>
+              <div class="mono text-muted">1,245 hits</div>
+              <div>
+                <div class="toggle-switch strict" data-state="true" onclick="toggleState(this)">
+                  <div class="toggle-thumb"></div>
+                </div>
+              </div>
+              <div class="text-muted" style="cursor: pointer;">⋯</div>
+            </div>
+
+            <!-- Row 2 -->
+            <div class="policy-row">
+              <div>
+                <h4 style="margin-bottom: 4px;">Block Legacy Protocols</h4>
+                <p class="text-muted" style="font-size: 0.85rem;">Deny TLS 1.0/1.1 and deprecated cipher suites.</p>
+              </div>
+              <div><span class="chip amber">Network</span></div>
+              <div class="mono text-muted">89 hits</div>
+              <div>
+                <div class="toggle-switch" data-state="true" onclick="toggleState(this)">
+                  <div class="toggle-thumb"></div>
+                </div>
+              </div>
+              <div class="text-muted" style="cursor: pointer;">⋯</div>
+            </div>
+
+            <!-- Row 3 -->
+            <div class="policy-row disabled">
+              <div>
+                <h4 style="margin-bottom: 4px;">Restrict Vendor Access to Staging</h4>
+                <p class="text-muted" style="font-size: 0.85rem;">Limits 3rd-party contractors to non-production
+                  environments.</p>
+              </div>
+              <div><span class="chip outline">Access</span></div>
+              <div class="mono text-muted">0 hits</div>
+              <div>
+                <div class="toggle-switch" data-state="false" onclick="toggleState(this)">
+                  <div class="toggle-thumb"></div>
+                </div>
+              </div>
+              <div class="text-muted" style="cursor: pointer;">⋯</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Admin: Audit Log View -->
+      <section id="view-audit" class="view-section">
+        <div class="flex justify-between items-center mb-6">
+          <div class="flex gap-3">
+            <input type="text" placeholder="Search event ID, actor..."
+              style="background:var(--surface); border:1px solid var(--border); color:var(--text); padding:8px 16px; border-radius:6px; width:300px; outline:none;">
+          </div>
+          <button class="action-btn">Export CSV</button>
+        </div>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Event Type</th>
+                <th>Actor</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Row 1 -->
+              <tr class="expandable" onclick="toggleJson('audit-json-1')">
+                <td class="text-muted">Oct 24, 14:32:01</td>
+                <td><span class="event-type">outbox.webhook.fail</span></td>
+                <td class="mono">system</td>
+                <td><span class="chip red">Failed</span></td>
+                <td style="text-align: right; color: var(--muted);">▼</td>
+              </tr>
+              <tr>
+                <td colspan="5" style="padding: 0;">
+                  <div id="audit-json-1" class="json-details">
+                    <div class="json-block">
+                      {
+                      <span class="j-key">"event_id"</span>: <span class="j-str">"evt_8f73b2a9c411"</span>,
+                      <span class="j-key">"type"</span>: <span class="j-str">"outbox.webhook.fail"</span>,
+                      <span class="j-key">"relay_context"</span>: {
+                      <span class="j-key">"destination_url"</span>: <span
+                        class="j-str">"https://siem.acme.corp/hec"</span>,
+                      <span class="j-key">"http_status"</span>: <span class="j-num">503</span>,
+                      <span class="j-key">"attempt"</span>: <span class="j-num">3</span>,
+                      <span class="j-key">"next_retry_in_ms"</span>: <span class="j-num">15000</span>
+                      },
+                      <span class="j-key">"original_event_id"</span>: <span class="j-str">"evt_login_success_99"</span>
+                      }
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <!-- Row 2 -->
+              <tr class="expandable" onclick="toggleJson('audit-json-2')">
+                <td class="text-muted">Oct 24, 14:30:12</td>
+                <td><span class="event-type">user.login.success</span></td>
+                <td class="mono">alice.p@acme.corp</td>
+                <td><span class="chip green">Success</span></td>
+                <td style="text-align: right; color: var(--muted);">▼</td>
+              </tr>
+              <tr>
+                <td colspan="5" style="padding: 0;">
+                  <div id="audit-json-2" class="json-details">
+                    <div class="json-block">
+                      {
+                      <span class="j-key">"event_id"</span>: <span class="j-str">"evt_login_success_99"</span>,
+                      <span class="j-key">"type"</span>: <span class="j-str">"user.login.success"</span>,
+                      <span class="j-key">"ip_address"</span>: <span class="j-str">"192.168.1.45"</span>,
+                      <span class="j-key">"user_agent"</span>: <span class="j-str">"Mozilla/5.0 (Macintosh; Intel Mac OS
+                        X 10_15_7)..."</span>
+                      }
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Admin: Threat Detection -->
+      <section id="view-threat" class="view-section">
+        <div class="grid-2">
+
+          <div class="threat-card">
+            <div class="threat-header">
+              <div>
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="chip red">High Severity</span>
+                  <span class="text-muted" style="font-size:0.85rem">10 mins ago</span>
+                </div>
+                <h3>Anomalous API Key Usage</h3>
+              </div>
+              <div class="mini-avatar" style="background:var(--red-bg); color:var(--red); width:36px; height:36px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z">
+                  </path>
+                  <line x1="12" y1="9" x2="12" y2="13"></line>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+              </div>
+            </div>
+            <p class="text-muted" style="font-size: 0.9rem; line-height: 1.5;">
+              API Key <span class="mono">pk_live_***8f9a</span> associated with Service Account 'Billing Sync'
+              originated requests from an unrecognized IP subnet (104.28.x.x - VN).
+            </p>
+            <div class="flex gap-3" style="margin-top: auto;">
+              <button class="action-btn primary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                Investigate Key Usage
+              </button>
+              <button class="action-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                Acknowledge
+              </button>
+            </div>
+          </div>
+
+          <div class="threat-card" style="border-left-color: var(--amber);">
+            <div class="threat-header">
+              <div>
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="chip amber">Medium</span>
+                  <span class="text-muted" style="font-size:0.85rem">2 hours ago</span>
+                </div>
+                <h3>Multiple Failed MFA Attempts</h3>
+              </div>
+            </div>
+            <p class="text-muted" style="font-size: 0.9rem; line-height: 1.5;">
+              User <span class="mono">bob.jones</span> triggered 5 consecutive MFA failures within a 10-minute window.
+              Account is temporarily locked.
+            </p>
+            <div class="flex gap-3" style="margin-top: auto;">
+              <button class="action-btn">View User Logs</button>
+              <button class="action-btn">Reset MFA</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- Admin: Analytics & Compliance -->
+      <section id="view-analytics" class="view-section">
+        <div class="stat-card mb-6">
+          <div class="flex justify-between items-center">
+            <div>
+              <h2 style="margin-bottom: 8px;">Compliance Posture: SOC 2 Type II</h2>
+              <p class="text-muted" style="font-size:0.9rem">Current framework mapping and automated evidence collection
+                status.</p>
+            </div>
+            <div style="text-align: right;">
+              <div class="stat-value text-green">94%</div>
+              <div class="text-muted" style="font-size: 0.85rem;">Controls Passing</div>
+            </div>
+          </div>
+          <div
+            style="width: 100%; height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; margin-top: 10px;">
+            <div style="width: 94%; height: 100%; background: var(--green);"></div>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <div class="table-header">
+            <h3 style="font-size: 1.1rem;">Control Domains</h3>
+          </div>
+          <table>
+            <tbody>
+              <tr>
+                <td><strong>Logical Access</strong></td>
+                <td><span class="chip green">Passing (24/24)</span></td>
+                <td><span class="text-muted">Fully automated evidence</span></td>
+                <td style="text-align: right;">
+                  <button class="action-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                      <line x1="16" y1="13" x2="8" y2="13"></line>
+                      <line x1="16" y1="17" x2="8" y2="17"></line>
+                      <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    View Auditor Report
+                  </button>
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Data Security</strong></td>
+                <td><span class="chip amber">Needs Review (18/19)</span></td>
+                <td><span class="text-muted">1 manual review required</span></td>
+                <td style="text-align: right;">
+                  <button class="action-btn">Review Evidence</button>
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Change Management</strong></td>
+                <td><span class="chip green">Passing (12/12)</span></td>
+                <td><span class="text-muted">GitHub integration active</span></td>
+                <td style="text-align: right;">
+                  <button class="action-btn">View Auditor Report</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- USER VIEWS                                 -->
+      <!-- ========================================== -->
+
+      <!-- User: Home -->
+      <section id="view-user-home" class="view-section">
+        <div class="stat-card mb-6"
+          style="background: linear-gradient(145deg, var(--surface2), var(--surface)); border-color: var(--accent);">
+          <div class="flex items-center gap-4">
+            <div class="mini-avatar"
+              style="width: 64px; height: 64px; font-size: 1.5rem; background: linear-gradient(135deg, var(--accent), var(--green));">
+              AP</div>
+            <div>
+              <h2 style="font-size: 1.5rem; margin-bottom: 4px;">Welcome back, Alice P.</h2>
+              <p class="text-muted">Your account is fully secured. Last logged in from 192.168.1.45 at 14:30.</p>
+            </div>
+          </div>
+        </div>
+
+        <h3 class="mb-4" style="margin-top: 32px;">Security Checklist</h3>
+        <div class="grid-2">
+          <div class="stat-card flex flex-row items-center gap-4" style="flex-direction: row;">
+            <div style="color: var(--green);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+              </svg></div>
+            <div>
+              <h4 style="margin-bottom: 2px;">Multi-Factor Authentication</h4>
+              <p class="text-muted" style="font-size: 0.85rem;">Enrolled via Authenticator App</p>
+            </div>
+          </div>
+          <div class="stat-card flex flex-row items-center gap-4" style="flex-direction: row;">
+            <div style="color: var(--amber);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg></div>
+            <div>
+              <h4 style="margin-bottom: 2px;">Password Policy</h4>
+              <p class="text-muted" style="font-size: 0.85rem;">Expires in 14 days</p>
+            </div>
+            <button class="action-btn" style="margin-left: auto;">Update</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- User: Access -->
+      <section id="view-user-access" class="view-section">
+        <div class="flex justify-between items-center mb-6">
+          <p class="text-muted">Applications and resources currently assigned to your identity.</p>
+          <button class="action-btn primary">Request New Access</button>
+        </div>
+
+        <div class="grid-4">
+          <!-- App 1 -->
+          <div class="stat-card" style="align-items: center; text-align: center;">
+            <div
+              style="width: 48px; height: 48px; border-radius: 12px; background: #2f3548; display: flex; align-items: center; justify-content: center; margin-bottom: 12px;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                <line x1="8" y1="21" x2="16" y2="21"></line>
+                <line x1="12" y1="17" x2="12" y2="21"></line>
+              </svg>
+            </div>
+            <h4>Internal Dashboard</h4>
+            <span class="chip green" style="margin-top: 8px;">Authorized</span>
+          </div>
+
+          <!-- App 2 -->
+          <div class="stat-card" style="align-items: center; text-align: center;">
+            <div
+              style="width: 48px; height: 48px; border-radius: 12px; background: #2f3548; display: flex; align-items: center; justify-content: center; margin-bottom: 12px;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f5a623" stroke-width="2">
+                <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+              </svg>
+            </div>
+            <h4>Customer Database</h4>
+            <span class="chip green" style="margin-top: 8px;">Authorized</span>
+          </div>
+
+          <!-- App 3 -->
+          <div class="stat-card" style="align-items: center; text-align: center;">
+            <div
+              style="width: 48px; height: 48px; border-radius: 12px; background: #2f3548; display: flex; align-items: center; justify-content: center; margin-bottom: 12px;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff4f6b" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+              </svg>
+            </div>
+            <h4>Production AWS</h4>
+            <span class="chip outline" style="margin-top: 8px;">No Access</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- User: Activity -->
+      <section id="view-user-activity" class="view-section">
+        <div class="table-container">
+          <div class="table-header">
+            <h3 style="font-size: 1.1rem;">My Login History</h3>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date & Time</th>
+                <th>Location / IP</th>
+                <th>Device</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="text-muted">Today, 14:30:12</td>
+                <td class="mono">192.168.1.45 (US)</td>
+                <td>Mac OS X - Chrome</td>
+                <td><span class="chip green">Success</span></td>
+              </tr>
+              <tr>
+                <td class="text-muted">Yesterday, 09:15:00</td>
+                <td class="mono">192.168.1.45 (US)</td>
+                <td>Mac OS X - Chrome</td>
+                <td><span class="chip green">Success</span></td>
+              </tr>
+              <tr>
+                <td class="text-muted">Oct 21, 18:42:11</td>
+                <td class="mono">104.28.x.x (VN)</td>
+                <td>Unknown Device</td>
+                <td><span class="chip red">Blocked by Policy</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <script>
+    // Map of view IDs to their Display Titles
+    const viewTitles = {
+      'dashboard': 'Security Dashboard',
+      'policy': 'Access Policies',
+      'audit': 'Audit Log & Events',
+      'threat': 'Threat Detection',
+      'analytics': 'Compliance & Analytics',
+      'user-home': 'My Security Portal',
+      'user-access': 'My Applications & Access',
+      'user-activity': 'My Recent Activity'
+    };
+
+    // Navigation Router
+    function navigate(viewId) {
+      // 1. Hide all sections
+      document.querySelectorAll('.view-section').forEach(el => {
+        el.classList.remove('active');
+      });
+
+      // 2. Show target section
+      const target = document.getElementById('view-' + viewId);
+      if (target) {
+        target.classList.add('active');
+      }
+
+      // 3. Update sidebar active state
+      document.querySelectorAll('.nav-item').forEach(el => {
+        el.classList.remove('active');
+      });
+      const activeLink = document.querySelector(`.nav-item[onclick="navigate('${viewId}')"]`);
+      if (activeLink) {
+        activeLink.classList.add('active');
+      }
+
+      // 4. Update Header Title
+      document.getElementById('page-title').innerText = viewTitles[viewId] || 'OpenGuard';
+    }
+
+    // Role Switcher (Admin vs User Portal)
+    function handleRoleSwitch(role) {
+      if (role === 'admin') {
+        document.getElementById('nav-group-admin').style.display = 'block';
+        document.getElementById('nav-group-user').style.display = 'none';
+        navigate('dashboard');
+      } else {
+        document.getElementById('nav-group-admin').style.display = 'none';
+        document.getElementById('nav-group-user').style.display = 'block';
+        navigate('user-home');
+      }
+    }
+
+    // Interactive Toggle Switch for Policies
+    function toggleState(element) {
+      const currentState = element.getAttribute('data-state') === 'true';
+      const row = element.closest('.policy-row');
+
+      if (currentState) {
+        element.setAttribute('data-state', 'false');
+        if (row) row.classList.add('disabled');
+      } else {
+        element.setAttribute('data-state', 'true');
+        if (row) row.classList.remove('disabled');
+      }
+    }
+
+    // Interactive JSON block expansion for Audit Logs
+    function toggleJson(id) {
+      const detailsRow = document.getElementById(id);
+      if (detailsRow.classList.contains('open')) {
+        detailsRow.classList.remove('open');
+      } else {
+        detailsRow.classList.add('open');
+      }
+    }
+
+    // Initialize application state
+    navigate('dashboard');
+  </script>
+</body>
+
+</html>
