@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 
 	"github.com/openguard/iam/pkg/service"
@@ -42,6 +43,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
 	ua := r.UserAgent()
 
 	resp, err := h.authService.Login(r.Context(), req, &ip, &ua)

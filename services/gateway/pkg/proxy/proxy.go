@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -25,7 +26,7 @@ func (c *CircuitBreakerTransport) RoundTrip(req *http.Request) (*http.Response, 
 }
 
 // NewReverseProxy creates a resilient reverse proxy with Circuit Breaker and mTLS.
-func NewReverseProxy(target string, logger *slog.Logger, cb *gobreaker.CircuitBreaker) (*httputil.ReverseProxy, error) {
+func NewReverseProxy(target string, logger *slog.Logger, cb *gobreaker.CircuitBreaker, tlsCfg *tls.Config) (*httputil.ReverseProxy, error) {
 	upstream, err := url.Parse(target)
 	if err != nil {
 		return nil, err
@@ -34,7 +35,10 @@ func NewReverseProxy(target string, logger *slog.Logger, cb *gobreaker.CircuitBr
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 
 	// Wrap standard transport in a resilient circuit breaker
-	baseTransport := http.DefaultTransport
+	baseTransport := http.DefaultTransport.(*http.Transport).Clone()
+	if tlsCfg != nil {
+		baseTransport.TLSClientConfig = tlsCfg
+	}
 	proxy.Transport = &CircuitBreakerTransport{
 		breaker:   cb,
 		transport: baseTransport,

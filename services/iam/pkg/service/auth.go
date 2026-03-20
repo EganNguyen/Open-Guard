@@ -175,7 +175,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ipAddress, us
 	expiresAt := time.Now().Add(s.jwtExpiry)
 	_, err = s.sessions.Create(ctx, tx, user.ID, user.OrgID, refreshHash, ipAddress, userAgent, nil, expiresAt)
 	if err != nil {
-		s.logger.Error("failed to create session", "error", err)
+		return nil, fmt.Errorf("create session: %w", err)
 	}
 
 	s.publishEvent(ctx, tx, kafka.TopicAuthEvents, "auth.login.success", user.OrgID, user.ID)

@@ -1,7 +1,7 @@
 .PHONY: dev test lint build migrate seed clean
 
 # Generate mTLS certificates for internal services
-
+	bash scripts/gen-mtls-certs.sh
 
 # Start all infrastructure, backend and frontend services for local development
 dev:

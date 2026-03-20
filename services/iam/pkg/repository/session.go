@@ -37,7 +37,7 @@ func (r *SessionRepository) Create(ctx context.Context, tx pgx.Tx, userID, orgID
 	err := tx.QueryRow(ctx,
 		`INSERT INTO sessions (user_id, org_id, refresh_hash, ip_address, user_agent, country_code, expires_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 RETURNING id, user_id, org_id, refresh_hash, ip_address, user_agent, country_code, expires_at, revoked, created_at`,
+		 RETURNING id, user_id, org_id, refresh_hash, ip_address::TEXT, user_agent, country_code, expires_at, revoked, created_at`,
 		userID, orgID, refreshHash, ipAddress, userAgent, countryCode, expiresAt,
 	).Scan(&s.ID, &s.UserID, &s.OrgID, &s.RefreshHash, &s.IPAddress, &s.UserAgent, &s.CountryCode, &s.ExpiresAt, &s.Revoked, &s.CreatedAt)
 	if err != nil {
@@ -53,7 +53,7 @@ func (r *SessionRepository) GetByID(ctx context.Context, tx pgx.Tx, orgID, id st
 
 	s := &Session{}
 	err := tx.QueryRow(ctx,
-		`SELECT id, user_id, org_id, refresh_hash, ip_address, user_agent, country_code, expires_at, revoked, created_at
+		`SELECT id, user_id, org_id, refresh_hash, ip_address::TEXT, user_agent, country_code, expires_at, revoked, created_at
 		 FROM sessions WHERE id = $1`,
 		id,
 	).Scan(&s.ID, &s.UserID, &s.OrgID, &s.RefreshHash, &s.IPAddress, &s.UserAgent, &s.CountryCode, &s.ExpiresAt, &s.Revoked, &s.CreatedAt)
@@ -77,7 +77,7 @@ func (r *SessionRepository) ListByUser(ctx context.Context, tx pgx.Tx, orgID, us
 	}
 
 	rows, err := tx.Query(ctx,
-		`SELECT id, user_id, org_id, refresh_hash, ip_address, user_agent, country_code, expires_at, revoked, created_at
+		`SELECT id, user_id, org_id, refresh_hash, ip_address::TEXT, user_agent, country_code, expires_at, revoked, created_at
 		 FROM sessions WHERE user_id = $1 ORDER BY created_at DESC`,
 		userID,
 	)

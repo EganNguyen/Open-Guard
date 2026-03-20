@@ -63,7 +63,8 @@ openguard/
 
 2. **Generate mTLS Certificates for internal services:**
    ```bash
-   make certs
+   bash scripts/gen-mtls-certs.sh
+   bash scripts/gen-mtls-certs.ps1
    ```
 
 3. **Start Infrastructure and Services:**
@@ -85,8 +86,8 @@ openguard/
 6. **Run E2E Tests:**
    ```bash
    cd web
-   npx playwright test e2e/login.spec.ts --headed
    npx playwright test e2e/register.spec.ts --headed
+   npx playwright test e2e/login.spec.ts --headed
    npx playwright test e2e/dashboard.spec.ts --headed
    ```
 

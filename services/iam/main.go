@@ -90,7 +90,7 @@ func main() {
 	userHandler := handlers.NewUserHandler(userService)
 	mfaHandler := handlers.NewMFAHandler()
 	scimHandler := handlers.NewSCIMHandler()
-	tokenHandler := handlers.NewTokenHandler(tokenRepo)
+	tokenHandler := handlers.NewTokenHandler(userService, logger)
 
 	// Router
 	r := router.New(router.Config{

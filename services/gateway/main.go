@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"log/slog"
 	"net/http"
 	"os"
@@ -60,11 +62,34 @@ func main() {
 	// Load Keyring
 	keyring := crypto.NewJWTKeyring(cfg.JWTKeys)
 
+	// Load mTLS for backend services
+	caCertPath := sharedcfg.Default("CA_CERT_PATH", "/app/certs/ca.crt")
+	tlsCertPath := sharedcfg.Default("TLS_CERT_PATH", "/app/certs/server.crt")
+	tlsKeyPath := sharedcfg.Default("TLS_KEY_PATH", "/app/certs/server.key")
+
+	caCert, err := os.ReadFile(caCertPath)
+	if err != nil {
+		logger.Error("failed to load CA cert for mtls", "error", err)
+	}
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	clientCert, err := tls.LoadX509KeyPair(tlsCertPath, tlsKeyPath)
+	if err != nil {
+		logger.Error("failed to load client keys for mtls", "error", err)
+	}
+
+	tlsConfig := &tls.Config{
+		RootCAs:      caCertPool,
+		Certificates: []tls.Certificate{clientCert},
+	}
+
 	// Build router
 	r, err := router.New(router.Config{
 		JWTKeyring:     keyring,
 		Redis:          rdb,
 		Logger:         logger,
+		TLSConfig:      tlsConfig,
 		IAMAddr:        sharedcfg.Default("IAM_TARGET", "http://localhost:8081"),
 		PolicyAddr:     sharedcfg.Default("POLICY_TARGET", ""),
 		ThreatAddr:     sharedcfg.Default("THREAT_TARGET", ""),

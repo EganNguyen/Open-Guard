@@ -2,22 +2,26 @@ package handlers
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/openguard/iam/pkg/repository"
+	"github.com/openguard/iam/pkg/service"
 	"github.com/openguard/shared/models"
-	// pgx transaction logic pushed to service layer, repo only expects tx
-	"github.com/jackc/pgx/v5/pgxpool"
+	"time"
 )
 
 type TokenHandler struct {
-	tokenRepo *repository.APITokenRepository
-	pool *pgxpool.Pool
+	userService *service.UserService
+	logger      *slog.Logger
 }
 
-func NewTokenHandler(tokenRepo *repository.APITokenRepository) *TokenHandler {
-	return &TokenHandler{tokenRepo: tokenRepo}
+func NewTokenHandler(userService *service.UserService, logger *slog.Logger) *TokenHandler {
+	return &TokenHandler{
+		userService: userService,
+		logger:      logger,
+	}
 }
 
 type CreateTokenRequest struct {
@@ -46,8 +50,27 @@ func (h *TokenHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// NOTE: In Phase 1 token.go handled repository interaction directly. 
-	// The repository requires tx now! Wait, token generation logic belongs in the service layer.
-	// For API stubbing purposes during Phase 2 compile, we just defer handling.
-	models.WriteError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "Tokens stub currently uncoupled from tx handling", r)
+	var expiresAt *time.Time
+	if req.ExpiresAt != nil {
+		if t, err := time.Parse(time.RFC3339, *req.ExpiresAt); err == nil {
+			expiresAt = &t
+		}
+	}
+
+	userID := chi.URLParam(r, "id")
+	orgID := r.Header.Get("X-Org-ID")
+
+	token, rawToken, err := h.userService.CreateAPIToken(r.Context(), orgID, userID, req.Name, req.Scopes, expiresAt)
+	if err != nil {
+		h.logger.Error("failed to create api token", "error", err, "user_id", userID, "org_id", orgID)
+		models.WriteError(w, http.StatusInternalServerError, "CREATE_FAILED", err.Error(), r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(CreateTokenResponse{
+		Token:    rawToken,
+		Metadata: token,
+	})
 }

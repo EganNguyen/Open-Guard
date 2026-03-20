@@ -1,6 +1,7 @@
 package router
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -19,6 +20,7 @@ type Config struct {
 	JWTKeyring *crypto.JWTKeyring
 	Redis      *redis.Client
 	Logger     *slog.Logger
+	TLSConfig  *tls.Config
 
 	IAMAddr        string
 	PolicyAddr     string
@@ -52,7 +54,7 @@ func New(cfg Config) (*chi.Mux, error) {
 		OpenDuration:     30 * time.Second,
 	})
 
-	iamProxy, err := proxy.NewReverseProxy(cfg.IAMAddr, cfg.Logger, iamBreaker)
+	iamProxy, err := proxy.NewReverseProxy(cfg.IAMAddr, cfg.Logger, iamBreaker, cfg.TLSConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -76,11 +78,11 @@ func New(cfg Config) (*chi.Mux, error) {
 		r.Handle("/api/v1/users", iamStripHandler)
 		r.Handle("/api/v1/users/*", iamStripHandler)
 
-		policyHandler := serviceUnavailableHandler("policy", cfg.PolicyAddr, cfg.Logger)
-		threatHandler := serviceUnavailableHandler("threat", cfg.ThreatAddr, cfg.Logger)
-		auditHandler := serviceUnavailableHandler("audit", cfg.AuditAddr, cfg.Logger)
-		alertingHandler := serviceUnavailableHandler("alerting", cfg.AlertingAddr, cfg.Logger)
-		complianceHandler := serviceUnavailableHandler("compliance", cfg.ComplianceAddr, cfg.Logger)
+		policyHandler := serviceUnavailableHandler("policy", cfg.PolicyAddr, cfg.Logger, cfg.TLSConfig)
+		threatHandler := serviceUnavailableHandler("threat", cfg.ThreatAddr, cfg.Logger, cfg.TLSConfig)
+		auditHandler := serviceUnavailableHandler("audit", cfg.AuditAddr, cfg.Logger, cfg.TLSConfig)
+		alertingHandler := serviceUnavailableHandler("alerting", cfg.AlertingAddr, cfg.Logger, cfg.TLSConfig)
+		complianceHandler := serviceUnavailableHandler("compliance", cfg.ComplianceAddr, cfg.Logger, cfg.TLSConfig)
 
 		r.Handle("/api/v1/policies", policyHandler)
 		r.Handle("/api/v1/policies/*", policyHandler)
@@ -103,7 +105,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-func serviceUnavailableHandler(name, addr string, logger *slog.Logger) http.Handler {
+func serviceUnavailableHandler(name, addr string, logger *slog.Logger, tlsCfg *tls.Config) http.Handler {
 	if addr != "" {
 		cb := resilience.NewBreaker(resilience.BreakerConfig{
 			Name:             name + "-breaker",
@@ -113,7 +115,7 @@ func serviceUnavailableHandler(name, addr string, logger *slog.Logger) http.Hand
 			FailureThreshold: 5,
 			OpenDuration:     30 * time.Second,
 		})
-		p, err := proxy.NewReverseProxy(addr, logger, cb)
+		p, err := proxy.NewReverseProxy(addr, logger, cb, tlsCfg)
 		if err == nil {
 			return http.StripPrefix("/api/v1", p)
 		}
