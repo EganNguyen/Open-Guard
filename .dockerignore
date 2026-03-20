@@ -1,0 +1,13 @@
+# Ignore large directories to speed up Docker build context
+node_modules/
+.git/
+dist/
+build/
+.next/
+out/
+.env
+infra/certs/
+bin/
+**/*.exe
+**/*.test
+**/*.log

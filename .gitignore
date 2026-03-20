@@ -70,3 +70,6 @@ kafka_data/
 redis_data/
 *.db
 *.sqlite
+*.crt
+*.key
+*.srl

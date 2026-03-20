@@ -10,12 +10,20 @@ import (
 )
 
 type Relay struct {
-	db       *pgxpool.Pool
-	producer *kafka.Producer
+	db        *pgxpool.Pool
+	producer  *kafka.Producer
+	TableName string
 }
 
 func NewRelay(db *pgxpool.Pool, producer *kafka.Producer) *Relay {
-	return &Relay{db: db, producer: producer}
+	return &Relay{db: db, producer: producer, TableName: "outbox_records"}
+}
+
+func (r *Relay) getTableName() string {
+	if r.TableName == "" {
+		return "outbox_records"
+	}
+	return r.TableName
 }
 
 func (r *Relay) Start(ctx context.Context) {
@@ -46,7 +54,7 @@ func (r *Relay) processBatch(ctx context.Context) error {
 
 	query := `
 		SELECT id, topic, key, payload 
-		FROM outbox_records 
+		FROM ` + r.getTableName() + ` 
 		WHERE status = 'pending' 
 		ORDER BY created_at ASC 
 		LIMIT 100 
@@ -86,9 +94,9 @@ func (r *Relay) processBatch(ctx context.Context) error {
 
 		if pubErr != nil {
 			log.Printf("Failed to publish record %s: %v", rec.ID, pubErr)
-			_, _ = tx.Exec(ctx, `UPDATE outbox_records SET attempts = attempts + 1, last_error = $1 WHERE id = $2`, pubErr.Error(), rec.ID)
+			_, _ = tx.Exec(ctx, `UPDATE `+r.getTableName()+` SET attempts = attempts + 1, last_error = $1 WHERE id = $2`, pubErr.Error(), rec.ID)
 		} else {
-			_, err = tx.Exec(ctx, `UPDATE outbox_records SET status = 'published', published_at = NOW() WHERE id = $1`, rec.ID)
+			_, err = tx.Exec(ctx, `UPDATE `+r.getTableName()+` SET status = 'published', published_at = NOW() WHERE id = $1`, rec.ID)
 			if err != nil {
 				return err
 			}

@@ -50,6 +50,8 @@ openguard/
 - Docker & Docker Compose
 - Make
 - Go 1.22+ and Node.js 20+
+- Brew (for k6)
+- Playwright (for e2e tests)
 
 ### Local Development
 
@@ -64,20 +66,20 @@ openguard/
    make certs
    ```
 
-3. **Start Infrastructure (Postgres, Mongo, Redis, Kafka, ClickHouse):**
+3. **Start Infrastructure and Services:**
    ```bash
-   docker-compose -f infra/docker/docker-compose.yml up -d
+   make dev
    ```
 
 4. **Run Database Migrations & Create Kafka Topics:**
    ```bash
-   make migrate
-   ./scripts/create-topics.sh
+   make migrate && ./scripts/create-topics.sh
    ```
 
-5. **Start Services:**
+5. **Run Unit/Integration Tests:**
    ```bash
-   make dev
+   make test-unit
+   make test-integration
    ```
 
 6. **Run E2E Tests:**
@@ -88,4 +90,7 @@ openguard/
    npx playwright test e2e/dashboard.spec.ts --headed
    ```
 
-*See the `docs/` folder for detailed phase specifications, runbooks, and API documentation.*
+7. **Run Load Testing (k6):**
+   ```bash
+   k6 run loadtest/policy-evaluate.js
+   ```

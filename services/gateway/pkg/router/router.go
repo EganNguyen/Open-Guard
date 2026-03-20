@@ -69,6 +69,10 @@ func New(cfg Config) (*chi.Mux, error) {
 
 	r.Group(func(r chi.Router) {
 		r.Use(mw.JWTAuth(cfg.JWTKeyring))
+		
+		pc := mw.NewPolicyClient(cfg.PolicyAddr, cfg.Logger)
+		r.Use(pc.Middleware())
+
 		r.Handle("/api/v1/users", iamStripHandler)
 		r.Handle("/api/v1/users/*", iamStripHandler)
 

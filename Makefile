@@ -1,34 +1,38 @@
 .PHONY: dev test lint build migrate seed clean
 
-# Start all infrastructure and services for local development
+# Generate mTLS certificates for internal services
+
+
+# Start all infrastructure, backend and frontend services for local development
 dev:
-	docker compose -f services/docker-compose.yml up -d
-	@echo "Infrastructure and services started."
+	docker compose --env-file .env -f services/docker-compose.yml -f infra/docker/docker-compose.yml up -d
+	@echo "All infrastructure and services started."
 
 # Run all tests across the workspace
-test:
-	go test ./services/gateway/... ./services/iam/... ./shared/...
+test-unit:
+	go test ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
 
 # Run tests with race detector
 test-race:
-	go test -race ./services/gateway/... ./services/iam/... ./shared/...
+	go test -race ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
 
 # Run integration tests
 test-integration:
-	go test -tags=integration ./services/gateway/... ./services/iam/... ./shared/...
+	go test -tags=integration ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
 
 # Lint all Go code
 lint:
-	golangci-lint run ./services/gateway/... ./services/iam/... ./shared/...
+	golangci-lint run ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
 
 # Build all services
 build:
 	go build -o bin/gateway ./services/gateway
 	go build -o bin/iam ./services/iam
+	go build -o bin/policy ./services/policy
 
 # Run database migrations
 migrate:
-	bash scripts/migrate.sh
+	@if [ -f .env ]; then export $$(cat .env | grep -v '^#' | xargs); fi; bash scripts/migrate.sh
 
 # Seed the database with sample data
 seed:

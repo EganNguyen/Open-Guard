@@ -1,75 +1,16 @@
 services:
-  # ─────────── Infrastructure ───────────
-  postgres:
-    image: postgres:16-alpine
-    container_name: openguard-postgres
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-openguard}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-      POSTGRES_DB: ${POSTGRES_DB:-openguard}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openguard}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
-    container_name: openguard-redis
-    command: redis-server --requirepass "${REDIS_PASSWORD:-}"
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: openguard-zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    volumes:
-      - zookeeper_data:/var/lib/zookeeper/data
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: openguard-kafka
-    depends_on:
-      - zookeeper
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    volumes:
-      - kafka_data:/var/lib/kafka/data
-    healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-
   # ─────────── Backend Services ───────────
   iam:
     build:
       context: ../
       dockerfile: services/iam/Dockerfile
     container_name: openguard-iam
-    env_file:
-      - ../.env
     environment:
       POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-openguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-openguard}
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
       IAM_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
@@ -94,16 +35,18 @@ services:
       context: ../
       dockerfile: services/gateway/Dockerfile
     container_name: openguard-gateway
-    env_file:
-      - ../.env
     environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-openguard}
       REDIS_ADDR: redis:6379
       KAFKA_BROKERS: kafka:9092
+      CA_CERT_PATH: /app/certs/ca.crt
       IAM_TARGET: https://iam:8081
+      POLICY_TARGET: http://policy:8082
       GATEWAY_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
       TLS_CERT_PATH: /app/certs/server.crt
       TLS_KEY_PATH: /app/certs/server.key
-      CA_CERT_PATH: /app/certs/ca.crt
     ports:
       - "8080:8080"
     volumes:
@@ -111,10 +54,44 @@ services:
       - ../infra/certs/gateway.crt:/app/certs/server.crt:ro
       - ../infra/certs/gateway.key:/app/certs/server.key:ro
     depends_on:
-      redis:
-        condition: service_healthy
       iam:
         condition: service_started
+      policy:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  policy:
+    build:
+      context: ../
+      dockerfile: services/policy/Dockerfile
+    container_name: openguard-policy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-openguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-openguard}
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+      POLICY_PORT: "8082"
+      POLICY_CACHE_TTL_SECONDS: "30"
+      TLS_CERT_PATH: /app/certs/server.crt
+      TLS_KEY_PATH: /app/certs/server.key
+      CA_CERT_PATH: /app/certs/ca.crt
+    ports:
+      - "8082:8082"
+    volumes:
+      - ../infra/certs/ca.crt:/app/certs/ca.crt:ro
+      - ../infra/certs/policy.crt:/app/certs/server.crt:ro
+      - ../infra/certs/policy.key:/app/certs/server.key:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   # ─────────── Frontend ───────────
   web:
@@ -135,3 +112,5 @@ volumes:
   redis_data:
   zookeeper_data:
   kafka_data:
+  mongo_data:
+  clickhouse_data:

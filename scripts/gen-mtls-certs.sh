@@ -57,6 +57,7 @@ generate_service_cert() {
 
 generate_service_cert "gateway" "DNS:gateway,DNS:localhost"
 generate_service_cert "iam"     "DNS:iam,DNS:localhost"
+generate_service_cert "policy"  "DNS:policy,DNS:localhost"
 
 echo "==> Certificates ready in $CERT_DIR"
 ls -la "$CERT_DIR"/*.crt "$CERT_DIR"/*.key
