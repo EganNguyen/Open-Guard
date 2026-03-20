@@ -1,0 +1,84 @@
+.topbar {
+  height: 54px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 12px;
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.pageTitle {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+.spacer { flex: 1; }
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  width: 220px;
+  cursor: text;
+  transition: border-color 0.15s;
+}
+
+.searchBox:hover { border-color: var(--border2); }
+
+.searchBox input {
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12.5px;
+  width: 100%;
+}
+
+.searchBox input::placeholder { color: var(--muted); }
+
+.trialBadge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--amber-bg);
+  border: 1px solid rgba(245,166,35,0.25);
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--amber);
+}
+
+.topbarBtn {
+  width: 32px; height: 32px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.topbarBtn:hover { border-color: var(--border2); color: var(--text); }
+
+.notifBtn { position: relative; }
+
+.notifDot {
+  position: absolute;
+  top: 6px; right: 6px;
+  width: 6px; height: 6px;
+  background: var(--red);
+  border-radius: 50%;
+  border: 1.5px solid var(--surface);
+}
