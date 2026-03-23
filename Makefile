@@ -8,6 +8,15 @@ dev:
 	docker compose --env-file .env -f services/docker-compose.yml -f infra/docker/docker-compose.yml up -d
 	@echo "All infrastructure and services started."
 
+# Build all backend services with docker
+build-backend:
+	docker compose -f services/docker-compose.yml build iam gateway policy
+
+# Build all frontend services with docker
+build-frontend:
+	docker compose -f services/docker-compose.yml build web
+
+
 # Run all tests across the workspace
 test-unit:
 	go test ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
@@ -23,12 +32,6 @@ test-integration:
 # Lint all Go code
 lint:
 	golangci-lint run ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
-
-# Build all services
-build:
-	go build -o bin/gateway ./services/gateway
-	go build -o bin/iam ./services/iam
-	go build -o bin/policy ./services/policy
 
 # Run database migrations
 migrate:
