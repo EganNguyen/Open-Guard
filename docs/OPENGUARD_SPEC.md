@@ -1,19 +1,24 @@
-# OpenGuard — Enterprise Implementation Specification v2.0
+# OpenGuard — Enterprise Implementation
 
-> **For the implementing LLM:** This is a complete, phase-gated specification for a true enterprise-scale security platform. Read the **entire document** before writing a single line of code. This version supersedes v1.0 and incorporates fixes for: the dual-write / Transactional Outbox problem, PostgreSQL Row-Level Security, circuit breakers, the Saga pattern for distributed operations, multi-tenancy isolation, read/write split (CQRS), secret rotation, mTLS, ClickHouse bulk-insert batching, load performance targets, and structured migration guarantees.
+> **For the implementing engineer:** This is the single authoritative document for OpenGuard. It contains both the system architecture specification and the Go clean-code standards that apply to every line of implementation. Read the entire document before writing any code. The code quality standards in **Section 0** apply to every section that follows — they are not optional and are enforced by CI.
 >
+> This version supersedes v1.0 and incorporates fixes for: the dual-write / Transactional Outbox problem, PostgreSQL Row-Level Security, circuit breakers, the Saga pattern for distributed operations, multi-tenancy isolation, read/write split (CQRS), secret rotation, mTLS, ClickHouse bulk-insert batching, load performance targets, structured migration guarantees, and Go clean-code consistency throughout all code examples.
+
 > **Non-negotiable rules:**
 > - Every Kafka publish goes through the Outbox relay — never a direct producer call from a business handler.
 > - Every table that holds org data has RLS enabled and enforced.
 > - Every inter-service HTTP call wraps a circuit breaker.
 > - Failure mode for the policy engine is **fail closed**: deny all access when unavailable.
 > - No string concatenation in SQL — parameterized queries only, enforced by linter in CI.
+> - No `time.Sleep` in service code paths — use `time.NewTicker` for all polling loops.
+> - Interfaces are defined in the consuming service's package, not in `shared/`.
 > - All canonical names (env vars, topic names, table names, error codes) are fixed — do not rename.
 
 ---
 
 ## Table of Contents
 
+0. [Code Quality Standards](#0-code-quality-standards)
 1. [Project Overview](#1-project-overview)
 2. [Enterprise Architecture Principles](#2-enterprise-architecture-principles)
 3. [Repository Layout](#3-repository-layout)
@@ -37,6 +42,1040 @@
 
 ---
 
+## 0. Code Quality Standards
+
+> These standards are not optional guidelines. They are enforced by CI (linters, race detector, coverage gate, SQL lint) and by code review. Every code example in this specification is written to satisfy them. Where a rule has a narrow exception specific to OpenGuard, that exception is stated explicitly and applies only where stated.
+
+---
+
+### 0.1 Philosophy
+
+**Readability is a production concern.** Code is read ten times for every one time it is written. In an on-call rotation at 3 AM, unclear code costs real reliability. Optimize for the reader — the engineer who adds a feature here in six months, the SRE debugging a memory leak, the new hire extending this service in their second week.
+
+**Boring code is good code.** Go is deliberately unexciting. Resist the urge to be clever. A `for` loop readable in five seconds beats a channel-of-channels construction that requires a design doc. The most important metric for a code review is: can a competent engineer understand this without asking you questions?
+
+**Consistency beats local optimality.** When the team has agreed on a pattern, use it — even if you personally know a marginally better one. Propose changes to this document; do not silently diverge in code.
+
+---
+
+### 0.2 Package Design
+
+#### One coherent concept per package
+
+A package should encapsulate a single coherent concept. If you cannot describe what a package does in one sentence without the word "and," it probably needs to be split.
+
+#### Service layout: `pkg/` is this project's `internal/`
+
+Every service uses `services/<name>/pkg/` for all sub-packages. Because all seven services live in the same Go workspace and no service ever imports another service's packages directly, `pkg/` provides the same isolation guarantee as `internal/`. Nothing under `pkg/` is ever imported by a different service. The style guide's `internal/` rule applies to any standalone library or service built outside this workspace.
+
+#### The `shared/` module is a justified exception to the no-generic-names rule
+
+`github.com/openguard/shared` holds genuine cross-service wire contracts. Every package inside it has a real, descriptive name: `kafka/`, `models/`, `rls/`, `resilience/`, `telemetry/`, `crypto/`, `validator/`. Do not add packages to `shared/` whose own name is generic (e.g., `shared/utils/`, `shared/helpers/`).
+
+#### No package-level variables for mutable state
+
+Package-level `var` creates implicit global state that makes tests order-dependent and parallel execution treacherous.
+
+```go
+// Bad — test A may corrupt test B's state
+var defaultHTTPClient = &http.Client{Timeout: 10 * time.Second}
+
+// Good — explicit, injectable, testable
+func NewHTTPClient(timeout time.Duration) *http.Client {
+    return &http.Client{Timeout: timeout}
+}
+```
+
+**Justified exceptions in this codebase:**
+- `shared/telemetry/logger.go` — `sensitiveKeys` is a read-only slice initialized once at startup. Safe.
+- `services/compliance/pkg/reporter/generator.go` — `reportBulkhead` is a process-lifetime concurrency limiter initialized from config at startup. Safe because it is never mutated after construction.
+- Compiled regular expressions (`var emailRE = regexp.MustCompile(...)`).
+
+#### No circular imports
+
+If package A imports package B and package B imports package A, one of two things is true: they should be merged, or a third package should hold the shared type. The Go toolchain enforces this at compile time.
+
+---
+
+### 0.3 Naming Conventions
+
+#### The name should eliminate the need for a comment
+
+```go
+// Bad
+d := time.Since(start) // duration of the request
+
+// Good
+requestDuration := time.Since(start)
+```
+
+#### Exported names carry their package prefix — do not repeat it
+
+The caller writes `repository.Repository`, not `repository.UserRepository`. This rule applies to all type names within their own package. Spec code examples reference types from the caller's perspective using their full `package.Type` form; when implementing, define the type without the package prefix.
+
+```go
+// In package repository — Bad
+type UserRepository struct{}   // caller sees repository.UserRepository — redundant
+
+// In package repository — Good
+type Repository struct{}       // caller sees repository.Repository
+```
+
+**Concrete OpenGuard mapping:**
+
+| Package | Type name inside the package |
+|---|---|
+| `pkg/repository/` | `Repository` |
+| `pkg/service/` | `Service` |
+| `pkg/handlers/` | `Handler` |
+| `pkg/outbox/` | `Writer` |
+| `pkg/router/` | `Router` |
+
+#### Interface names describe the behavior
+
+```go
+// Bad — names the implementor, not the capability
+type UserStore interface{}
+
+// Good — names what you can do with it
+type UserReader interface {
+    GetByID(ctx context.Context, id string) (*models.User, error)
+}
+
+type UserWriter interface {
+    Create(ctx context.Context, u *models.User) error
+    Update(ctx context.Context, u *models.User) error
+}
+
+// Compose when both are needed
+type UserRepository interface {
+    UserReader
+    UserWriter
+}
+```
+
+#### Sentinel errors use the `Err` prefix
+
+```go
+var (
+    ErrNotFound      = errors.New("not found")
+    ErrAlreadyExists = errors.New("already exists")
+    ErrUnauthorized  = errors.New("unauthorized")
+)
+```
+
+Use sentinel errors for simple cases. Use typed errors when callers need to inspect fields:
+
+```go
+type ValidationError struct {
+    Field   string
+    Message string
+}
+
+func (e *ValidationError) Error() string {
+    return fmt.Sprintf("validation failed on %s: %s", e.Field, e.Message)
+}
+```
+
+#### Acceptable abbreviations
+
+`ctx`, `cfg`, `err`, `ok`, `id`, `tx`, `db`, `w`, `r` (in HTTP handlers) are universally understood. `usrMgr`, `svcCnfg`, `rqstHndlr` are not acceptable.
+
+---
+
+### 0.4 Error Handling
+
+#### Never discard errors silently
+
+```go
+// Unacceptable — always handle the error
+_ = db.Close()
+
+// Correct
+if err := db.Close(); err != nil {
+    slog.ErrorContext(ctx, "failed to close db connection", "error", err)
+}
+```
+
+#### Wrap errors once at each layer boundary
+
+```go
+// Repository layer: translate DB errors to domain errors
+func (r *Repository) GetByID(ctx context.Context, id string) (*models.User, error) {
+    var u models.User
+    err := r.db.QueryRow(ctx, query, id).Scan(/* fields */)
+    if err != nil {
+        if errors.Is(err, pgx.ErrNoRows) {
+            return nil, ErrNotFound
+        }
+        return nil, fmt.Errorf("query user by id %s: %w", id, err)
+    }
+    return &u, nil
+}
+
+// Service layer: one wrap with service-level context
+func (s *Service) GetUser(ctx context.Context, id string) (*models.User, error) {
+    user, err := s.repo.GetByID(ctx, id)
+    if err != nil {
+        return nil, fmt.Errorf("get user: %w", err)
+    }
+    return user, nil
+}
+```
+
+#### Use `errors.Is` and `errors.As` — never string matching
+
+```go
+// Good — traverses the full error chain
+if errors.Is(err, ErrNotFound) {
+    return http.StatusNotFound
+}
+
+var valErr *ValidationError
+if errors.As(err, &valErr) {
+    respondWithFieldError(w, valErr.Field, valErr.Message)
+}
+
+// Bad — brittle and breaks with wrapped errors
+if strings.Contains(err.Error(), "not found") {}
+```
+
+#### Log or return — never both
+
+Logging an error and then returning it causes double-logging. Log at the outermost layer that has full request context (the HTTP handler or Kafka consumer). Service and repository layers return errors; they do not log them.
+
+```go
+// Bad — logs here AND the caller logs again
+func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) error {
+    if err := s.repo.Create(ctx, input); err != nil {
+        slog.ErrorContext(ctx, "repo create failed", "error", err) // double-log
+        return fmt.Errorf("create user: %w", err)
+    }
+    return nil
+}
+
+// Good — return only; the handler logs with full request context
+func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) error {
+    if err := s.repo.Create(ctx, input); err != nil {
+        return fmt.Errorf("create user: %w", err)
+    }
+    return nil
+}
+```
+
+#### Panic only for programmer errors and startup invariants
+
+`panic` is appropriate when a nil dependency is passed to a constructor (programmer error) or when a required configuration is absent at startup. Never panic on runtime errors — return them.
+
+```go
+// Acceptable — startup invariant
+func NewService(repo Repository, events EventPublisher) *Service {
+    if repo == nil {
+        panic("NewService: repo is required")
+    }
+    return &Service{repo: repo, events: events}
+}
+```
+
+#### Do not return `nil, nil`
+
+A nil error alongside a nil value is ambiguous. Return `ErrNotFound` or an equivalent sentinel. Callers should never need to nil-check a returned pointer when the error is also nil.
+
+---
+
+### 0.5 Interfaces
+
+#### The consuming package owns the interface
+
+Define interfaces in the package that uses them, not in the package that implements them. This keeps the interface narrow (only what the consumer actually needs), makes it trivial to swap implementations in tests, and avoids creating shared dependencies between packages.
+
+```go
+// Bad — shared/ defines the interface; all services are coupled to it
+// package shared/kafka
+type Publisher interface {
+    Publish(ctx context.Context, topic, key string, payload []byte) error
+}
+
+// Good — IAM service defines the interface it needs; shared/kafka satisfies it implicitly
+// services/iam/pkg/service/user.go
+type eventPublisher interface {
+    Publish(ctx context.Context, topic, key string, payload []byte) error
+}
+
+type Service struct {
+    events eventPublisher // satisfied at runtime by *kafka.Producer
+}
+```
+
+**OpenGuard rule:** `shared/` exports concrete types and structs (`EventEnvelope`, `OutboxRecord`, `kafka.Producer`, `outbox.Writer`). The interfaces over those types live in the consuming service's `pkg/service/` package, never in `shared/`.
+
+#### Keep interfaces small
+
+Every method added narrows the set of types that can satisfy the interface. Prefer single-method or two-method interfaces. Compose them when needed.
+
+#### Do not add interfaces prematurely
+
+An interface with one implementation and no tests that substitute it is engineering overhead. Add it when you have a second implementation, when you need a test double, or when crossing a significant layer boundary.
+
+---
+
+### 0.6 Concurrency
+
+#### Every goroutine has an explicit owner and a termination path
+
+If you cannot answer "who starts this goroutine," "when does it stop," and "who waits for it," the goroutine will leak. Use `errgroup` for all structured concurrency.
+
+```go
+// Good — lifecycle is explicit and tied to context cancellation
+func (s *Service) Run(ctx context.Context) error {
+    g, ctx := errgroup.WithContext(ctx)
+
+    g.Go(func() error { return s.runEventLoop(ctx) })
+    g.Go(func() error { return s.runCleanupLoop(ctx) })
+
+    return g.Wait()
+}
+
+func (s *Service) runEventLoop(ctx context.Context) error {
+    ticker := time.NewTicker(100 * time.Millisecond) // never time.Sleep
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ctx.Done():
+            return ctx.Err()
+        case <-ticker.C:
+            if err := s.processBatch(ctx); err != nil {
+                s.logger.ErrorContext(ctx, "batch processing failed", "error", err)
+            }
+        }
+    }
+}
+```
+
+#### Use `errgroup` for parallel fan-out
+
+```go
+func (s *Service) enrichUser(ctx context.Context, userID string) (*EnrichedUser, error) {
+    var (
+        profile  *Profile
+        roles    []Role
+        sessions []Session
+    )
+
+    g, ctx := errgroup.WithContext(ctx)
+
+    g.Go(func() error {
+        var err error
+        profile, err = s.profileSvc.Get(ctx, userID)
+        return err
+    })
+    g.Go(func() error {
+        var err error
+        roles, err = s.policySvc.GetRoles(ctx, userID)
+        return err
+    })
+    g.Go(func() error {
+        var err error
+        sessions, err = s.sessionSvc.List(ctx, userID)
+        return err
+    })
+
+    if err := g.Wait(); err != nil {
+        return nil, fmt.Errorf("enrich user %s: %w", userID, err)
+    }
+    return &EnrichedUser{Profile: profile, Roles: roles, Sessions: sessions}, nil
+}
+```
+
+#### Use `sync.Mutex` for protecting shared state, channels for transferring ownership
+
+A mutex is right when multiple goroutines read and write the same memory. A channel is right when one goroutine hands a value to another. Do not reach for channels where a mutex is simpler.
+
+#### `wg.Add` before the goroutine starts, `wg.Done` via `defer` as the first line
+
+```go
+// Bad — race: goroutine may not have called Add before Wait
+for _, item := range items {
+    go func(item Item) {
+        wg.Add(1) // wrong place
+        defer wg.Done()
+        process(item)
+    }(item)
+}
+
+// Good
+for _, item := range items {
+    wg.Add(1)
+    go func(item Item) {
+        defer wg.Done()
+        process(item)
+    }(item)
+}
+wg.Wait()
+```
+
+---
+
+### 0.7 Context Discipline
+
+#### `context.Context` is always the first parameter, never stored in a struct
+
+```go
+// Bad — hides lifecycle, makes cancellation invisible
+type Service struct {
+    ctx context.Context
+}
+
+// Good — context flows explicitly through every call
+func (s *Service) ProcessRequest(ctx context.Context, req *Request) error {}
+```
+
+The only exception is a long-running background worker where the context is the worker's entire lifetime, passed to `Run(ctx)` at construction.
+
+#### Never pass `context.Background()` inside a request handler
+
+```go
+// Bad — query outlives the HTTP request; client disconnect is ignored
+func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
+    user, err := h.repo.GetByID(context.Background(), chi.URLParam(r, "id"))
+}
+
+// Good — query is cancelled when client disconnects
+func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
+    user, err := h.repo.GetByID(r.Context(), chi.URLParam(r, "id"))
+}
+```
+
+#### Context values are for request-scoped metadata only
+
+Context is not a dependency injection mechanism. It carries: trace IDs, request IDs, authenticated user IDs, and `org_id` for RLS. Dependencies (repositories, event publishers, loggers) go in struct fields set by the constructor.
+
+```go
+// Bad — dependencies via context
+ctx = context.WithValue(ctx, dbKey{}, db)
+
+// Good — typed context values for metadata only
+func WithOrgID(ctx context.Context, orgID string) context.Context {
+    return context.WithValue(ctx, contextKey{}, orgID)
+}
+
+func OrgID(ctx context.Context) string {
+    v, _ := ctx.Value(contextKey{}).(string)
+    return v
+}
+```
+
+#### Propagate context cancellation; do not mask it
+
+When `ctx.Err()` is non-nil after an operation, return the context error. Do not substitute a generic error — callers distinguish "the operation failed" from "the caller cancelled."
+
+---
+
+### 0.8 Dependency Injection & Wiring
+
+#### Constructor injection — always
+
+Every type with external dependencies receives them through its constructor. No type reaches for a global variable, singleton, or `sync.Once`-initialized dependency inside business logic.
+
+```go
+// Bad — hidden global dependency
+func (s *Service) GetUser(ctx context.Context, id string) (*models.User, error) {
+    return globalDB.QueryUser(ctx, id)
+}
+
+// Good — explicit dependency, testable
+type Service struct {
+    repo   userReader
+    cache  Cache
+    events eventPublisher
+}
+
+func NewService(repo userReader, cache Cache, events eventPublisher) *Service {
+    if repo == nil {
+        panic("NewService: repo is required")
+    }
+    return &Service{repo: repo, cache: cache, events: events}
+}
+```
+
+#### `main.go` is the wiring file
+
+All dependency construction and wiring belongs in `main.go`. Business packages never construct their own dependencies. The full dependency graph of the service is visible in one place.
+
+```go
+// main.go — the entire wiring is visible here
+func main() {
+    cfg := config.MustLoad()
+
+    pgPool    := mustOpenPostgres(ctx, cfg.Postgres)
+    mongoWrite, mongoRead := mustOpenMongo(ctx, cfg.Mongo)
+    redisClient := mustOpenRedis(ctx, cfg.Redis)
+    kafkaProd   := mustOpenKafkaProducer(ctx, cfg.Kafka)
+
+    outboxWriter := outbox.NewWriter()
+    userRepo     := repository.NewRepository(pgPool)
+    userSvc      := service.NewService(userRepo, redisClient, outboxWriter, kafkaProd)
+    userHandler  := handlers.NewHandler(userSvc, validator.New())
+
+    router := router.New(userHandler)
+    server := &http.Server{
+        Addr:              cfg.Addr,
+        Handler:           router,
+        ReadTimeout:       5 * time.Second,
+        ReadHeaderTimeout: 2 * time.Second,
+        WriteTimeout:      10 * time.Second,
+        IdleTimeout:       120 * time.Second,
+    }
+    runServer(ctx, server)
+}
+```
+
+#### Use functional options for constructors with more than three parameters
+
+```go
+type clientOptions struct {
+    timeout   time.Duration
+    retryMax  int
+    userAgent string
+}
+
+type ClientOption func(*clientOptions)
+
+func WithTimeout(d time.Duration) ClientOption {
+    return func(o *clientOptions) { o.timeout = d }
+}
+
+func NewHTTPClient(baseURL string, opts ...ClientOption) *HTTPClient {
+    o := &clientOptions{timeout: 10 * time.Second, retryMax: 3}
+    for _, opt := range opts {
+        opt(o)
+    }
+    return &HTTPClient{baseURL: baseURL, opts: o}
+}
+```
+
+---
+
+### 0.9 Configuration
+
+#### Fail fast at startup — never discover bad config at request time
+
+`config.MustLoad()` panics on any missing or malformed required variable. A service that starts with bad config fails immediately, loudly, and predictably. A service that discovers the missing config on the first request that exercises the broken path fails in production, silently, and unpredictably.
+
+The `shared/config/config.go` helpers (`Must`, `MustInt`, `MustDuration`, `MustJSON`) are the canonical implementation (Section 5.2). Use them exclusively — do not call `os.Getenv` from inside business packages.
+
+#### Typed sub-configs prevent stringly-typed mistakes
+
+```go
+type Config struct {
+    Addr     string
+    Postgres PostgresConfig
+    Redis    RedisConfig
+    Kafka    KafkaConfig
+    JWT      JWTConfig
+}
+
+type JWTConfig struct {
+    Keys   []crypto.JWTKey
+    Expiry time.Duration
+    Issuer string
+}
+```
+
+Pass sub-configs (or constructed clients) to constructors. Never scatter `os.Getenv` calls across packages.
+
+---
+
+### 0.10 Testing
+
+#### Test behaviour, not implementation
+
+Tests that assert on internal state, call unexported methods, or are coupled to implementation data structures break on every refactor. Tests describe what the system does.
+
+#### Use table-driven tests for input/output variation
+
+```go
+func TestValidateEmail(t *testing.T) {
+    cases := []struct {
+        name    string
+        input   string
+        wantErr bool
+    }{
+        {"valid",          "user@example.com", false},
+        {"missing at",     "userexample.com",  true},
+        {"missing domain", "user@",            true},
+        {"empty",          "",                 true},
+    }
+    for _, tc := range cases {
+        t.Run(tc.name, func(t *testing.T) {
+            err := ValidateEmail(tc.input)
+            if tc.wantErr {
+                require.Error(t, err)
+            } else {
+                require.NoError(t, err)
+            }
+        })
+    }
+}
+```
+
+#### `require` for fatal assertions, `assert` for non-fatal
+
+`require.NoError` stops the test immediately. `assert.Equal` collects all failures. Use `require` when the test cannot meaningfully continue after a failure; use `assert` otherwise so you see all failures at once.
+
+#### Fakes over generated mocks for most cases
+
+Hand-written fakes are more readable, type-safe, and maintainable than generated mocks for narrow interfaces.
+
+```go
+// A fake that lives alongside the test
+type fakeUserRepo struct {
+    users     map[string]*models.User
+    createErr error
+    getCalled bool
+}
+
+func (f *fakeUserRepo) GetByID(_ context.Context, id string) (*models.User, error) {
+    f.getCalled = true
+    if u, ok := f.users[id]; ok {
+        return u, nil
+    }
+    return nil, ErrNotFound
+}
+
+func (f *fakeUserRepo) Create(_ context.Context, u *models.User) error {
+    if f.createErr != nil {
+        return f.createErr
+    }
+    if f.users == nil {
+        f.users = make(map[string]*models.User)
+    }
+    f.users[u.ID] = u
+    return nil
+}
+```
+
+#### Integration tests use `testcontainers-go` with real databases
+
+Unit tests with fakes cover business logic. Integration tests with real PostgreSQL and MongoDB containers cover the SQL, schema, pgx driver behaviour, and index usage.
+
+```go
+func TestRepository_Integration(t *testing.T) {
+    if testing.Short() {
+        t.Skip("skipping integration test in short mode")
+    }
+    ctx := context.Background()
+    container, dsn := startPostgres(t, ctx)
+    defer container.Terminate(ctx)
+
+    pool := mustOpenPool(t, dsn)
+    runMigrations(t, dsn)
+
+    repo := repository.NewRepository(pool)
+
+    t.Run("create and retrieve user", func(t *testing.T) {
+        org := seedOrg(t, pool)
+        created, err := repo.Create(ctx, CreateInput{OrgID: org.ID, Email: "test@example.com"})
+        require.NoError(t, err)
+        require.NotEmpty(t, created.ID)
+
+        found, err := repo.GetByID(ctx, created.ID)
+        require.NoError(t, err)
+        assert.Equal(t, "test@example.com", found.Email)
+    })
+}
+```
+
+#### CI runs all tests with `-race`; coverage floor is 70%
+
+```bash
+go test ./... -race -count=1 -coverprofile=coverage.out -timeout 5m
+```
+
+The CI pipeline (Section 15.2) enforces ≥ 70% coverage per package and rejects any PR that drops below this threshold. 70% is the floor; aim higher in new packages.
+
+---
+
+### 0.11 Observability
+
+#### Structured logging with `log/slog`, JSON in all non-dev environments
+
+```go
+// Bad — impossible to query or alert on
+log.Printf("user %s logged in from %s", userID, ip)
+
+// Good — every field is queryable in any log aggregator
+slog.InfoContext(ctx, "user login success",
+    "user_id",    userID,
+    "ip_address", ip,
+    "country",    country,
+    "mfa_used",   mfaUsed,
+)
+```
+
+#### Mandatory fields on every log entry
+
+These fields are injected automatically by the logger middleware and `slog.With` base attributes. Individual log callsites do not repeat them.
+
+| Field | Source |
+|---|---|
+| `service` | Hardcoded service name constant |
+| `env` | `APP_ENV` |
+| `trace_id` | OTel W3C trace ID from context |
+| `span_id` | OTel span ID from context |
+| `request_id` | `X-Request-ID` header |
+| `org_id` | RLS context (omit for system operations) |
+| `user_id` | JWT claim (omit for unauthenticated requests) |
+| `duration_ms` | For request-scoped completion logs |
+
+#### `SafeAttr` for any attribute whose key might be sensitive
+
+The `SafeAttr` function (Section 16.3) redacts values whose key contains: `password`, `secret`, `token`, `key`, `auth`, `credential`, `private`, `bearer`, `authorization`, `cookie`, `session`. Use it for every log attribute passed from user-controlled or secret-adjacent data.
+
+#### Log at the handler layer; service and repository layers return errors
+
+This is the enforcement of the log-or-return rule at the architectural level. Handlers have the full request context (trace ID, user ID, org ID, request path) needed for a meaningful error log. Repository and service methods do not log — they return wrapped errors.
+
+#### Distributed tracing: start a span at every service call boundary
+
+```go
+func (s *Service) GetUser(ctx context.Context, id string) (*models.User, error) {
+    ctx, span := tracer.Start(ctx, "Service.GetUser",
+        trace.WithAttributes(attribute.String("user.id", id)),
+    )
+    defer span.End()
+
+    user, err := s.repo.GetByID(ctx, id)
+    if err != nil {
+        span.RecordError(err)
+        span.SetStatus(codes.Error, err.Error())
+        return nil, fmt.Errorf("get user: %w", err)
+    }
+    return user, nil
+}
+```
+
+Sampling rate is controlled by `OTEL_SAMPLING_RATE` (0.1 in production, 1.0 in development). The Outbox relay injects `trace_id` from the parent context into each `EventEnvelope` so traces span from HTTP request through to the audit event in MongoDB.
+
+---
+
+### 0.12 HTTP Handler Rules
+
+#### Handlers are thin: bind → validate → call service → respond
+
+Business logic never lives in a handler. A handler has exactly four jobs.
+
+```go
+func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
+    r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit — always
+
+    var input service.CreateUserInput
+    if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+        h.respondError(w, r, http.StatusBadRequest, "INVALID_JSON", err.Error())
+        return
+    }
+    if err := h.validator.Struct(input); err != nil {
+        h.respondValidationError(w, r, err)
+        return
+    }
+
+    user, err := h.svc.CreateUser(r.Context(), input)
+    if err != nil {
+        h.handleServiceError(w, r, err)
+        return
+    }
+    h.respond(w, http.StatusCreated, user)
+}
+```
+
+#### Centralize error-to-status-code mapping
+
+One `handleServiceError` method on the handler. Not scattered per endpoint.
+
+```go
+func (h *Handler) handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
+    var valErr *ValidationError
+    switch {
+    case errors.Is(err, ErrNotFound):
+        h.respondError(w, r, http.StatusNotFound, "RESOURCE_NOT_FOUND", err.Error())
+    case errors.Is(err, ErrAlreadyExists):
+        h.respondError(w, r, http.StatusConflict, "RESOURCE_CONFLICT", err.Error())
+    case errors.Is(err, ErrUnauthorized):
+        h.respondError(w, r, http.StatusForbidden, "FORBIDDEN", err.Error())
+    case errors.As(err, &valErr):
+        h.respondError(w, r, http.StatusUnprocessableEntity, "VALIDATION_ERROR", valErr.Error())
+    default:
+        slog.ErrorContext(r.Context(), "unhandled service error", "error", err)
+        h.respondError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR",
+            "an unexpected error occurred")
+    }
+}
+```
+
+#### Never expose internal error messages to callers
+
+The response body must never reveal database error strings, file paths, internal service names, or stack traces. Log the full internal error; return a sanitized message. Matches the `APIError` contract defined in Section 4.6.
+
+#### Always set explicit server timeouts
+
+```go
+server := &http.Server{
+    Addr:              cfg.Addr,
+    Handler:           router,
+    ReadTimeout:       5 * time.Second,
+    ReadHeaderTimeout: 2 * time.Second,
+    WriteTimeout:      10 * time.Second,
+    IdleTimeout:       120 * time.Second,
+}
+```
+
+A server without `ReadTimeout` is vulnerable to slow-client attacks. A server without `WriteTimeout` accumulates goroutines for clients that have silently disconnected.
+
+---
+
+### 0.13 Performance Discipline
+
+#### Measure before optimizing — always
+
+The Go profiler (`pprof`) tells you exactly where CPU time and allocations are going. Intuitions about hot paths are almost always wrong.
+
+```bash
+go test -bench=. -benchmem -cpuprofile=cpu.prof ./pkg/policy/...
+go tool pprof -http=:8080 cpu.prof
+```
+
+#### `sync.Pool` for frequently allocated temporary objects
+
+```go
+var envelopePool = sync.Pool{
+    New: func() any { return new(bytes.Buffer) },
+}
+
+func marshalEnvelope(env *models.EventEnvelope) ([]byte, error) {
+    buf := envelopePool.Get().(*bytes.Buffer)
+    buf.Reset()
+    defer envelopePool.Put(buf)
+    if err := json.NewEncoder(buf).Encode(env); err != nil {
+        return nil, err
+    }
+    return buf.Bytes(), nil
+}
+```
+
+#### Pre-allocate slices when the length is known
+
+```go
+// Bad — repeated reallocation on every append
+var events []AuditEvent
+for rows.Next() {
+    var e AuditEvent
+    rows.Scan(...)
+    events = append(events, e)
+}
+
+// Good — single allocation
+events := make([]AuditEvent, 0, expectedCount)
+for rows.Next() {
+    var e AuditEvent
+    rows.Scan(...)
+    events = append(events, e)
+}
+```
+
+#### Avoid reflection in hot paths
+
+`reflect` is expensive. The policy evaluation path (`POST /policies/evaluate`, p99 target 30ms) and JWT validation path (p99 target 5ms) must not use reflection. Prefer code generation or explicit type-specific implementations.
+
+---
+
+### 0.14 Forbidden Patterns
+
+The following patterns are banned in all service code. CI linters are configured to catch most of them. Code review must catch the rest.
+
+#### No `init()` for side effects
+
+`init()` runs at package load time in import-graph order with no way to inject dependencies, return errors, or control execution. It makes startup bugs mysterious and tests order-dependent.
+
+```go
+// Banned
+func init() {
+    db, err := sql.Open("postgres", os.Getenv("DATABASE_URL"))
+    if err != nil {
+        log.Fatal(err)
+    }
+    globalDB = db
+}
+
+// Correct — explicit wiring in main.go
+func main() {
+    cfg := config.MustLoad()
+    pool := mustOpenPostgres(ctx, cfg.Postgres)
+    // pass pool to constructors
+}
+```
+
+**Exception:** Initializing truly read-only package-level values that cannot be `const` — pre-compiled regexes, `errors.New` sentinels.
+
+#### No `log.Fatal` or `os.Exit` outside `main`
+
+`log.Fatal` calls `os.Exit(1)`, bypassing all deferred functions. The service gets no chance to flush buffers, close connections, or release locks.
+
+```go
+// Banned in service/repository/handler packages
+func (s *Server) Start() {
+    if err := s.db.Ping(); err != nil {
+        log.Fatalf("db unreachable: %v", err) // kills process with no cleanup
+    }
+}
+
+// Correct — return the error; main.go decides whether to exit
+func (s *Server) Start() error {
+    if err := s.db.Ping(); err != nil {
+        return fmt.Errorf("db ping: %w", err)
+    }
+    return nil
+}
+```
+
+#### No `any` / `interface{}` as function parameter types
+
+`any` parameters bypass the type system, force type assertions, and turn compile-time errors into runtime panics.
+
+```go
+// Banned
+func Process(payload any) error {
+    event, ok := payload.(*models.EventEnvelope)
+    if !ok {
+        return errors.New("unexpected type") // panics waiting to happen
+    }
+}
+
+// Correct — the compiler enforces the contract
+func Process(event *models.EventEnvelope) error {}
+```
+
+Accepted uses: JSON marshaling/unmarshaling (`json.Unmarshal(data, &dest)`), `slog.Any`, generic containers where the type is genuinely unknown.
+
+#### No `time.Sleep` in service code paths
+
+`time.Sleep` blocks the goroutine without responding to context cancellation. It makes code untestable and unshuttable.
+
+```go
+// Banned in all service, consumer, and relay code
+for {
+    s.processBatch()
+    time.Sleep(100 * time.Millisecond) // not cancellable
+}
+
+// Correct — responds to context cancellation and supports graceful shutdown
+ticker := time.NewTicker(100 * time.Millisecond)
+defer ticker.Stop()
+for {
+    select {
+    case <-ctx.Done():
+        return ctx.Err()
+    case <-ticker.C:
+        if err := s.processBatch(ctx); err != nil {
+            s.logger.ErrorContext(ctx, "batch failed", "error", err)
+        }
+    }
+}
+```
+
+**Exception:** The `scripts/re-encrypt-mfa.sh` migration script uses `time.Sleep(50ms)` between batches to throttle DB load. That is a one-off operational script, not a service code path. This exception does not extend to any code inside `services/`.
+
+#### No shadowed `err` variables
+
+```go
+// Bug — inner err is a different variable; outer err stays nil
+err := doFirst()
+if err != nil { return err }
+if condition {
+    err := doSecond() // shadows outer err; this err is discarded
+}
+return err // always nil — bug
+
+// Correct — assign to the outer err
+err := doFirst()
+if err != nil { return err }
+if condition {
+    err = doSecond()
+}
+return err
+```
+
+#### No string concatenation in SQL
+
+Parameterized queries only. No exceptions. The SQL linter in CI (`go-sqllint`) catches this automatically, but it is also a code review gate.
+
+```go
+// Banned — SQL injection vector
+query := "SELECT * FROM users WHERE email = '" + email + "'"
+
+// Required
+const query = `SELECT id, email FROM users WHERE email = $1`
+row := pool.QueryRow(ctx, query, email)
+```
+
+---
+
+### 0.15 Code Review Checklist
+
+Use this checklist on every PR. All items must pass before merge.
+
+**Package & structure**
+- [ ] Package has a single, statable purpose
+- [ ] No package named `utils`, `common`, `misc`, or `helpers` added to `shared/`
+- [ ] No service imports another service's `pkg/` packages
+- [ ] No circular imports
+
+**Errors**
+- [ ] No discarded errors (`_ = ...`)
+- [ ] Errors wrapped once at layer boundaries, not at every callsite
+- [ ] `errors.Is` / `errors.As` used for inspection — no string matching
+- [ ] No log-and-return (pick one)
+- [ ] No `nil, nil` returns
+- [ ] No shadowed `err`
+
+**Concurrency**
+- [ ] Every goroutine has a clear owner and termination path
+- [ ] `wg.Add` called before goroutine starts
+- [ ] No `time.Sleep` in service code — `time.NewTicker` used for polling
+- [ ] Tests run with `-race` in CI
+
+**Context**
+- [ ] `ctx` is the first parameter on every function that touches I/O
+- [ ] `context.Background()` not used inside request handlers
+- [ ] Context values are typed (no raw string keys)
+- [ ] Cancellation propagated — not swallowed
+
+**Database**
+- [ ] All SQL uses parameterized queries (`$1`, `$2`) — no string interpolation
+- [ ] Transactions defer `Rollback` and commit last
+- [ ] No transaction held open across a network or external service call
+- [ ] `rls.SetSessionVar` called before every PostgreSQL query on a pooled connection
+
+**HTTP**
+- [ ] Handler only binds, validates, calls service, responds
+- [ ] Error-to-status mapping in centralized `handleServiceError`
+- [ ] Internal errors not exposed in response body
+- [ ] `http.MaxBytesReader` applied to every request body
+- [ ] Server configured with `ReadTimeout`, `WriteTimeout`, `IdleTimeout`
+
+**Observability**
+- [ ] All log entries use `slog` with `slog.InfoContext` / `slog.ErrorContext`
+- [ ] Sensitive fields passed through `SafeAttr`
+- [ ] External calls wrapped in OTel spans
+- [ ] Metrics use label cardinality that will not cause Prometheus cardinality explosion
+
+**Interfaces & DI**
+- [ ] Interfaces defined in the consuming package, not in `shared/`
+- [ ] Dependencies injected via constructor — no global state accessed from business logic
+- [ ] No `init()` for side effects
+- [ ] No `log.Fatal` / `os.Exit` outside `main`
+
+---
 ## 1. Project Overview
 
 ### 1.1 What is OpenGuard?
@@ -797,15 +1836,17 @@ func OrgID(ctx context.Context) string {
 
 // SetSessionVar sets the PostgreSQL session variable for RLS.
 // Must be called before every query on a pooled connection.
+//
+// IMPORTANT: orgID is always passed as a query parameter ($1), never interpolated
+// into the SQL string. orgID originates from a JWT claim; string interpolation here
+// would be a SQL injection vector. Parameterized form is mandatory per §0.14.
 func SetSessionVar(ctx context.Context, conn *pgxpool.Conn, orgID string) error {
     if orgID == "" {
         // Unset the variable — this results in no rows for RLS-protected tables
         _, err := conn.Exec(ctx, "SELECT set_config('app.org_id', '', false)")
         return err
     }
-    _, err := conn.Exec(ctx, fmt.Sprintf(
-        "SELECT set_config('app.org_id', '%s', false)", orgID,
-    ))
+    _, err := conn.Exec(ctx, "SELECT set_config('app.org_id', $1, false)", orgID)
     return err
 }
 ```
@@ -817,8 +1858,11 @@ Every repository method that executes a PostgreSQL query must:
 4. Release the connection.
 
 ```go
-// Example repository method pattern
-func (r *UserRepository) GetByID(ctx context.Context, id string) (*models.User, error) {
+// Example repository method pattern.
+// Naming note (§0.3): within package `repository` the struct is named `Repository`,
+// not `UserRepository`. Spec examples use the caller-perspective name
+// (repository.UserRepository) for clarity. Implement as `type Repository struct{}`.
+func (r *Repository) GetByID(ctx context.Context, id string) (*models.User, error) {
     conn, err := r.pool.Acquire(ctx)
     if err != nil {
         return nil, fmt.Errorf("acquire connection: %w", err)
@@ -984,6 +2028,8 @@ package outbox
 // Relay reads pending outbox records and publishes them to Kafka.
 // It uses PostgreSQL LISTEN/NOTIFY to wake up immediately on new records,
 // and falls back to polling every 100ms to handle missed notifications.
+// The 100ms fallback is implemented with time.NewTicker(100*time.Millisecond)
+// inside a select{} — never with time.Sleep (see §0.14).
 //
 // Guarantees:
 // - At-least-once delivery to Kafka (Kafka's idempotent producer handles dedup)
@@ -1034,8 +2080,10 @@ func (r *Relay) processBatch(ctx context.Context) (int, error) {
 This is the canonical pattern every handler must follow:
 
 ```go
-// Canonical write handler pattern — do NOT deviate from this
-func (s *UserService) CreateUser(ctx context.Context, input CreateUserInput) (*models.User, error) {
+// Canonical write handler pattern — do NOT deviate from this.
+// Naming note (§0.3): within package `service` the struct is named `Service`,
+// not `UserService`. Implement as `type Service struct{}`.
+func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (*models.User, error) {
     // 1. Acquire connection
     conn, err := s.pool.Acquire(ctx)
     if err != nil {
@@ -1913,6 +2961,9 @@ Throughput target: 100,000 rows/second. Verify in Phase 9.
 ```go
 // pkg/reporter/generator.go
 
+// reportBulkhead is a justified package-level var (see §0.2):
+// it is a process-lifetime concurrency limiter, initialized once from config
+// at startup and never mutated. It is not mutable shared state.
 var reportBulkhead = resilience.NewBulkhead(
     config.DefaultInt("COMPLIANCE_REPORT_MAX_CONCURRENT", 10),
 )
@@ -2321,12 +3372,17 @@ func validateWebhookURL(raw string) error {
 
 ```go
 // shared/telemetry/logger.go
+
+// sensitiveKeys is a justified package-level var (see §0.2):
+// it is a read-only slice initialized once at package load, never mutated,
+// and referenced by every service that calls SafeAttr. It contains no state.
 var sensitiveKeys = []string{
     "password", "secret", "token", "key", "auth", "credential",
     "private", "bearer", "authorization", "cookie", "session",
 }
 
 // SafeAttr returns a slog.Attr with the value redacted if the key is sensitive.
+// Use for every log attribute whose key might intersect with secrets (see §0.11).
 func SafeAttr(key string, value any) slog.Attr {
     keyLower := strings.ToLower(key)
     for _, sensitive := range sensitiveKeys {
@@ -2521,28 +3577,32 @@ Run `make load-test` and address failures:
 
 ### 19.1 Structured Logging
 
-All services use `log/slog` with JSON output in non-dev environments. Every log entry must include:
+> The full logging standard — slog setup, JSON configuration, the log-or-return rule, `SafeAttr` usage, and the logger middleware pattern — is defined in **§0.11**. This section records the OpenGuard-specific mandatory field set that §0.11 references.
 
-| Field | Source |
-|-------|--------|
-| `service` | Hardcoded service name |
-| `env` | `APP_ENV` |
-| `level` | Log level |
-| `msg` | Human-readable message |
-| `trace_id` | OpenTelemetry trace ID |
-| `span_id` | OpenTelemetry span ID |
-| `request_id` | `X-Request-ID` header |
-| `org_id` | From RLS context (omit for system operations) |
-| `user_id` | From JWT (omit for unauthenticated requests) |
-| `duration_ms` | For request-scoped logs |
+All services use `log/slog` with JSON output in non-dev environments. These fields are **mandatory** on every log entry. They are injected automatically by the logger middleware and `slog.With` base attributes; individual callsites do not repeat them.
 
-Use `SafeAttr` (Section 16.3) for all log attributes.
+| Field | Source | Notes |
+|---|---|---|
+| `service` | Hardcoded service name constant | e.g. `"iam"`, `"policy"` |
+| `env` | `APP_ENV` | `development` \| `staging` \| `production` |
+| `level` | Log level | Set by `LOG_LEVEL` env var |
+| `msg` | Human-readable message | Required on every entry |
+| `trace_id` | OpenTelemetry W3C trace ID | From context via OTel middleware |
+| `span_id` | OpenTelemetry span ID | From context via OTel middleware |
+| `request_id` | `X-Request-ID` header | Injected by gateway, propagated downstream |
+| `org_id` | RLS context | Omit for system-level operations |
+| `user_id` | JWT claim | Omit for unauthenticated requests |
+| `duration_ms` | `time.Since(start).Milliseconds()` | For request-scoped completion logs |
+
+Use `SafeAttr` (Section 16.3) for **all** log attributes whose key might intersect with secrets. Never log raw values for keys matching: `password`, `secret`, `token`, `key`, `auth`, `credential`, `private`, `bearer`, `authorization`, `cookie`, `session`.
 
 ### 19.2 Distributed Tracing
 
 Every service initializes OpenTelemetry on startup. Traces propagate via W3C `traceparent` header between services. The Outbox relay injects `trace_id` from the parent context into the `EventEnvelope`, so you can trace from an HTTP request all the way to the audit event in MongoDB.
 
 Sampling rate: `OTEL_SAMPLING_RATE` (0.1 in production, 1.0 in development).
+
+> For the canonical span instrumentation pattern — how to start a span, record errors, and set status codes — see **§0.11 (Distributed Tracing)**.
 
 ### 19.3 Graceful Shutdown (30-second window)
 
@@ -2604,14 +3664,27 @@ Use `github.com/go-playground/validator/v10` for struct-level validation. Every 
 
 ### 19.7 Testing Standards
 
+> The detailed testing patterns — table-driven tests, `require` vs `assert` discipline, fake construction, `testcontainers-go` integration test structure, and the reasoning behind each — are defined in **§0.10**. This section records the required test layers and the CI enforcement thresholds.
+
 | Layer | Tool | Requirement |
-|-------|------|-------------|
+|---|---|---|
 | Unit tests | `testing` + `testify` | ≥ 70% per package, deterministic, no `time.Sleep` |
 | Integration tests | `testcontainers-go` | PostgreSQL + Redis + MongoDB containers, 1 per service |
 | Contract tests | Custom (in `shared/`) | Verify producer → consumer schema compatibility |
 | API tests | `net/http/httptest` | All happy paths + key error paths |
 | Load tests | k6 | All SLOs from Section 1.2 |
 | Chaos tests (Phase 9+) | `toxiproxy` | Verify circuit breaker and outbox behavior under network partition |
+
+**Mandatory CI flags:**
+```bash
+go test ./... -race -count=1 -coverprofile=coverage.out -covermode=atomic -timeout 5m
+```
+
+**Coverage gate:** The CI pipeline fails if any package falls below 70% coverage (see Section 15.2). This is a floor; new packages should target higher.
+
+**Test doubles:** Prefer hand-written fakes over generated mocks for narrow interfaces (see §0.10). Generated mocks (`mockery`) are acceptable only for interfaces with more than five methods where a fake would be burdensome to maintain.
+
+**Test behaviour, not implementation:** Tests must not assert on unexported fields, call private methods via reflection, or be coupled to internal data structures. If a refactor breaks a test that is testing the right thing, the test design needs fixing, not the refactor.
 
 ---
 
@@ -2650,7 +3723,3 @@ When all 10 phases are complete, the following end-to-end scenario must execute 
 ```
 
 Every step is a CI assertion. The release pipeline does not publish unless all 27 steps pass.
-
----
-
-*End of OpenGuard Enterprise Specification v2.0. Begin with the prerequisites in Phase 1 Section 9.1. Do not write service code until the Outbox table migrations and the RLS policy pattern are implemented and tested.*
