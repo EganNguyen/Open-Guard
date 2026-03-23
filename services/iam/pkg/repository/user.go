@@ -54,9 +54,9 @@ func (r *UserRepository) Create(ctx context.Context, tx pgx.Tx, orgID, email, di
 	}
 
 	row := tx.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO users (org_id, email, display_name, password_hash, provisioning_status, tier_isolation)
+		`INSERT INTO users (org_id, email, display_name, password_hash, provisioning_status, tier_isolation)
 		 VALUES ($1, $2, $3, $4, 'complete', 'shared')
-		 RETURNING %s`, userColumns),
+		 RETURNING id, org_id, email, display_name, password_hash, status, mfa_enabled, mfa_method, scim_external_id, provisioning_status, tier_isolation, created_at, updated_at, deleted_at`,
 		orgID, email, displayName, passwordHash,
 	)
 	u, err := scanUser(row)
@@ -72,7 +72,7 @@ func (r *UserRepository) GetByID(ctx context.Context, tx pgx.Tx, orgID, id strin
 	}
 
 	row := tx.QueryRow(ctx,
-		fmt.Sprintf(`SELECT %s FROM users WHERE id = $1 AND deleted_at IS NULL`, userColumns),
+		`SELECT id, org_id, email, display_name, password_hash, status, mfa_enabled, mfa_method, scim_external_id, provisioning_status, tier_isolation, created_at, updated_at, deleted_at FROM users WHERE id = $1 AND deleted_at IS NULL`,
 		id,
 	)
 	return scanUser(row)
@@ -84,7 +84,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, tx pgx.Tx, orgID, email
 	}
 
 	row := tx.QueryRow(ctx,
-		fmt.Sprintf(`SELECT %s FROM users WHERE org_id = $1 AND email = $2 AND deleted_at IS NULL`, userColumns),
+		`SELECT id, org_id, email, display_name, password_hash, status, mfa_enabled, mfa_method, scim_external_id, provisioning_status, tier_isolation, created_at, updated_at, deleted_at FROM users WHERE org_id = $1 AND email = $2 AND deleted_at IS NULL`,
 		orgID, email,
 	)
 	return scanUser(row)
@@ -97,7 +97,7 @@ func (r *UserRepository) GetByEmailGlobal(ctx context.Context, tx pgx.Tx, email 
 	}
 
 	row := tx.QueryRow(ctx,
-		fmt.Sprintf(`SELECT %s FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`, userColumns),
+		`SELECT id, org_id, email, display_name, password_hash, status, mfa_enabled, mfa_method, scim_external_id, provisioning_status, tier_isolation, created_at, updated_at, deleted_at FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
 		email,
 	)
 	return scanUser(row)
@@ -116,7 +116,7 @@ func (r *UserRepository) ListByOrg(ctx context.Context, tx pgx.Tx, orgID string,
 
 	offset := (page - 1) * perPage
 	rows, err := tx.Query(ctx,
-		fmt.Sprintf(`SELECT %s FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1 OFFSET $2`, userColumns),
+		`SELECT id, org_id, email, display_name, password_hash, status, mfa_enabled, mfa_method, scim_external_id, provisioning_status, tier_isolation, created_at, updated_at, deleted_at FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
 		perPage, offset,
 	)
 	if err != nil {
@@ -142,8 +142,8 @@ func (r *UserRepository) UpdateStatus(ctx context.Context, tx pgx.Tx, orgID, id,
 	}
 
 	row := tx.QueryRow(ctx,
-		fmt.Sprintf(`UPDATE users SET status = $1, updated_at = NOW()
-		 WHERE id = $2 AND deleted_at IS NULL RETURNING %s`, userColumns),
+		`UPDATE users SET status = $1, updated_at = NOW()
+		 WHERE id = $2 AND deleted_at IS NULL RETURNING id, org_id, email, display_name, password_hash, status, mfa_enabled, mfa_method, scim_external_id, provisioning_status, tier_isolation, created_at, updated_at, deleted_at`,
 		status, id,
 	)
 	return scanUser(row)

@@ -76,7 +76,7 @@ func (s *EvaluatorService) Evaluate(ctx context.Context, req EvalRequest) (*Eval
 			latency := int(time.Since(start).Milliseconds())
 			// Log asynchronously to not block the response
 			go func() {
-				logCtx := context.Background()
+				logCtx := context.WithoutCancel(ctx)
 				ids := resp.MatchedPolicies
 				_ = s.repo.LogEvaluation(logCtx, &repository.EvalLog{
 					OrgID:     req.OrgID,
@@ -115,7 +115,7 @@ func (s *EvaluatorService) Evaluate(ctx context.Context, req EvalRequest) (*Eval
 
 	// Log evaluation asynchronously
 	go func() {
-		logCtx := context.Background()
+		logCtx := context.WithoutCancel(ctx)
 		_ = s.repo.LogEvaluation(logCtx, &repository.EvalLog{
 			OrgID:     req.OrgID,
 			UserID:    req.UserID,

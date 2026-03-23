@@ -18,7 +18,7 @@ import (
 
 type Config struct {
 	JWTKeyring *crypto.JWTKeyring
-	Redis      *redis.Client
+	Redis      redis.UniversalClient
 	Logger     *slog.Logger
 	TLSConfig  *tls.Config
 

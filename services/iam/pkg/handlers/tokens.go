@@ -36,9 +36,6 @@ type CreateTokenResponse struct {
 }
 
 func (h *TokenHandler) Create(w http.ResponseWriter, r *http.Request) {
-	_ = chi.URLParam(r, "id")
-	_ = r.Header.Get("X-Org-ID")
-
 	var req CreateTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body", r)

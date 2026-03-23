@@ -2,25 +2,37 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/openguard/shared/models"
+	"github.com/openguard/shared/resilience"
+	"github.com/sony/gobreaker"
 )
 
 // PolicyClient handles evaluation requests to the Policy service.
 type PolicyClient struct {
-	addr   string
-	client *http.Client
-	logger *slog.Logger
+	addr    string
+	client  *http.Client
+	breaker *gobreaker.CircuitBreaker
+	logger  *slog.Logger
 }
 
 func NewPolicyClient(addr string, logger *slog.Logger) *PolicyClient {
 	return &PolicyClient{
 		addr:   addr,
 		client: &http.Client{Timeout: 2 * time.Second},
+		breaker: resilience.NewBreaker(resilience.BreakerConfig{
+			Name:             "policy-service",
+			Timeout:          2 * time.Second,
+			MaxRequests:      3,
+			Interval:         10 * time.Second,
+			FailureThreshold: 5,
+			OpenDuration:     30 * time.Second,
+		}),
 		logger: logger,
 	}
 }
@@ -79,7 +91,10 @@ func (pc *PolicyClient) Middleware() func(http.Handler) http.Handler {
 
 			pc.logger.Debug("PolicyClient sending evaluation request", "org_id", orgID, "user_id", userID, "action", evalReq.Action, "resource", evalReq.Resource)
 
-			resp, err := pc.client.Do(req)
+			resp, err := resilience.Call(ctx, pc.breaker, 2*time.Second, func(reqCtx context.Context) (*http.Response, error) {
+				req = req.WithContext(reqCtx)
+				return pc.client.Do(req)
+			})
 			if err != nil {
 				pc.logger.Error("policy service unavailable - failing closed", "error", err)
 				pc.failClosed(w, r)

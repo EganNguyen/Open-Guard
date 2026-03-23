@@ -99,7 +99,7 @@ func (h *PolicyHandler) Get(w http.ResponseWriter, r *http.Request) {
 	policyID := chi.URLParam(r, "id")
 
 	p, err := h.policySvc.Get(r.Context(), orgID, policyID)
-	if errors.Is(err, errNotFound) {
+	if errors.Is(err, ErrNotFound) {
 		writeError(w, r, http.StatusNotFound, "RESOURCE_NOT_FOUND", "policy not found")
 		return
 	}
@@ -144,7 +144,7 @@ func (h *PolicyHandler) Update(w http.ResponseWriter, r *http.Request) {
 	p.OrgID = orgID
 
 	if err := h.policySvc.Update(r.Context(), &p); err != nil {
-		if errors.Is(err, errNotFound) {
+		if errors.Is(err, ErrNotFound) {
 			writeError(w, r, http.StatusNotFound, "RESOURCE_NOT_FOUND", "policy not found")
 			return
 		}
@@ -163,7 +163,7 @@ func (h *PolicyHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	policyID := chi.URLParam(r, "id")
 
 	if err := h.policySvc.Delete(r.Context(), orgID, policyID); err != nil {
-		if errors.Is(err, errNotFound) {
+		if errors.Is(err, ErrNotFound) {
 			writeError(w, r, http.StatusNotFound, "RESOURCE_NOT_FOUND", "policy not found")
 			return
 		}
@@ -175,8 +175,8 @@ func (h *PolicyHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// errNotFound is the sentinel for missing records.
-var errNotFound = errors.New("not found")
+// ErrNotFound is the sentinel for missing records.
+var ErrNotFound = errors.New("not found")
 
 func writeError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	models.WriteError(w, status, code, message, r)

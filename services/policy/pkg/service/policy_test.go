@@ -15,10 +15,10 @@ type mockRepo struct {
 }
 
 func (m *mockRepo) Create(ctx context.Context, p *models.Policy) error             { return m.createErr }
-func (m *mockRepo) GetByID(ctx context.Context, o, p string) (*models.Policy, error) { return nil, nil }
-func (m *mockRepo) ListByOrg(ctx context.Context, o string) ([]*models.Policy, error) { return nil, nil }
+func (m *mockRepo) GetByID(ctx context.Context, o, p string) (*models.Policy, error) { return nil, repository.ErrNotFound }
+func (m *mockRepo) ListByOrg(ctx context.Context, o string) ([]*models.Policy, error) { return []*models.Policy{}, nil }
 func (m *mockRepo) ListEnabledForOrg(ctx context.Context, o string) ([]*models.Policy, error) {
-	return nil, nil
+	return []*models.Policy{}, nil
 }
 func (m *mockRepo) Update(ctx context.Context, p *models.Policy) error { return m.updateErr }
 func (m *mockRepo) Delete(ctx context.Context, o, p string) error    { return nil }

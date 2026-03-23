@@ -5,17 +5,26 @@ import (
 	"log"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/openguard/shared/kafka"
+	"github.com/jackc/pgx/v5"
 )
 
+// OutboxDB abstracts the database connection for the relay.
+type OutboxDB interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
+// OutboxProducer abstracts the Kafka producer for the relay.
+type OutboxProducer interface {
+	PublishRaw(ctx context.Context, topic string, key []byte, payload []byte) error
+}
+
 type Relay struct {
-	db        *pgxpool.Pool
-	producer  *kafka.Producer
+	db        OutboxDB
+	producer  OutboxProducer
 	TableName string
 }
 
-func NewRelay(db *pgxpool.Pool, producer *kafka.Producer) *Relay {
+func NewRelay(db OutboxDB, producer OutboxProducer) *Relay {
 	return &Relay{db: db, producer: producer, TableName: "outbox_records"}
 }
 

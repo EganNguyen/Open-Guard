@@ -1,10 +1,18 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
+	"os"
 	"testing"
+	"time"
 
+	"github.com/openguard/policy/pkg/repository"
 	"github.com/openguard/shared/models"
+	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestApplyIPAllowlist(t *testing.T) {
@@ -225,4 +233,71 @@ func TestEvalCacheKey(t *testing.T) {
 	if key1 == key3 {
 		t.Error("expected different keys for different actions")
 	}
+}
+
+type evalMockRepo struct {
+	listErr error
+	p       []*models.Policy
+}
+
+func (m *evalMockRepo) Create(ctx context.Context, p *models.Policy) error             { return nil }
+func (m *evalMockRepo) GetByID(ctx context.Context, o, p string) (*models.Policy, error) { return nil, nil }
+func (m *evalMockRepo) ListByOrg(ctx context.Context, o string) ([]*models.Policy, error) { return nil, nil }
+func (m *evalMockRepo) ListEnabledForOrg(ctx context.Context, o string) ([]*models.Policy, error) {
+	return m.p, m.listErr
+}
+func (m *evalMockRepo) Update(ctx context.Context, p *models.Policy) error           { return nil }
+func (m *evalMockRepo) Delete(ctx context.Context, o, p string) error                { return nil }
+func (m *evalMockRepo) LogEvaluation(ctx context.Context, l *repository.EvalLog) error { return nil }
+
+func TestEvaluatorService_Evaluate(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	// Pass a bad redis client so we bypass cache aggressively
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:65535", DialTimeout: 100 * time.Millisecond})
+
+	t.Run("db error fails closed", func(t *testing.T) {
+		repo := &evalMockRepo{listErr: errors.New("db error")}
+		svc := NewEvaluatorService(repo, rdb, 30, logger)
+
+		req := EvalRequest{OrgID: "org-1", Action: "read"}
+		resp, err := svc.Evaluate(context.Background(), req)
+		assert.NoError(t, err) // Evaluate itself swallows and fails closed
+		assert.False(t, resp.Permitted)
+		assert.Contains(t, resp.Reason, "fail closed")
+	})
+
+	t.Run("no policies configured allows all", func(t *testing.T) {
+		repo := &evalMockRepo{p: []*models.Policy{}}
+		svc := NewEvaluatorService(repo, rdb, 30, logger)
+
+		req := EvalRequest{OrgID: "org-1", Action: "read"}
+		resp, err := svc.Evaluate(context.Background(), req)
+		assert.NoError(t, err)
+		assert.True(t, resp.Permitted)
+	})
+
+	t.Run("policy denies request", func(t *testing.T) {
+		repo := &evalMockRepo{p: []*models.Policy{
+			{ID: "p1", Enabled: true, Type: "ip_allowlist", Rules: []byte(`{"allowed_ips":["10.0.0.1"]}`)},
+		}}
+		svc := NewEvaluatorService(repo, rdb, 30, logger)
+
+		req := EvalRequest{OrgID: "org-1", IPAddress: "192.168.1.1"}
+		resp, err := svc.Evaluate(context.Background(), req)
+		assert.NoError(t, err)
+		assert.False(t, resp.Permitted)
+		assert.Contains(t, resp.MatchedPolicies, "p1")
+		
+		time.Sleep(50 * time.Millisecond)
+	})
+}
+
+func TestEvaluatorService_InvalidateCache(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:65535", DialTimeout: 10 * time.Millisecond})
+	svc := NewEvaluatorService(&evalMockRepo{}, rdb, 30, logger)
+
+	err := svc.InvalidateCacheForOrg(context.Background(), "org-1")
+	// Since Redis is offline, SCAN returns an error
+	assert.ErrorContains(t, err, "redis scan")
 }

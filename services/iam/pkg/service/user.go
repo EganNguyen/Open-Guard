@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/openguard/iam/pkg/repository"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/models"
@@ -18,7 +17,7 @@ import (
 )
 
 type UserService struct {
-	pool     *pgxpool.Pool
+	pool     DBPool
 	users    *repository.UserRepository
 	sessions *repository.SessionRepository
 	tokens   *repository.APITokenRepository
@@ -27,7 +26,7 @@ type UserService struct {
 }
 
 func NewUserService(
-	pool *pgxpool.Pool,
+	pool DBPool,
 	users *repository.UserRepository,
 	sessions *repository.SessionRepository,
 	tokens *repository.APITokenRepository,

@@ -14,7 +14,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/openguard/iam/pkg/repository"
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/kafka"
@@ -24,7 +23,7 @@ import (
 )
 
 type AuthService struct {
-	pool       *pgxpool.Pool
+	pool       DBPool
 	users      *repository.UserRepository
 	orgs       *repository.OrgRepository
 	sessions   *repository.SessionRepository
@@ -37,7 +36,7 @@ type AuthService struct {
 }
 
 func NewAuthService(
-	pool *pgxpool.Pool,
+	pool DBPool,
 	users *repository.UserRepository,
 	orgs *repository.OrgRepository,
 	sessions *repository.SessionRepository,

@@ -19,11 +19,11 @@ build-frontend:
 
 # Run all tests across the workspace
 test-unit:
-	go test ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
+	go test -cover ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
 
 # Run tests with race detector
 test-race:
-	go test -race ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
+	go test -cover -race ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
 
 # Run integration tests
 test-integration:

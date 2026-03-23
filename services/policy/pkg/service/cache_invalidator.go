@@ -52,7 +52,9 @@ func (c *CacheInvalidator) Start(ctx context.Context) {
 		var envelope models.EventEnvelope
 		if err := json.Unmarshal(msg.Value, &envelope); err != nil {
 			c.logger.Error("failed to unmarshal policy change event", "error", err)
-			_ = c.reader.CommitMessages(ctx, msg)
+			if commitErr := c.reader.CommitMessages(ctx, msg); commitErr != nil {
+				c.logger.Error("failed to commit message after unmarshal error", "error", commitErr)
+			}
 			continue
 		}
 
@@ -62,7 +64,9 @@ func (c *CacheInvalidator) Start(ctx context.Context) {
 			}
 		}
 
-		_ = c.reader.CommitMessages(ctx, msg)
+		if err := c.reader.CommitMessages(ctx, msg); err != nil {
+			c.logger.Error("failed to commit message", "error", err)
+		}
 	}
 }
 

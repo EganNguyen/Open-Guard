@@ -98,21 +98,29 @@ func TestPolicyIntegration(t *testing.T) {
 	}
 
 	policyID := policyResp["id"].(string)
-	// Wait for outbox relay and cache invalidation
-	time.Sleep(5 * time.Second)
-
-	// 3. List policies
-	status, listResp := doRequest(t, http.MethodGet, "/policies", token, nil)
-	if status != http.StatusOK {
-		t.Errorf("List policies failed: expected 200, got %d", status)
-	}
-	
+	// 3. List policies (wait for outbox relay and cache invalidation via polling)
+	var listResp map[string]interface{}
 	found := false
-	if policies, ok := listResp["data"].([]interface{}); ok {
-		for _, p := range policies {
-			if pm, ok := p.(map[string]interface{}); ok && pm["id"] == policyID {
-				found = true
-				break
+	timeout := time.After(10 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+pollLoop:
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("timed out waiting for policy %s to appear in list", policyID)
+		case <-ticker.C:
+			status, listResp = doRequest(t, http.MethodGet, "/policies", token, nil)
+			if status == http.StatusOK {
+				if policies, ok := listResp["data"].([]interface{}); ok {
+					for _, p := range policies {
+						if pm, ok := p.(map[string]interface{}); ok && pm["id"] == policyID {
+							found = true
+							break pollLoop
+						}
+					}
+				}
 			}
 		}
 	}

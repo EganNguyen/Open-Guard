@@ -14,7 +14,7 @@ import (
 
 // RateLimiter is a Redis-based sliding window rate limiter.
 type RateLimiter struct {
-	client        *redis.Client
+	client        redis.UniversalClient
 	logger        *slog.Logger
 	anonLimit     int           // requests per window for unauthenticated
 	authLimit     int           // requests per window for authenticated
@@ -24,7 +24,7 @@ type RateLimiter struct {
 // NewRateLimiter creates a new rate limiter.
 // anonLimit: max requests per window for unauthenticated users (by IP).
 // authLimit: max requests per window for authenticated users (by user ID).
-func NewRateLimiter(client *redis.Client, logger *slog.Logger, anonLimit, authLimit int, window time.Duration) *RateLimiter {
+func NewRateLimiter(client redis.UniversalClient, logger *slog.Logger, anonLimit, authLimit int, window time.Duration) *RateLimiter {
 	return &RateLimiter{
 		client:    client,
 		logger:    logger,
