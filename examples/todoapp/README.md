@@ -1,60 +1,86 @@
-# OpenGuard Todo App Example
+# OpenGuard Todo App: Real-World Integration Guide
 
-This directory contains a complete, working "Main Product" (A Simple Todo Application) that securely integrates with the OpenGuard Proxy Gateway.
+This guide walks you through a complete, end-to-end integration of a real product (the Todo App) into the OpenGuard ecosystem. Unlike a simple test, this flow uses the actual OpenGuard Gateway, IAM Service, and Policy Engine.
 
-## Concept: Zero-Trust Identity via the Gateway
-In an OpenGuard architecture, this Todo App does **not** know how to parse JWTs, check passwords, or enforce rate limits. It completely trusts the OpenGuard Gateway to do that.
+## Prerequisites
 
-The only security rule this application enforces is that it **must receive the `X-User-ID` and `X-Org-ID` HTTP headers**, which are securely injected by the OpenGuard Gateway after a successful request authentication.
+1. **OpenGuard Stack Running**: 
+   Ensure the core services are running via Docker:
+   ```bash
+   cd services
+   docker-compose up -d
+   ```
+2. **Todo App Running**:
+   Start the Todo App Go server:
+   ```bash
+   cd examples/todoapp
+   go run .
+   ```
+   *The Todo App starts on `http://localhost:8081`.*
 
-If someone attempts to hit this Todo App directly (bypassing the Gateway) without the headers, the Todo App drops the request.
+---
 
-## Architecture
+## Step 1: Register the Route in OpenGuard
 
-```text
-[ User ]  -->  GET /api/v1/todos  --> [ OpenGuard Gateway (:8080) ]
-                                             |
-                                        (Validates JWT)
-                                        (Appends X-User-ID)
-                                             |
-                                      [ Todo App (:8081) ]
-```
+OpenGuard’s Gateway acts as a secure "Front Door". You must tell it to "open the door" for your Todo App.
 
-## How It Works
+1. Open `services/gateway/pkg/router/router.go`.
+2. Locate the `New` function and add a proxy for the Todo App:
+   ```go
+   // 1. Create a proxy for the Todo App (Internal Address)
+   todoProxy, _ := proxy.NewReverseProxy("http://host.docker.internal:8081", cfg.Logger, iamBreaker, cfg.TLSConfig)
 
-1. **The Todo App** is listening on a private/internal port (e.g., `8081`).
-2. **The OpenGuard Gateway** is listening to the public internet on port `8080`.
-3. When you make a request to the Gateway with a valid Bearer Token, the Gateway unwraps the token, identifies the user, and securely HTTP proxies the request to the Todo App, injecting `X-User-ID: "user-123"`.
-4. The Todo App uses the `X-User-ID` to query the database and return only that specific user's todos.
+   // 2. Register the route prefix
+   r.Handle("/api/v1/todos/*", http.StripPrefix("/api/v1", todoProxy))
+   ```
+3. Restart the Gateway service to apply changes.
 
-## Running the Example
+---
 
-### 1. Start the Todo App
-Run this application natively using Go:
-```bash
-cd examples/todoapp
-go run main.go
-```
-The server will start on `http://localhost:8081`.
+## Step 2: Create your User (Signup & Login)
 
-### 2. Configure the OpenGuard Gateway
-Ensure your OpenGuard Gateway is configured to route traffic to this service. For example, in your gateway config:
-```yaml
-routes:
-  - path_prefix: "/todos"
-    upstream_url: "http://localhost:8081"
-```
+Now that the Gateway knows where the Todo App is, you need a valid identity to enter.
 
-### 3. Test It!
+1. Visit the **OpenGuard Dashboard**: `http://localhost:3000`.
+2. **Sign Up**: Create a new account. This stores your credentials securely in the OpenGuard IAM database.
+3. **Login**: Sign in to receive your **JWT (JSON Web Token)**.
+4. **Copy your Token**: You will need this to authenticate your requests.
 
-**If you try to hit the Todo app directly (Without OpenGuard):**
-```bash
-curl http://localhost:8081/todos
-```
-> `401 Unauthorized: Missing OpenGuard identity headers. Bypassing the gateway is strictly prohibited.`
+---
 
-**When you hit the OpenGuard Gateway (With a valid JWT):**
-```bash
-curl -H "Authorization: Bearer <VALID_JWT>" http://localhost:8080/todos
-```
-> `200 OK: [{"id": 1, "title": "Buy milk", "user_id": "user-123"}]`
+## Step 3: Define the Security Policy
+
+Even with a valid login, you are "Unauthorized" until a policy allows you into the Todo App.
+
+1. In the **Dashboard**, navigate to **Policies**.
+2. Create a new **Access Rule**:
+   - **Service**: `todoapp`
+   - **Resource**: `*` (All tasks)
+   - **Action**: `read`, `write`
+   - **Subject**: Your User ID or Role.
+3. Save the Policy. The Policy Engine now has a dynamic database record allowing your access.
+
+---
+
+## Step 4: Use the Protected Product
+
+Now, interact with your Todo App as a fully secured, enterprise-grade user.
+
+1. Open the **Todo App UI**: `http://localhost:8081`.
+2. Set the **API Endpoint** to the **Gateway Address**: `http://localhost:8080/api/v1/todos`.
+   - *Note: You are now hitting the Todo App **through** OpenGuard!*
+3. Paste your **JWT Token** into the Bearer field.
+4. **Add a Task**:
+   - The Gateway validates your JWT.
+   - The Policy Engine confirms your permissions.
+   - The Gateway injects your `X-User-ID` header.
+   - Your Todo App receives the request and saves the task to your personal list.
+
+---
+
+## Summary of Protection
+When you follow this flow, OpenGuard is doing the heavy lifting:
+- **IAM** manages your password and MFA.
+- **Gateway** blocks any unauthenticated traffic matching `/todos`.
+- **Policy Engine** ensures only approved users can "write" new tasks.
+- **Todo App** remains simple, focusing only on managing tasks for the `X-User-ID` provided in the header.
