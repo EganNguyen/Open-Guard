@@ -3,7 +3,7 @@ go 1.25.0
 use (
 	./examples/todoapp
 	./services/audit
-	./services/gateway
+	./services/controlplane
 	./services/iam
 	./services/policy
 	./shared

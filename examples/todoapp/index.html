@@ -135,29 +135,23 @@
 <div class="container">
     <div class="header">
         <h1>Todo App</h1>
-        <p>Protected by OpenGuard Gateway</p>
+        <p>SDK Integration with OpenGuard Control Plane</p>
     </div>
 
     <!-- Configuration Panel -->
     <div class="panel">
         <div class="form-group">
-            <label>API Endpoint (Test direct bypass vs Gateway)</label>
+            <label>API Endpoint (Todo App)</label>
             <div class="target-url">
-                <input type="text" id="apiUrl" value="http://localhost:8081/api/v1/todos" />
+                <input type="text" id="apiUrl" value="http://localhost:8081/api/v1/todos" readonly />
             </div>
             <p style="font-size: 0.8rem; color: #8b949e; margin-top: 0.5rem;">
-                Try <code>http://localhost:8081/api/v1/todos</code> (Direct App Bypass - Will Fail) <br>
-                Try <code>http://localhost:8080/api/v1/todos</code> (OpenGuard Gateway - Will Succeed if Auth valid)
+                Requests hit the App directly. The App will evaluate policies against the Control Plane.
             </p>
         </div>
         
         <div class="form-group">
-            <label>Mock Gateway Headers (For Local Testing Only)</label>
-            <input type="text" id="mockUserId" placeholder="X-User-ID (e.g., user-123)" />
-        </div>
-        
-        <div class="form-group">
-            <label>Bearer Token (If querying Gateway directly)</label>
+            <label>Bearer Token (Issued by OpenGuard IAM)</label>
             <input type="text" id="jwtToken" placeholder="eyJhbG..." />
         </div>
     </div>
@@ -168,7 +162,7 @@
     <div class="panel">
         <form id="addForm">
             <div class="form-group" style="margin-bottom: 0;">
-                <label>New Task</label>
+                <label>New Task (Requires 'write' policy)</label>
                 <div style="display: flex; gap: 0.5rem;">
                     <input type="text" id="todoTitle" placeholder="What needs doing?" required />
                     <button type="submit" style="width: auto;">Add</button>
@@ -179,7 +173,7 @@
 
     <!-- Todo List -->
     <div class="panel">
-        <h3 style="margin-top: 0; font-size: 1rem; color: #fff;">Your Tasks</h3>
+        <h3 style="margin-top: 0; font-size: 1rem; color: #fff;">Your Tasks (Requires 'read' policy)</h3>
         <div style="text-align: right; margin-bottom: 1rem;">
             <button onclick="fetchTodos()" style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.8rem; background: var(--border);">🔄 Refresh</button>
         </div>
@@ -198,14 +192,6 @@
         const token = document.getElementById('jwtToken').value.trim();
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
-        }
-        
-        const mockUserId = document.getElementById('mockUserId').value.trim();
-        if (mockUserId) {
-            // Note: The real OpenGuard Gateway would strip external X-User-ID and inject its own.
-            // But if hitting localhost:8081 directly, this lets us fake it for local dev without Gateway.
-            headers['X-User-ID'] = mockUserId;
-            headers['X-Org-ID'] = 'org-1';
         }
         
         return headers;
@@ -233,7 +219,7 @@
             }
             
             const todos = await res.json();
-            showStatus('Fetched successfully!', false);
+            showStatus('Fetched successfully! Control Plane Allowed Action.', false);
             
             if (!todos || todos.length === 0) {
                 list.innerHTML = '<li style="color: #8b949e; justify-content: center;">No tasks found.</li>';
@@ -271,7 +257,7 @@
             }
             
             document.getElementById('todoTitle').value = '';
-            showStatus('Todo added successfully!', false);
+            showStatus('Todo added successfully! Control Plane Allowed Action.', false);
             fetchTodos();
         } catch (err) {
             showStatus(`Network Error: ${err.message}`, true);

@@ -1,40 +1,37 @@
-# OpenGuard Integration & Showcase
+# OpenGuard SDK Pipeline & Showcase
 
-This directory contains a simple, interactive showcase of **OpenGuard**'s protection pipeline. It demonstrates how OpenGuard acts as a security gateway between your users and your main product, enforcing authentication, authorization, rate limiting, and audit logging.
+This directory contains an interactive showcase of **OpenGuard**'s protection pipeline using the modern **Control Plane SDK** architecture. It demonstrates how connected applications use OpenGuard for centralized security governance (authentication, authorization, rate limiting, and audit logging) without putting OpenGuard inline as a reverse proxy.
 
-## The OpenGuard Pipeline
+## The SDK & Control Plane Pipeline
 
-When you integrate OpenGuard into your architecture, it sits at the edge of your network. The request flow is as follows:
+When you integrate OpenGuard into your application using the SDK, the request flow is:
 
-1. **User Request**: A client application sends an HTTP request to an endpoint.
-2. **OpenGuard Gateway**: The Gateway intercepts the request.
-   - **Rate Limiting**: Checks if the user has exceeded their configured limits.
-   - **Authentication (IAM)**: Validates the JWT, checks for token revocation, and identifies the user and tenant (`org_id`).
-3. **Policy Engine**: The Gateway asks the Policy Engine if this specific user has permissions to perform the requested action on the target resource.
-4. **Main Product (Upstream)**: If all checks pass, the Gateway forwards the request to your actual backend service (the Main Product).
-5. **Audit Logging**: An `EventEnvelope` is asynchronously sent through the Transactional Outbox and Kafka relay to the Audit service to record the interaction for compliance.
+1. **User Request**: A client application sends an HTTP request directly to your public-facing application endpoint.
+2. **App SDK Intercept**: The OpenGuard SDK middleware running inside your app intercepts the request.
+   - **Rate Limiting**: Checks local token buckets (synced with Control Plane) to deter spam.
+   - **Authentication**: Validates the incoming JWT locally against JWKS provided by the IAM service.
+3. **Control Plane Governance**: If valid, the SDK makes an API call (`POST /v1/policy/evaluate`) to the OpenGuard Control Plane.
+   - The Control Plane checks the **Policy Engine** to ensure the specific user has permissions/roles to perform the action.
+4. **App Logic**: The Control Plane responds `{"permitted": true}`. The SDK allows the request to reach your application's actual business logic.
+5. **Audit Logging**: The SDK emits an `EventEnvelope` (`POST /v1/events/ingest`) back to the Control Plane asynchronously. The Control Plane normalizes it and relays it into the immutable Audit Service via Kafka outbox.
 
 ## Integration Guide
 
-To protect your main product with OpenGuard, follow these steps:
+To protect your main product with OpenGuard:
 
-### 1. Route Traffic Through OpenGuard
-Your main product should no longer be exposed directly to the public internet. Instead, route all external traffic to the OpenGuard Gateway. 
-- The Gateway will handle TLS termination, rate limiting, and authentication.
-- Configure the Gateway to proxy traffic to your internal service endpoints.
+### 1. Install & Configure the SDK
+Import the OpenGuard SDK into your application (e.g., Go, Node.js). Initialize it with your **Connector API Key** and the URL of the OpenGuard Control Plane.
 
-### 2. Configure IAM and Policies
-- Use the **IAM Service** to manage users, organizations, and issue authentication tokens (JWTs).
-- Use the **Policy Engine** to define Role-Based Access Control (RBAC) rules for your product's endpoints.
+### 2. Wrap Your Endpoints
+Apply the SDK middleware to your endpoints. Provide the required contextual attributes (Action, Resource, User).
 
-### 3. Trust the Gateway (Internal Network)
-Configure your main product to **only** accept requests from the OpenGuard Gateway (e.g., via mTLS or a private VPC). 
-- The Gateway will inject trusted headers (e.g., `X-User-ID`, `X-Org-ID`, `X-Request-ID`, `Traceparent`) into the forwarded request.
-- Your main product can safely trust these headers to process the business logic without re-authenticating the user.
+### 3. Centralized Management
+- Use the **IAM Service** to manage your identity pools and issue JSON Web Tokens (JWTs).
+- Use the **OpenGuard Dashboard** to define your Role-Based Access Control (RBAC) rules. 
 
 ## Showcase Use Cases
 
-To help you understand how OpenGuard protects your product, this examples folder contains an interactive visualization.
+To help you understand how OpenGuard protects your product at the edge, run the interactive visualization.
 
 ### Running the Showcase
 1. Open `index.html` in any modern web browser (no build steps, Node.js, or servers required).
@@ -43,15 +40,12 @@ To help you understand how OpenGuard protects your product, this examples folder
 ### Demonstrated Scenarios
 
 - ✅ **Valid Request (Happy Path)**
-  - A properly authenticated and authorized user. The request flows completely through to the Main Product, and an audit log is emitted.
-- ❌ **Unauthenticated (Blocked by Gateway)**
-  - A request with an invalid, missing, or expired token. The Gateway drops the request immediately with a `401 Unauthorized`.
-- ❌ **Unauthorized (Blocked by Policy Engine)**
-  - A user with a valid token attempting to access an endpoint without the proper roles. The Policy Engine denies the request and the Gateway returns `403 Forbidden`.
-- ❌ **Rate Limited (Blocked by Gateway)**
-  - A user making too many requests too quickly. The Gateway drops the request to protect your Main Product, returning `429 Too Many Requests`.
-- ❌ **Malicious Payload (Threat Detection)**
-  - A request containing potential SQL injection or XSS. The threat detection middleware blocks it before it reaches your product.
-
-### Design Aesthetics
-The showcase features a modern, dynamic UI with glassmorphism and subtle CSS keyframe animations to track the lifecycle of a request as it is processed by the OpenGuard modules.
+  - A properly authenticated user. The SDK validates the JWT, the Control Plane confirms authorization, the business logic runs, and an audit log is emitted safely.
+- ❌ **Unauthenticated (Blocked locally by SDK)**
+  - A missing or expired token. The SDK drops the request safely on the application edge.
+- ❌ **Unauthorized (Blocked by Control Plane Policy)**
+  - A user with a valid token attempting an action without sufficient roles. The SDK asks the Control Plane, which returns a denial. The SDK issues a `403 Forbidden`.
+- ❌ **Rate Limited (Blocked locally by SDK)**
+  - A user exceeding limits. The SDK drops the request returning `429 Too Many Requests`.
+- ❌ **Malicious Payload (Blocked locally by SDK)**
+  - Signature-based threat detection within the SDK halts SQLi or XSS immediately.

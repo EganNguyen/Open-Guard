@@ -32,7 +32,7 @@ func New(cfg Config) *chi.Mux {
 	r.Get("/health/live", healthHandler)
 	r.Get("/health/ready", healthHandler) // TODO: check DB + Kafka
 
-	// --- Auth routes (no JWT required — gateway handles auth) ---
+	// --- Public OIDC/SAML IdP endpoints (called directly) ---
 	r.Route("/auth", func(r chi.Router) {
 		r.Post("/register", cfg.AuthHandler.Register)
 		r.Post("/login", cfg.AuthHandler.Login)
@@ -46,8 +46,10 @@ func New(cfg Config) *chi.Mux {
 		r.Post("/mfa/challenge", cfg.MFAHandler.Challenge)
 	})
 
-	// --- User routes (gateway validates JWT and injects X-User-ID headers) ---
+	// --- Internal management API (mTLS, called by control plane) ---
 	r.Route("/users", func(r chi.Router) {
+		r.Use(sharedmw.RequireMTLS)
+		
 		r.Get("/", cfg.UserHandler.List)
 		r.Post("/", cfg.UserHandler.Create)
 		r.Route("/{id}", func(r chi.Router) {
@@ -66,6 +68,8 @@ func New(cfg Config) *chi.Mux {
 
 	// --- SCIM v2 routes ---
 	r.Route("/scim/v2", func(r chi.Router) {
+		r.Use(sharedmw.RequireMTLS)
+
 		r.Get("/Users", cfg.SCIMHandler.ListUsers)
 		r.Post("/Users", cfg.SCIMHandler.CreateUser)
 		r.Get("/Users/{id}", cfg.SCIMHandler.GetUser)

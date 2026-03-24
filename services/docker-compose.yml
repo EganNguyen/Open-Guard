@@ -30,11 +30,11 @@ services:
       kafka:
         condition: service_healthy
 
-  gateway:
+  controlplane:
     build:
       context: ../
-      dockerfile: services/gateway/Dockerfile
-    container_name: openguard-gateway
+      dockerfile: services/controlplane/Dockerfile
+    container_name: openguard-controlplane
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-openguard}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
@@ -45,15 +45,15 @@ services:
       IAM_TARGET: https://iam:8081
       POLICY_TARGET: http://policy:8082
       LOG_LEVEL: debug
-      GATEWAY_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
+      CONTROLPLANE_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
       TLS_CERT_PATH: /app/certs/server.crt
       TLS_KEY_PATH: /app/certs/server.key
     ports:
       - "8080:8080"
     volumes:
       - ../infra/certs/ca.crt:/app/certs/ca.crt:ro
-      - ../infra/certs/gateway.crt:/app/certs/server.crt:ro
-      - ../infra/certs/gateway.key:/app/certs/server.key:ro
+      - ../infra/certs/controlplane.crt:/app/certs/server.crt:ro
+      - ../infra/certs/controlplane.key:/app/certs/server.key:ro
     depends_on:
       iam:
         condition: service_started
@@ -101,11 +101,11 @@ services:
       dockerfile: Dockerfile
     container_name: openguard-web
     environment:
-      NEXT_PUBLIC_API_URL: http://gateway:8080
+      NEXT_PUBLIC_API_URL: http://controlplane:8080
     ports:
       - "3000:3000"
     depends_on:
-      gateway:
+      controlplane:
         condition: service_started
 
 volumes:

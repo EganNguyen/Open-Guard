@@ -5,9 +5,9 @@ class ShowcaseApp {
         
         // Nodes
         this.nodes = {
-            gateway: document.querySelector('#node-gateway .node'),
+            app: document.querySelector('#node-app .node'),
+            cp: document.querySelector('#node-cp .node'),
             policy: document.querySelector('#node-policy .node'),
-            main: document.querySelector('#node-main .node'),
             audit: document.querySelector('#node-audit .node'),
             user: document.querySelector('#node-user .node')
         };
@@ -17,8 +17,7 @@ class ShowcaseApp {
             p1: document.getElementById('packet-1'),
             p2: document.getElementById('packet-2'),
             policy: document.getElementById('packet-policy'),
-            auditV: document.getElementById('packet-audit-v'),
-            auditH: document.getElementById('packet-audit-h')
+            audit: document.getElementById('packet-audit')
         };
     }
 
@@ -60,15 +59,6 @@ class ShowcaseApp {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    async runAnimation(element, animClass, durationMS) {
-        element.classList.remove(animClass);
-        // Force reflow
-        void element.offsetWidth;
-        element.classList.add(animClass);
-        await this.wait(durationMS);
-        element.classList.remove(animClass);
-    }
-
     async simulate(scenario) {
         if (this.isAnimating) {
             this.log("Please wait for current simulation to finish.", "warn");
@@ -76,92 +66,92 @@ class ShowcaseApp {
         }
         this.isAnimating = true;
         this.resetPaths();
-        this.log(`--- Starting new scenario: ${scenario.toUpperCase()} ---`, "system");
+        this.log(`--- Starting new SDK scenario: ${scenario.toUpperCase()} ---`, "system");
 
         try {
-            // STEP 1: User sends request
-            this.log("User sending HTTP request to `/api/v1/resource`...", "info");
+            // User sends request
+            this.log("User sending HTTP request to Application...", "info");
             this.pulseNode('user', 'green', 500);
             
-            // Move packet 1 to Gateway
+            // Move packet 1 to App
             this.packets.p1.classList.add('anim-move-right');
             await this.wait(1000);
             
-            // Reached Gateway
-            this.log("Request intercepted by OpenGuard Gateway.", "info");
+            this.log("Application received request.", "info");
+            this.pulseNode('app', 'yellow', 1000);
 
             if (scenario === 'ratelimit') {
-                this.pulseNode('gateway', 'yellow', 1500);
-                this.log("Gateway: Rate limiting check...", "info");
+                this.log("App SDK: Enforcing local token bucket rate limit...", "info");
                 await this.wait(500);
-                this.log("Gateway Error: 429 Too Many Requests (TokenBucket exhausted).", "error");
-                this.log("Request blocked gracefully before touching Main Product.", "success");
+                this.log("SDK Error: 429 Too Many Requests.", "error");
+                this.pulseNode('app', 'red', 1000);
                 this.isAnimating = false;
                 return;
             }
 
             if (scenario === 'threat') {
-                this.pulseNode('gateway', 'red', 1500);
-                this.log("Gateway: Threat Detection Middleware analyzing payload...", "info");
+                this.log("App SDK: Threat Detection analyzing payload locally...", "info");
                 await this.wait(500);
-                this.log("Gateway Error: Suspicious payload detected (SQLi signature).", "error");
-                this.log("Request DROPPED instantly.", "success");
+                this.log("SDK Error: Suspicious payload detected (SQLi signature).", "error");
+                this.pulseNode('app', 'red', 1000);
                 this.isAnimating = false;
                 return;
             }
 
             if (scenario === 'unauth') {
-                this.pulseNode('gateway', 'red', 1500);
-                this.log("Gateway: Validating JWT via IAM Service...", "info");
+                this.log("App SDK: Validating JWT signature locally...", "info");
                 await this.wait(500);
-                this.log("Gateway Error: 401 Unauthorized (Invalid or expired JWT signature).", "error");
-                this.log("Request DROPPED instantly.", "success");
+                this.log("SDK Error: 401 Unauthorized (Invalid or missing JWT).", "error");
+                this.pulseNode('app', 'red', 1000);
                 this.isAnimating = false;
                 return;
             }
 
-            // Valid Auth path
-            this.pulseNode('gateway', 'green', 1000);
-            this.log("Gateway: Authentication OK. Extracting `X-User-ID`.", "success");
+            this.log("App SDK: JWT Validated. Calling Control Plane POST `/v1/policy/evaluate`", "success");
+            this.packets.p2.classList.add('anim-move-right');
+            await this.wait(1000);
+
+            this.pulseNode('cp', 'yellow', 1000);
+            this.log("Control Plane: Validating Connector API Key.", "info");
             await this.wait(500);
+            this.pulseNode('cp', 'green', 1000);
+            
+            this.log("Control Plane: Delegating authorization to Policy Engine.", "info");
+            this.packets.policy.classList.add('anim-move-down');
+            await this.wait(1000);
 
             if (scenario === 'unauthz') {
-                this.log("Gateway: Delegating authorization to Policy Engine.", "info");
-                this.packets.policy.classList.add('anim-move-down');
-                await this.wait(1000);
-                
                 this.pulseNode('policy', 'red', 1500);
-                this.log("Policy Engine: Checking Role-Based Access Control (RBAC)...", "info");
+                this.log("Policy Engine: Checking RBAC...", "info");
                 await this.wait(500);
-                this.log("Policy Engine Error: Action `write:resource` DENIED for role `Viewer`.", "error");
-                this.log("Gateway Error: 403 Forbidden.", "error");
+                this.log("Policy Engine Error: Action `write` DENIED for role `Viewer`.", "error");
+                this.log("Control Plane: Responding 403 Forbidden to App.", "error");
+                this.pulseNode('cp', 'red', 1000);
                 this.isAnimating = false;
                 return;
             }
 
             // Success scenario
-            this.log("Gateway: Delegating authorization to Policy Engine.", "info");
-            this.packets.policy.classList.add('anim-move-down');
-            await this.wait(1000);
-            
             this.pulseNode('policy', 'green', 1000);
             this.log("Policy Engine: Result ALLOWED.", "success");
             await this.wait(500);
             
-            this.log("Gateway: Request enriched and forwarded to Main Product.", "info");
-            this.packets.p2.classList.add('anim-move-right');
-            await this.wait(1000);
-
-            this.pulseNode('main', 'green', 1500);
-            this.log("Main Product: Processing logic (blindly trusting Gateway headers).", "success");
+            this.log("Control Plane: Returning 200 OK (Permitted) to Application.", "success");
+            this.pulseNode('app', 'green', 1500);
+            this.log("Application: Processing business logic successfully.", "success");
             await this.wait(800);
 
             // Audit
-            this.log("Gateway: Emitting EventEnvelope to Kafka via Outbox.", "info");
-            // Audit path: up then right
-            this.packets.auditV.classList.add('anim-move-up');
+            this.log("App SDK: Emitting EventEnvelope to Control Plane /v1/events/ingest.", "info");
+            this.packets.p2.classList.remove('anim-move-right');
+            void this.packets.p2.offsetWidth; // force reflow
+            this.packets.p2.classList.add('anim-move-right');
             await this.wait(1000);
-            this.packets.auditH.classList.add('anim-move-right-green');
+
+            this.pulseNode('cp', 'green', 1000);
+            this.log("Control Plane: Relaying event to Audit Outbox.", "info");
+            
+            this.packets.audit.classList.add('anim-move-up');
             await this.wait(1000);
 
             this.pulseNode('audit', 'green', 1000);
@@ -176,7 +166,6 @@ class ShowcaseApp {
     }
 }
 
-// Initialize global app instance
 window.onload = () => {
     window.app = new ShowcaseApp();
 };

@@ -113,7 +113,7 @@ func main() {
 
 	tlsConfig := &tls.Config{
 		ClientCAs:  caCertPool,
-		ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientAuth: tls.VerifyClientCertIfGiven,
 		MinVersion: tls.VersionTLS12,
 	}
 

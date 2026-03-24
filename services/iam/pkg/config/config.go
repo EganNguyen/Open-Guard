@@ -43,7 +43,7 @@ func Load() *IAMConfig {
 		Port:      sharedcfg.Default("IAM_PORT", "8081"),
 		JWTKeys:   jwtKeys,
 		MFAKeys:   mfaKeys,
-		JWTExpiry: sharedcfg.DefaultInt("GATEWAY_JWT_EXPIRY", 3600),
+		JWTExpiry: sharedcfg.DefaultInt("IAM_JWT_EXPIRY", 3600),
 		AppEnv:    sharedcfg.Default("APP_ENV", "development"),
 		LogLevel:  sharedcfg.Default("LOG_LEVEL", "info"),
 

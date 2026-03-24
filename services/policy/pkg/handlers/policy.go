@@ -42,7 +42,7 @@ func (h *PolicyHandler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fall back to org from gateway context if not provided in body
+	// Fall back to org from control plane context if not provided in body
 	if req.OrgID == "" {
 		req.OrgID = orgIDFromCtx(r.Context())
 	}

@@ -15,7 +15,7 @@ import (
 	"github.com/openguard/shared/models"
 )
 
-const gatewayURL = "http://localhost:8080/api/v1"
+const controlplaneURL = "http://localhost:8080/api/v1"
 
 func doRequest(t *testing.T, method, path, token string, body interface{}) (int, map[string]interface{}) {
 	t.Helper()
@@ -26,7 +26,7 @@ func doRequest(t *testing.T, method, path, token string, body interface{}) (int,
 		reqBody = bytes.NewBuffer(jsonStr)
 	}
 
-	req, err := http.NewRequest(method, gatewayURL+path, reqBody)
+	req, err := http.NewRequest(method, controlplaneURL+path, reqBody)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
