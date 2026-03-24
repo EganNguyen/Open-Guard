@@ -53,13 +53,21 @@ func (r *Relay) Start(ctx context.Context) {
 			}
 			conn, err := r.db.Acquire(ctx)
 			if err != nil {
-				time.Sleep(1 * time.Second)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(1 * time.Second):
+				}
 				continue
 			}
 			_, err = conn.Exec(ctx, "LISTEN "+channel)
 			if err != nil {
 				conn.Release()
-				time.Sleep(1 * time.Second)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(1 * time.Second):
+				}
 				continue
 			}
 			for {
@@ -70,7 +78,11 @@ func (r *Relay) Start(ctx context.Context) {
 				_, err := conn.Conn().WaitForNotification(ctx)
 				if err != nil {
 					conn.Release()
-					time.Sleep(1 * time.Second)
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(1 * time.Second):
+					}
 					break // break out to re-acquire connection
 				}
 				select {
