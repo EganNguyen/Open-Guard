@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // OutboxDB abstracts the database connection for the relay.
 type OutboxDB interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
+	Acquire(ctx context.Context) (*pgxpool.Conn, error)
 }
 
 // OutboxProducer abstracts the Kafka producer for the relay.
@@ -38,7 +40,48 @@ func (r *Relay) getTableName() string {
 func (r *Relay) Start(ctx context.Context) {
 	log.Println("Starting Outbox Relay Daemon")
 
-	ticker := time.NewTicker(2 * time.Second)
+	notifyCh := make(chan struct{}, 1)
+
+	go func() {
+		channel := "outbox_new"
+		if r.getTableName() == "policy_outbox_records" {
+			channel = "policy_outbox_new"
+		}
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			conn, err := r.db.Acquire(ctx)
+			if err != nil {
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			_, err = conn.Exec(ctx, "LISTEN "+channel)
+			if err != nil {
+				conn.Release()
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			for {
+				if ctx.Err() != nil {
+					conn.Release()
+					return
+				}
+				_, err := conn.Conn().WaitForNotification(ctx)
+				if err != nil {
+					conn.Release()
+					time.Sleep(1 * time.Second)
+					break // break out to re-acquire connection
+				}
+				select {
+				case notifyCh <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -46,9 +89,13 @@ func (r *Relay) Start(ctx context.Context) {
 		case <-ctx.Done():
 			log.Println("Outbox Relay stopping due to context cancellation")
 			return
+		case <-notifyCh:
+			if err := r.processBatch(ctx); err != nil {
+				log.Printf("Outbox Relay batch error (notified): %v", err)
+			}
 		case <-ticker.C:
 			if err := r.processBatch(ctx); err != nil {
-				log.Printf("Outbox Relay batch error: %v", err)
+				log.Printf("Outbox Relay batch error (tick): %v", err)
 			}
 		}
 	}

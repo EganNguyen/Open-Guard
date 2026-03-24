@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/openguard/shared/models"
 )
@@ -36,6 +38,12 @@ func TestRelay_TableName(t *testing.T) {
 
 	r.TableName = "custom_outbox"
 	assert.Equal(t, "custom_outbox", r.getTableName())
+	
+	r2 := &Relay{TableName: "abc"}
+	assert.Equal(t, "abc", r2.getTableName())
+
+	r3 := &Relay{TableName: "policy_outbox_records"}
+	assert.Equal(t, "policy_outbox_records", r3.getTableName())
 }
 
 func TestWriter_Write(t *testing.T) {
@@ -62,12 +70,19 @@ func TestWriter_Write(t *testing.T) {
 
 type mockDB struct {
 	OutboxDB
-	beginTx pgx.Tx
-	err     error
+	beginTx    pgx.Tx
+	err        error
+	acquireErr error
+	beginErr   error
+	conn       *pgxpool.Conn
 }
 
 func (m *mockDB) Begin(ctx context.Context) (pgx.Tx, error) {
-	return m.beginTx, m.err
+	return m.beginTx, m.beginErr
+}
+
+func (m *mockDB) Acquire(ctx context.Context) (*pgxpool.Conn, error) {
+	return nil, m.acquireErr
 }
 
 type mockProducer struct {
@@ -133,6 +148,12 @@ func (f *fullFakeTx) Commit(ctx context.Context) error   { f.committed = true; r
 func (f *fullFakeTx) Rollback(ctx context.Context) error { f.rolled = true; return nil }
 
 func TestRelay_ProcessBatch(t *testing.T) {
+	t.Run("db_begin_error", func(t *testing.T) {
+		db := &mockDB{beginErr: errors.New("begin failed")}
+		r := NewRelay(db, nil)
+		err := r.processBatch(context.Background())
+		assert.ErrorContains(t, err, "begin failed")
+	})
 	t.Run("success_delivery", func(t *testing.T) {
 		rows := &mockRows{
 			data: [][]any{
@@ -189,6 +210,63 @@ func TestRelay_ProcessBatch(t *testing.T) {
 		err := r.processBatch(context.Background())
 		assert.ErrorContains(t, err, "query failed")
 	})
+
+	t.Run("success_updates_status", func(t *testing.T) {
+		rows := &mockRows{
+			data: [][]any{
+				{"id1", "topic1", "key1", []byte(`{"p":1}`)},
+			},
+		}
+		tx := &fullFakeTx{queryRows: rows}
+		db := &mockDB{beginTx: tx}
+		prod := &mockProducer{}
+
+		r := NewRelay(db, prod)
+		err := r.processBatch(context.Background())
+
+		assert.NoError(t, err)
+		assert.True(t, tx.committed)
+	})
+
+	t.Run("kafka_publish_error_updates_attempts", func(t *testing.T) {
+		rows := &mockRows{
+			data: [][]any{
+				{"id_err", "topic_err", "key_err", []byte(`{"p":2}`)},
+			},
+		}
+		tx := &fullFakeTx{queryRows: rows}
+		db := &mockDB{beginTx: tx}
+		prod := &mockProducer{err: errors.New("kafka error")}
+
+		r := NewRelay(db, prod)
+		err := r.processBatch(context.Background())
+
+		assert.NoError(t, err)
+		assert.True(t, tx.committed)
+	})
+}
+
+func TestNewRelay(t *testing.T) {
+	r := NewRelay(nil, nil)
+	assert.NotNil(t, r)
+	assert.Equal(t, "outbox_records", r.getTableName())
+}
+
+func TestRelay_Start_AcquireError(t *testing.T) {
+	db := &mockDB{acquireErr: errors.New("acquire failed")}
+	r := NewRelay(db, nil)
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	
+	// Start is blocking, so we run it in a goroutine
+	done := make(chan struct{})
+	go func() {
+		r.Start(ctx)
+		close(done)
+	}()
+	
+	<-done
 }
 
 func TestRelay_Start(t *testing.T) {
