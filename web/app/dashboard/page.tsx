@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import styles from "./dashboard.module.css";
+import { getUsers, getPolicies, getThreats, getAuditEvents, getAlerts } from "@/lib/api";
 
 /* ── Sparkline bars ── */
 function Sparkline({ data, color }: { data: number[]; color: string }) {
@@ -40,24 +41,61 @@ function RecItem({ title, desc, meta, done }: { title: string; desc: string; met
 
 export default function DashboardPage() {
   const [hideCompleted, setHideCompleted] = useState(false);
+  const [userCount, setUserCount] = useState<number | string>("—");
+  const [policyCount, setPolicyCount] = useState<number | string>("—");
+
+  useEffect(() => {
+    const token = localStorage.getItem("access_token");
+    if (!token) return;
+
+    async function fetchData() {
+      try {
+        const [usersRes, policiesRes, threatsRes, auditRes, alertsRes] = await Promise.allSettled([
+          getUsers(token!),
+          getPolicies(token!),
+          getThreats(token!),
+          getAuditEvents(token!),
+          getAlerts(token!)
+        ]);
+
+        if (usersRes.status === "fulfilled") {
+          setUserCount(usersRes.value.meta.total_items || usersRes.value.data.length || 0);
+        }
+        if (policiesRes.status === "fulfilled") {
+          setPolicyCount(policiesRes.value.meta.total || policiesRes.value.data.length || 0);
+        }
+        
+        // Log errors for unavailable services (Threats, Audit, Alerts)
+        [threatsRes, auditRes, alertsRes].forEach((res, i) => {
+          if (res.status === "rejected") {
+            console.warn(`Service ${["Threats", "Audit", "Alerts"][i]} is currently unavailable.`);
+          }
+        });
+      } catch (err) {
+        console.error("Failed to fetch dashboard data:", err);
+      }
+    }
+
+    fetchData();
+  }, []);
 
   return (
-    <DashboardLayout title="Security guide">
+    <DashboardLayout title="Overview">
       {/* ── HERO GRID ── */}
       <div className={styles.heroGrid}>
         {/* First step */}
         <div className={styles.heroCard}>
-          <div className={styles.eyebrow}>First step</div>
+          <div className={styles.eyebrow}>First step <span className="tag tag-purple" style={{ marginLeft: "4px" }}>Phase 5</span></div>
           <h2>Verify your domain</h2>
           <p>Prove you own your domain so you can claim and manage user accounts. Managed accounts are significantly more secure and enable policy enforcement.</p>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <button className="btn btn-primary">
+            <button className="btn btn-primary" disabled>
               <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
               </svg>
               Verify domain
             </button>
-            <button className="btn btn-ghost">Learn more</button>
+            <button className="btn btn-ghost" disabled>Learn more</button>
           </div>
           <div className={styles.progressWrap}>
             <div className={styles.progressLabel}>
@@ -91,7 +129,7 @@ export default function DashboardPage() {
               </svg>
             </div>
             <span style={{ fontSize: "13px", color: "var(--muted)" }}>No insights yet — verify your domain first</span>
-            <button className="btn btn-ghost" style={{ fontSize: "12px", padding: "6px 12px", marginTop: "4px" }}>Verify domain →</button>
+            <button className="btn btn-ghost" style={{ fontSize: "12px", padding: "6px 12px", marginTop: "4px" }} disabled>Verify domain →</button>
           </div>
         </div>
       </div>
@@ -99,27 +137,41 @@ export default function DashboardPage() {
       {/* ── STATS ROW ── */}
       <div className={styles.statsRow}>
         <div className={styles.statCard}>
-          <div className={styles.statLabel}><div className={styles.statDot} style={{ background: "var(--red)" }} />Active alerts</div>
+          <div className={styles.statLabel}>
+            <div className={styles.statDot} style={{ background: "var(--red)" }} />
+            Active alerts
+            <span className="tag tag-red" style={{ marginLeft: "auto", fontSize: "9px" }}>Phase 4</span>
+          </div>
           <div className={styles.statValue} style={{ color: "var(--red)" }}>3</div>
           <div className={styles.statSub}><span className={`${styles.statTrend} ${styles.trendUp}`}>+2</span> since yesterday</div>
           <Sparkline data={[30, 20, 60, 40, 80, 50, 100]} color="var(--red)" />
         </div>
         <div className={styles.statCard}>
-          <div className={styles.statLabel}><div className={styles.statDot} style={{ background: "var(--accent)" }} />Managed users</div>
-          <div className={styles.statValue} style={{ color: "var(--accent)" }}>0</div>
-          <div className={styles.statSub}><span className={`${styles.statTrend} ${styles.trendNeutral}`}>—</span> pending domain verification</div>
+          <div className={styles.statLabel}>
+            <div className={styles.statDot} style={{ background: "var(--accent)" }} />
+            Managed users
+          </div>
+          <div className={styles.statValue} style={{ color: "var(--accent)" }} data-testid="user-count">{userCount}</div>
+          <div className={styles.statSub}><span className={`${styles.statTrend} ${styles.trendNeutral}`}>—</span> active accounts</div>
           <Sparkline data={[10, 10, 10, 10, 10, 10, 10]} color="var(--accent)" />
         </div>
         <div className={styles.statCard}>
-          <div className={styles.statLabel}><div className={styles.statDot} style={{ background: "var(--green)" }} />Audit events (24h)</div>
+          <div className={styles.statLabel}>
+            <div className={styles.statDot} style={{ background: "var(--green)" }} />
+            Audit events (24h)
+            <span className="tag tag-green" style={{ marginLeft: "auto", fontSize: "9px" }}>Phase 3</span>
+          </div>
           <div className={styles.statValue} style={{ color: "var(--green)" }}>1,284</div>
           <div className={styles.statSub}><span className={`${styles.statTrend} ${styles.trendDown}`}>-12%</span> vs prior day</div>
           <Sparkline data={[55, 70, 45, 90, 60, 75, 80]} color="var(--green)" />
         </div>
         <div className={styles.statCard}>
-          <div className={styles.statLabel}><div className={styles.statDot} style={{ background: "var(--purple)" }} />Policy evaluations</div>
-          <div className={styles.statValue} style={{ color: "var(--purple)" }}>48.2k</div>
-          <div className={styles.statSub}><span className={`${styles.statTrend} ${styles.trendDown}`}>p99 22ms</span> all passing</div>
+          <div className={styles.statLabel}>
+            <div className={styles.statDot} style={{ background: "var(--purple)" }} />
+            Active policies
+          </div>
+          <div className={styles.statValue} style={{ color: "var(--purple)" }} data-testid="policy-count">{policyCount}</div>
+          <div className={styles.statSub}><span className={`${styles.statTrend} ${styles.trendNeutral}`}>RBAC</span> policies defined</div>
           <Sparkline data={[65, 80, 70, 95, 75, 85, 100]} color="var(--purple)" />
         </div>
       </div>

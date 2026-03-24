@@ -6,7 +6,7 @@ test.describe('Dashboard Page', () => {
     await page.goto('/dashboard');
     
     // Check Topbar (use first to avoid matching the Sidebar nav link)
-    await expect(page.getByText('Security guide').first()).toBeVisible();
+    await expect(page.getByText('Overview').first()).toBeVisible();
     
     // Check Hero Card
     await expect(page.getByRole('heading', { name: 'Verify your domain' })).toBeVisible();

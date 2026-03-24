@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "./register.module.css";
 
+import { register } from "@/lib/api";
+
 export default function RegisterPage() {
   const router = useRouter();
   const [orgName, setOrgName] = useState("");
@@ -31,10 +33,8 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      // TODO: Replace with real API call when backend is ready
-      // const res = await register({ org_name: orgName, email, password });
-      // localStorage.setItem("access_token", res.access_token);
-      await new Promise((r) => setTimeout(r, 800));
+      const res = await register({ org_name: orgName, email, password });
+      localStorage.setItem("access_token", res.access_token);
       router.push("/dashboard");
     } catch {
       setError("Registration failed. Please try again.");

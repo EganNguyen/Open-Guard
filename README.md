@@ -89,6 +89,10 @@ openguard/
    npx playwright test e2e/register.spec.ts --headed
    npx playwright test e2e/login.spec.ts --headed
    npx playwright test e2e/dashboard.spec.ts --headed
+   npx playwright test e2e/iam.spec.ts --headed
+   npx playwright test e2e/policy.spec.ts --headed
+   npx playwright test e2e/audit.spec.ts --headed
+   npx playwright test e2e/controlplane.spec.ts --headed
    ```
 
 7. **Run Load Testing (k6):**

@@ -5,17 +5,8 @@
 
 # Start all infrastructure, backend and frontend services for local development
 dev:
-	docker compose --env-file .env -f services/docker-compose.yml -f infra/docker/docker-compose.yml up -d
+	docker compose --env-file .env -f services/docker-compose.yml -f infra/docker/docker-compose.yml up -d --build
 	@echo "All infrastructure and services started."
-
-# Build all backend services with docker
-build-backend:
-	docker compose -f services/docker-compose.yml build iam gateway policy
-
-# Build all frontend services with docker
-build-frontend:
-	docker compose -f services/docker-compose.yml build web
-
 
 # Run all tests across the workspace
 test-unit:
@@ -28,6 +19,10 @@ test-race:
 # Run integration tests
 test-integration:
 	go test -tags=integration ./services/controlplane/... ./services/iam/... ./services/policy/... ./services/audit/... ./shared/...
+
+# Run frontend E2E tests
+test-e2e:
+	cd web && npx playwright test
 
 # Lint all Go code
 lint:

@@ -4,6 +4,7 @@ import { useState, FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "./login.module.css";
+import { login } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,10 +19,8 @@ export default function LoginPage() {
     setError("");
 
     try {
-      // TODO: Replace with real API call when backend is ready
-      // const res = await login({ email, password });
-      // localStorage.setItem("access_token", res.access_token);
-      await new Promise((r) => setTimeout(r, 800));
+      const res = await login({ email, password });
+      localStorage.setItem("access_token", res.access_token);
       router.push("/dashboard");
     } catch {
       setError("Invalid email or password");
