@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
 	mw "github.com/openguard/controlplane/pkg/middleware"
 	"github.com/openguard/controlplane/pkg/proxy"
 	"github.com/openguard/shared/crypto"
@@ -36,6 +37,16 @@ func New(cfg Config) (*chi.Mux, error) {
 
 	r.Use(sharedmw.RequestID)
 	r.Use(mw.Logger(cfg.Logger))
+
+	// CORS
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:3000"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
 
 	rl := mw.NewRateLimiter(cfg.Redis, cfg.Logger, 300, 1000, time.Minute)
 	r.Use(rl.Middleware())
