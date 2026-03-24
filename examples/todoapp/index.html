@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenGuard TodoApp</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d1117;
+            --panel: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --accent: #58a6ff;
+            --error: #f85149;
+            --success: #3fb950;
+        }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 600px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .header h1 {
+            color: #fff;
+            margin: 0 0 0.5rem 0;
+        }
+        .header p {
+            color: #8b949e;
+            margin: 0;
+            font-size: 0.9rem;
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        button {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: opacity 0.2s;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        .target-url {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .target-url input {
+            flex: 1;
+        }
+        ul.todo-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        ul.todo-list li {
+            padding: 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .status {
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            display: none;
+            font-size: 0.9rem;
+        }
+        .status.error {
+            display: block;
+            background: rgba(248, 81, 73, 0.1);
+            color: var(--error);
+            border: 1px solid rgba(248, 81, 73, 0.4);
+        }
+        .status.success {
+            display: block;
+            background: rgba(63, 185, 80, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(63, 185, 80, 0.4);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>Todo App</h1>
+        <p>Protected by OpenGuard Gateway</p>
+    </div>
+
+    <!-- Configuration Panel -->
+    <div class="panel">
+        <div class="form-group">
+            <label>API Endpoint (Test direct bypass vs Gateway)</label>
+            <div class="target-url">
+                <input type="text" id="apiUrl" value="http://localhost:8081/api/v1/todos" />
+            </div>
+            <p style="font-size: 0.8rem; color: #8b949e; margin-top: 0.5rem;">
+                Try <code>http://localhost:8081/api/v1/todos</code> (Direct App Bypass - Will Fail) <br>
+                Try <code>http://localhost:8080/api/v1/todos</code> (OpenGuard Gateway - Will Succeed if Auth valid)
+            </p>
+        </div>
+        
+        <div class="form-group">
+            <label>Mock Gateway Headers (For Local Testing Only)</label>
+            <input type="text" id="mockUserId" placeholder="X-User-ID (e.g., user-123)" />
+        </div>
+        
+        <div class="form-group">
+            <label>Bearer Token (If querying Gateway directly)</label>
+            <input type="text" id="jwtToken" placeholder="eyJhbG..." />
+        </div>
+    </div>
+
+    <div id="statusAlert" class="status"></div>
+
+    <!-- Add Todo Panel -->
+    <div class="panel">
+        <form id="addForm">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label>New Task</label>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="text" id="todoTitle" placeholder="What needs doing?" required />
+                    <button type="submit" style="width: auto;">Add</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Todo List -->
+    <div class="panel">
+        <h3 style="margin-top: 0; font-size: 1rem; color: #fff;">Your Tasks</h3>
+        <div style="text-align: right; margin-bottom: 1rem;">
+            <button onclick="fetchTodos()" style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.8rem; background: var(--border);">🔄 Refresh</button>
+        </div>
+        <ul class="todo-list" id="todoList">
+            <!-- Rendered by JS -->
+            <li style="color: #8b949e; justify-content: center; border: none; background: transparent;">Hit refresh to load tasks...</li>
+        </ul>
+    </div>
+
+</div>
+
+<script>
+    function getHeaders() {
+        const headers = { 'Content-Type': 'application/json' };
+        
+        const token = document.getElementById('jwtToken').value.trim();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        
+        const mockUserId = document.getElementById('mockUserId').value.trim();
+        if (mockUserId) {
+            // Note: The real OpenGuard Gateway would strip external X-User-ID and inject its own.
+            // But if hitting localhost:8081 directly, this lets us fake it for local dev without Gateway.
+            headers['X-User-ID'] = mockUserId;
+            headers['X-Org-ID'] = 'org-1';
+        }
+        
+        return headers;
+    }
+
+    function showStatus(message, isError = false) {
+        const alert = document.getElementById('statusAlert');
+        alert.className = `status ${isError ? 'error' : 'success'}`;
+        alert.textContent = message;
+    }
+
+    async function fetchTodos() {
+        const url = document.getElementById('apiUrl').value.trim();
+        const list = document.getElementById('todoList');
+        list.innerHTML = '<li>Loading...</li>';
+        
+        try {
+            const res = await fetch(url, { headers: getHeaders() });
+            
+            if (!res.ok) {
+                const text = await res.text();
+                showStatus(`Failed (${res.status}): ${text}`, true);
+                list.innerHTML = '<li>Failed to load.</li>';
+                return;
+            }
+            
+            const todos = await res.json();
+            showStatus('Fetched successfully!', false);
+            
+            if (!todos || todos.length === 0) {
+                list.innerHTML = '<li style="color: #8b949e; justify-content: center;">No tasks found.</li>';
+                return;
+            }
+            
+            list.innerHTML = todos.map(t => 
+                `<li>
+                    <span>${t.title}</span>
+                    <span style="font-size: 0.8rem; color: var(--accent);">${new Date(t.created_at).toLocaleTimeString()}</span>
+                </li>`
+            ).join('');
+        } catch (err) {
+            showStatus(`Network Error: ${err.message}`, true);
+            list.innerHTML = '<li>Network error.</li>';
+        }
+    }
+
+    document.getElementById('addForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const url = document.getElementById('apiUrl').value.trim();
+        const title = document.getElementById('todoTitle').value.trim();
+        
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({ title })
+            });
+            
+            if (!res.ok) {
+                const text = await res.text();
+                showStatus(`Failed (${res.status}): ${text}`, true);
+                return;
+            }
+            
+            document.getElementById('todoTitle').value = '';
+            showStatus('Todo added successfully!', false);
+            fetchTodos();
+        } catch (err) {
+            showStatus(`Network Error: ${err.message}`, true);
+        }
+    });
+</script>
+
+</body>
+</html>
