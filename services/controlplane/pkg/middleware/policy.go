@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
+
 
 	"github.com/openguard/shared/models"
 	"github.com/openguard/shared/resilience"
@@ -67,14 +69,21 @@ func (pc *PolicyClient) Middleware() func(http.Handler) http.Handler {
 				return
 			}
 
+			// Strip port from RemoteAddr
+			ip := r.RemoteAddr
+			if host, _, err := net.SplitHostPort(ip); err == nil {
+				ip = host
+			}
+
 			// Prepare evaluation request
 			evalReq := EvalRequest{
 				OrgID:      orgID,
 				UserID:     userID,
 				Action:     r.Method,
 				Resource:   r.URL.Path,
-				IPAddress:  r.RemoteAddr,
+				IPAddress:  ip,
 			}
+
 
 			body, _ := json.Marshal(evalReq)
 			req, err := http.NewRequestWithContext(ctx, "POST", pc.addr+"/policies/evaluate", bytes.NewBuffer(body))

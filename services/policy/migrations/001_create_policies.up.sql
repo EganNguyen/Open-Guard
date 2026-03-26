@@ -14,12 +14,25 @@ CREATE TABLE IF NOT EXISTS policies (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_policies_org ON policies(org_id);
-CREATE INDEX idx_policies_org_type ON policies(org_id, type);
-CREATE UNIQUE INDEX idx_policies_org_name ON policies(org_id, name);
+CREATE INDEX IF NOT EXISTS idx_policies_org ON policies(org_id);
+CREATE INDEX IF NOT EXISTS idx_policies_org_type ON policies(org_id, type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_policies_org_name ON policies(org_id, name);
 
 ALTER TABLE policies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE policies FORCE ROW LEVEL SECURITY;
-CREATE POLICY policies_org_isolation ON policies
-    USING (org_id = current_setting('app.org_id', true)::UUID)
-    WITH CHECK (org_id = current_setting('app.org_id', true)::UUID);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'policies'
+          AND policyname = 'policies_org_isolation'
+    ) THEN
+        CREATE POLICY policies_org_isolation
+            ON policies
+            USING (org_id = current_setting('app.org_id', true)::UUID)
+            WITH CHECK (org_id = current_setting('app.org_id', true)::UUID);
+    END IF;
+END
+$$;

@@ -6,6 +6,27 @@ import { test, expect } from '@playwright/test';
  * It does NOT mock any API calls.
  */
 test.describe('Real System Integration - Policy Lifecycle', () => {
+  test.use({ baseURL: process.env.E2E_API_BASE_URL || 'http://127.0.0.1:8080' });
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const postWithRetry = async (
+    request: any,
+    path: string,
+    options: { data?: Record<string, unknown>; headers?: Record<string, string> },
+    attempts = 5
+  ) => {
+    let lastErr: unknown;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await request.post(path, options);
+      } catch (err) {
+        lastErr = err;
+        await sleep(500 * (i + 1));
+      }
+    }
+    throw lastErr;
+  };
   const timestamp = Date.now();
   const testEmail = `tester_${timestamp}@openguard.io`;
   const testOrg = `E2E Org ${timestamp}`;
@@ -14,8 +35,14 @@ test.describe('Real System Integration - Policy Lifecycle', () => {
   let authToken: string;
 
   test.beforeAll(async ({ request }) => {
+    // Wait for control plane to be ready
+    await expect.poll(async () => {
+      const health = await request.get('/health/ready');
+      return health.status();
+    }, { timeout: 60_000 }).toBe(200);
+
     // 1. Register a new organization and user
-    const registerRes = await request.post('/api/v1/auth/register', {
+    const registerRes = await postWithRetry(request, '/api/v1/auth/register', {
       data: {
         org_name: testOrg,
         email: testEmail,
@@ -26,7 +53,7 @@ test.describe('Real System Integration - Policy Lifecycle', () => {
     expect(registerRes.status()).toBe(201);
 
     // 2. Login to get JWT
-    const loginRes = await request.post('/api/v1/auth/login', {
+    const loginRes = await postWithRetry(request, '/api/v1/auth/login', {
       data: {
         email: testEmail,
         password: testPassword
@@ -63,7 +90,8 @@ test.describe('Real System Integration - Policy Lifecycle', () => {
         headers: { 'Authorization': `Bearer ${authToken}` }
       });
       const list = await listRes.json();
-      return list.data.some((p: any) => p.id === policyId);
+      const items = Array.isArray(list.data) ? list.data : [];
+      return items.some((p: any) => p.id === policyId);
     }, { timeout: 10000 }).toBe(true);
 
     // 3. Evaluate Policy - Permitted (IP 1.1.1.1)

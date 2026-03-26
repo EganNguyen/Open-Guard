@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/openguard/shared/crypto"
+	sharedmw "github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/models"
 )
 
@@ -58,6 +59,7 @@ func JWTAuth(keyring *crypto.JWTKeyring, logger *slog.Logger) func(http.Handler)
 			ctx := context.WithValue(r.Context(), UserIDKey, userID)
 			ctx = context.WithValue(ctx, OrgIDKey, orgID)
 			ctx = context.WithValue(ctx, EmailKey, email)
+			ctx = context.WithValue(ctx, sharedmw.TenantIDKey, orgID)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

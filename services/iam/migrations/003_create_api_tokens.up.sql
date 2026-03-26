@@ -13,4 +13,18 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 );
 
 ALTER TABLE api_tokens ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON api_tokens USING (org_id::text = current_setting('app.org_id', true));
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'api_tokens'
+          AND policyname = 'tenant_isolation'
+    ) THEN
+        CREATE POLICY tenant_isolation
+            ON api_tokens
+            USING (org_id::text = current_setting('app.org_id', true));
+    END IF;
+END
+$$;

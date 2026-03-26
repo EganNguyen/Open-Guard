@@ -20,4 +20,18 @@ CREATE INDEX IF NOT EXISTS idx_users_org_id ON users(org_id);
 CREATE INDEX IF NOT EXISTS idx_users_email  ON users(email);
 
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON users USING (org_id::text = current_setting('app.org_id', true));
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'users'
+          AND policyname = 'tenant_isolation'
+    ) THEN
+        CREATE POLICY tenant_isolation
+            ON users
+            USING (org_id::text = current_setting('app.org_id', true));
+    END IF;
+END
+$$;

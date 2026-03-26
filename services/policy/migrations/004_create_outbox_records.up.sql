@@ -15,5 +15,5 @@ CREATE TABLE IF NOT EXISTS policy_outbox_records (
     dead_at      TIMESTAMPTZ
 );
 
-CREATE INDEX idx_policy_outbox_pending ON policy_outbox_records(created_at) WHERE status = 'pending';
-CREATE INDEX idx_policy_outbox_status ON policy_outbox_records(status);
+CREATE INDEX IF NOT EXISTS idx_policy_outbox_pending ON policy_outbox_records(created_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_policy_outbox_status ON policy_outbox_records(status);

@@ -86,7 +86,11 @@ func main() {
 
 	// Load mTLS for backend services
 	var tlsConfig *tls.Config
-	if cfg.AppEnv != "development" {
+	if cfg.AppEnv == "development" {
+		tlsConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	} else {
 		caCertPath := sharedcfg.Default("CA_CERT_PATH", "/app/certs/ca.crt")
 		tlsCertPath := sharedcfg.Default("TLS_CERT_PATH", "/app/certs/server.crt")
 		tlsKeyPath := sharedcfg.Default("TLS_KEY_PATH", "/app/certs/server.key")

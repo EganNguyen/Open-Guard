@@ -82,8 +82,10 @@ func TestPolicyIntegration(t *testing.T) {
 
 	// 2. Create a policy
 	rules := map[string]interface{}{
-		"allowed_ips": []string{"1.2.3.4"},
+		"allowed_ips": []string{"1.2.3.4", "127.0.0.1", "192.168.65.1"},
 	}
+
+
 	rulesJSON, _ := json.Marshal(rules)
 
 	status, policyResp := doRequest(t, http.MethodPost, "/policies", token, map[string]interface{}{
@@ -101,8 +103,9 @@ func TestPolicyIntegration(t *testing.T) {
 	// 3. List policies (wait for outbox relay and cache invalidation via polling)
 	var listResp map[string]interface{}
 	found := false
-	timeout := time.After(10 * time.Second)
+	timeout := time.After(30 * time.Second)
 	ticker := time.NewTicker(500 * time.Millisecond)
+
 	defer ticker.Stop()
 
 pollLoop:

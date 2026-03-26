@@ -43,7 +43,7 @@ func New(cfg Config) (*chi.Mux, error) {
 
 	// CORS
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000"},
+		AllowedOrigins:   []string{"http://localhost:3000", "http://127.0.0.1:3000"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
@@ -96,36 +96,38 @@ func New(cfg Config) (*chi.Mux, error) {
 		r.Use(mw.JWTAuth(cfg.JWTKeyring, cfg.Logger))
 
 		r.Handle("/v1/scim/v2/*", iamStripHandler)
+
 		r.Handle("/api/v1/scim/*", iamStripHandler)
 		r.Handle("/api/v1/users", iamStripHandler)
 		r.Handle("/api/v1/users/*", iamStripHandler)
 
-		r.Handle("/api/v1/admin/connectors", http.HandlerFunc(cfg.ConnectorHandler.List))
-		r.Handle("/api/v1/admin/connectors/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodPost {
-				cfg.ConnectorHandler.Create(w, r)
-			} else {
-				cfg.ConnectorHandler.List(w, r)
-			}
-		}))
+		r.Get("/api/v1/admin/connectors", cfg.ConnectorHandler.List)
+		r.Post("/api/v1/admin/connectors", cfg.ConnectorHandler.Create)
+		r.Handle("/api/v1/admin/connectors/*", http.HandlerFunc(cfg.ConnectorHandler.List))
 		
 		policyHandler := serviceUnavailableHandler("policy", cfg.PolicyAddr, cfg.Logger, cfg.TLSConfig)
 		r.Handle("/api/v1/policies", policyHandler)
 		r.Handle("/api/v1/policies/*", policyHandler)
 
-		threatHandler := serviceUnavailableHandler("threat", cfg.ThreatAddr, cfg.Logger, cfg.TLSConfig)
-		auditAPIHandler := serviceUnavailableHandler("audit", cfg.AuditAddr, cfg.Logger, cfg.TLSConfig)
-		alertingHandler := serviceUnavailableHandler("alerting", cfg.AlertingAddr, cfg.Logger, cfg.TLSConfig)
-		complianceHandler := serviceUnavailableHandler("compliance", cfg.ComplianceAddr, cfg.Logger, cfg.TLSConfig)
+		// Phase 2: Gateway Policy Enforcement (protect runtime data APIs, not management endpoints)
+		r.Group(func(r chi.Router) {
+			pc := mw.NewPolicyClient(cfg.PolicyAddr, cfg.Logger)
+			r.Use(pc.Middleware())
 
-		r.Handle("/api/v1/threats", threatHandler)
-		r.Handle("/api/v1/threats/*", threatHandler)
-		r.Handle("/api/v1/audit", auditAPIHandler)
-		r.Handle("/api/v1/audit/*", auditAPIHandler)
-		r.Handle("/api/v1/alerts", alertingHandler)
-		r.Handle("/api/v1/alerts/*", alertingHandler)
-		r.Handle("/api/v1/compliance", complianceHandler)
-		r.Handle("/api/v1/compliance/*", complianceHandler)
+			threatHandler := serviceUnavailableHandler("threat", cfg.ThreatAddr, cfg.Logger, cfg.TLSConfig)
+			auditAPIHandler := serviceUnavailableHandler("audit", cfg.AuditAddr, cfg.Logger, cfg.TLSConfig)
+			alertingHandler := serviceUnavailableHandler("alerting", cfg.AlertingAddr, cfg.Logger, cfg.TLSConfig)
+			complianceHandler := serviceUnavailableHandler("compliance", cfg.ComplianceAddr, cfg.Logger, cfg.TLSConfig)
+
+			r.Handle("/api/v1/threats", threatHandler)
+			r.Handle("/api/v1/threats/*", threatHandler)
+			r.Handle("/api/v1/audit", auditAPIHandler)
+			r.Handle("/api/v1/audit/*", auditAPIHandler)
+			r.Handle("/api/v1/alerts", alertingHandler)
+			r.Handle("/api/v1/alerts/*", alertingHandler)
+			r.Handle("/api/v1/compliance", complianceHandler)
+			r.Handle("/api/v1/compliance/*", complianceHandler)
+		})
 	})
 
 	return r, nil

@@ -113,7 +113,7 @@ func (r *PolicyRepository) GetByID(ctx context.Context, orgID, policyID string) 
 
 // ListByOrg returns all policies for an organization.
 func (r *PolicyRepository) ListByOrg(ctx context.Context, orgID string) ([]*models.Policy, error) {
-	var policies []*models.Policy
+	policies := []*models.Policy{}
 	err := r.withTx(ctx, func(tx pgx.Tx) error {
 		if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 			return err
@@ -141,7 +141,7 @@ func (r *PolicyRepository) ListByOrg(ctx context.Context, orgID string) ([]*mode
 
 // ListEnabledForOrg returns all enabled policies for an organization (used by evaluator).
 func (r *PolicyRepository) ListEnabledForOrg(ctx context.Context, orgID string) ([]*models.Policy, error) {
-	var policies []*models.Policy
+	policies := []*models.Policy{}
 	err := r.withTx(ctx, func(tx pgx.Tx) error {
 		if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 			return err

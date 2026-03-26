@@ -1,86 +1,96 @@
-# OpenGuard E2E Lifecycle Test Case
+# OpenGuard E2E Test Case: Phases 1-3 Final Verification
 
-This test case covers the end-to-end user lifecycle across all phases of the OpenGuard system implementation, ensuring architectural integrity, multi-tenancy isolation, and cross-service resilience.
-
-## Overview
-The lifecycle follows an organization named **"Acme"** from registration through connector management, policy enforcement, audit trail generation, and system recovery.
+This test plan provides a comprehensive walkthrough of the OpenGuard core architecture (Phases 1, 2, and 3). It simulates a real-world user journey, exercising public-facing APIs, the Control Plane Gateway, and asynchronous background processes (Kafka, Outbox, Redis caching, and ClickHouse/MongoDB).
 
 ---
 
-## Phase 1: Foundation & Onboarding
-**Goal:** Verify organization registration and Identity Provider (IdP) functionality.
+## Phase 1: Foundation (Identity, MFA, and Control Plane)
 
-1.  **System Startup**
-    - Run `make dev`.
-    - Verify all services are healthy and migrations completed successfully.
-2.  **Organization Registration**
-    - Navigate to `/register` and create organization "Acme".
-    - **Expect:** Org created, slugified to `acme`. Admin user created in IAM PostgreSQL.
-3.  **Authentication (OIDC Flow)**
-    - Perform OIDC login via the dashboard or `POST /oauth/token`.
-    - **Expect:** Access Token (JWT) + Refresh Token issued. `kid` present in JWT header.
-4.  **Connector Registration**
-    - Navigate to `/dashboard/connectors` and register app "AcmeApp".
-    - **Expect:** Connector registered. Plaintext API Key returned once and encrypted in Control Plane PostgreSQL.
-    - **Verification:** `GET /v1/admin/connectors/:id` returns `status=active`.
+### **Step 1: Tenant Onboarding & Admin Provisioning**
+*   **Action:** A new enterprise customer signs up via the UI.
+*   **APIs Triggered:**
+    *   `POST /auth/register` (Creates the Organization and the initial Admin User).
+    *   `POST /auth/login` (Admin logs in with password, receives JWT).
+*   **Validation:**
+    *   An outbox record for `auth.login.success` is generated in `iam_outbox_records`.
+    *   The browser receives a signed JWT with `org_id` and `sub` claims.
+    *   **Automation:** Verified via `web/e2e/real.spec.ts`.
 
----
+### **Step 2: Security Hardening (MFA Integration)**
+*   **Action:** Verify the system's preparedness for MFA enrollment.
+*   **APIs Triggered:**
+    *   `POST /auth/mfa/enroll` (Requests TOTP secret — Returns `501 NOT_IMPLEMENTED` in stub phase).
+    *   `POST /auth/mfa/verify` (Validates TOTP — Returns `501 NOT_IMPLEMENTED`).
+*   **Validation:** Ensuring stubs explicitly return 501 prevents unexpected 404/500 errors.
+    *   **Automation:** Verified via `services/iam/integration_test.go`.
 
-## Phase 2: Policy Enforcement
-**Goal:** Verify the Zero Trust model and policy evaluation performance.
+### **Step 3: Internal API Protection (mTLS Bypass)**
+*   **Action:** Administrative tools call management APIs (e.g., listing users).
+*   **APIs Triggered:**
+    *   `GET /api/v1/users` (Proxied via Control Plane to IAM).
+*   **Validation:**
+    *   In `APP_ENV=development`, the Gateway-level `RequireMTLS` check is bypassed.
+    *   Identity headers (`X-Org-ID`, `X-User-ID`) are correctly injected by `JWTAuth`.
 
-5.  **Policy Creation**
-    - Create an IP allowlist policy via the dashboard (Admin JWT required).
-    - **Expect:** Policy record created for Org Acme.
-6.  **Policy Evaluation (Direct Access)**
-    - Call `/v1/policy/evaluate` using the AcmeApp API Key.
-    - **Expect:** `permitted: false` for blocked IP; `permitted: true` for allowed.
-7.  **Cache Verification (Phase 9)**
-    - Repeat evaluation with identical inputs.
-    - **Expect:** `permitted: true, cached: true` (Redis hit).
-8.  **Scope Enforcement**
-    - Register a second connector "AcmeApp2" with narrow scope (e.g., `audit:write`).
-    - Attempt a policy evaluation with AcmeApp2 key.
-    - **Expect:** `403 INSUFFICIENT_SCOPE`.
+### **Step 4: Connector Registration**
+*   **Action:** The Admin registers a third-party integrated app (Connector) via the Dashboard.
+*   **APIs Triggered:**
+    *   `POST /api/v1/admin/connectors` (Registers app and generates Bearer API Key).
+*   **Validation:** The one-time plaintext API key is returned and can be used for subsequent Data Plane calls.
 
 ---
 
-## Phase 3: Audit & Event Bus
-**Goal:** Verify the Transactional Outbox pattern and audit integrity.
+## Phase 2: Policy Engine (Real-time Evaluation & Caching)
 
-9.  **Event Ingestion**
-    - Push a batch of 50 events via `POST /v1/events/ingest`.
-    - **Expect:** `200 OK`, `accepted: 50`.
-10. **Asynchronous Propagation**
-    - Verify events appear in the Dashboard Audit log within 5s.
-    - **Verification:** `EventSource` on each event is correctly attributed to "connector:<id>".
-11. **Threat Detection Integration (Phase 4)**
-    - Simulate 11 failed login events.
-    - **Expect:** `HIGH` severity alert generated in MongoDB and visible in the Dashboard `Threats` section.
-12. **Audit Integrity (Phase 3)**
-    - Call `GET /audit/integrity`.
-    - **Expect:** `ok: true`. The cryptographic chain (ClickHouse/MongoDB) is contiguous.
+### **Step 5: Policy Definition**
+*   **Action:** The Admin defines an RBAC access control policy.
+*   **APIs Triggered:**
+    *   `POST /api/v1/policies` (Creates a policy: `type: rbac, allowed_roles: ["admin"]`).
+*   **Validation:** Polling `GET /api/v1/policies` confirms the policy is active across the cluster.
 
----
+### **Step 6: Gateway Policy Enforcement**
+*   **Action:** An external Connector attempts to perform an action and is checked via the Gateway.
+*   **APIs Triggered:**
+    *   `GET /api/v1/threats` (Protected resource).
+*   **Validation:**
+    *   The Control Plane intercepts the request and calls `POST /policies/evaluate`.
+    *   If the user/connector lacks the required role or IP, the Gateway returns `403 Forbidden` (`POLICY_DENIED`).
+    *   **Automation:** Verified via `services/policy/integration_test.go`.
 
-## Phase 4: Resilience & Failover
-**Goal:** Verify "Fail Closed" behavior and data persistence under failure.
-
-13. **Circuit Breaker Verification**
-    - Kill the `policy` service container.
-    - **Expect:** Dashboard or SDK falls back to local cache (60s grace).
-    - **Expect:** Subsequent evaluations return `503 SERVICE_UNAVAILABLE` (fail-closed).
-14. **Outbox Persistence**
-    - Kill the `kafka` broker container.
-    - Perform a connector registration or event ingestion.
-    - **Expect:** `200 OK`. Records are safely buffered in the `outbox_records` table.
-15. **System Recovery**
-    - Restart Kafka.
-    - **Expect:** Outbox Relay publishes buffered records within 30s. Audit logs reflect all events from the "outage".
+### **Step 7: Cache Hit & Invalidation**
+*   **Action:** Verify sub-millisecond performance for repeated evaluations.
+*   **Validation:**
+    *   Evaluation #1: Cache Miss (Hits DB).
+    *   Evaluation #2: Cache Hit (sub-1ms response via Redis).
+    *   **Invalidation:** Updating/Deleting the policy triggers a `policy.changes` event via Kafka, which clears the Redis cache for that Organization.
 
 ---
 
-## Performance Targets
-- **Login:** p99 < 150ms @ 2,000 req/s.
-- **Policy Eval:** p99 < 5ms (cached), < 30ms (uncached) @ 10,000 req/s.
-- **Ingest:** p99 < 50ms @ 20,000 req/s.
+## Phase 3: Event Bus & Audit Log (Reliability & Integrity)
+
+### **Step 8: Transactional Outbox & DLQ**
+*   **Action:** A high-volume event stream is published.
+*   **Validation:**
+    *   Records are safely buffered in the Postgres outbox first.
+    *   **Retries:** If Kafka is unavailable, the relay retries 5 times.
+    *   **DLQ:** After 5 failures, records are marked `dead` and moved to the `outbox.dlq` topic.
+    *   **Automation:** Verified via `shared/outbox/outbox_test.go`.
+
+### **Step 9: Audit Log Integrity Verification**
+*   **Action:** The Compliance Admin verifies the tamper-evident audit trail.
+*   **APIs Triggered:**
+    *   `GET /api/v1/audit/integrity` (System validates the cryptographic chain).
+*   **Validation:**
+    *   The `HashChain` verifier checks `prev_hash` links between all events.
+    *   The system detects: sequence gaps, tampered payloads, and broken links.
+    *   **Automation:** Verified via `services/audit/pkg/integrity/verifier_test.go`.
+
+---
+
+## Verification Summary
+| Test Type | Scope | Success Criteria |
+| :--- | :--- | :--- |
+| **Unit** | Core Logic | 100% Pass in Audit Verifier, Policy Evaluator, and Outbox DLQ. |
+| **Integration** | Service-to-Service | Successful registration -> policy creation -> enforcement cycle. |
+| **E2E (Real)** | UI/API Waterfall | Full login/auth flow hit against the real backend stack on port 8080. |
+

@@ -10,4 +10,18 @@ CREATE TABLE IF NOT EXISTS mfa_configs (
 );
 
 ALTER TABLE mfa_configs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON mfa_configs USING (org_id::text = current_setting('app.org_id', true));
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'mfa_configs'
+          AND policyname = 'tenant_isolation'
+    ) THEN
+        CREATE POLICY tenant_isolation
+            ON mfa_configs
+            USING (org_id::text = current_setting('app.org_id', true));
+    END IF;
+END
+$$;

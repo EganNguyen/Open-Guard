@@ -14,4 +14,18 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 
 ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON sessions USING (org_id::text = current_setting('app.org_id', true));
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'sessions'
+          AND policyname = 'tenant_isolation'
+    ) THEN
+        CREATE POLICY tenant_isolation
+            ON sessions
+            USING (org_id::text = current_setting('app.org_id', true));
+    END IF;
+END
+$$;
