@@ -4,25 +4,32 @@
 
 OpenGuard is a self-hostable identity and data security platform, inspired by Atlassian Guard. It provides Fortune-500 grade identity management, real-time policy evaluation, threat detection, and cryptographically verifiable audit trails—all designed with **zero cross-tenant data leakage** and **fail-closed** security principles.
 
-## 🛡️ Core Capabilities
+## 🛡️ Core Platform Capabilities & Security Guarantees
 
-- **Identity & Access Management (IAM):** SSO (SAML 2.0 / OIDC), SCIM 2.0 provisioning, TOTP/WebAuthn MFA, and API token lifecycle.
-- **Real-Time Policy Engine:** Sub-30ms RBAC evaluation, data security rules, and session limits. Fails closed when unavailable.
-- **Threat Detection:** Streaming anomaly scoring for brute-force attacks, impossible travel, and privilege escalation.
-- **Verifiable Audit Log:** Append-only, hash-chained event trail stored in MongoDB to guarantee tamper-evident compliance.
-- **Compliance & Analytics:** ClickHouse-powered reporting for GDPR, SOC 2, and HIPAA with PDF generation.
-- **Alerting:** SIEM webhook export with HMAC signatures, and Slack/email delivery.
+OpenGuard provides a unified security control plane built on 10 core Go microservices.
 
-## 🏗️ Enterprise Architecture Guarantees
+| Service | Category | Capabilities | Security Guarantee |
+|:--- |:--- |:--- |:--- |
+| **`iam`** | **Identity** | SSO (SAML/OIDC), SCIM 2.0, MFA (WebAuthn), API Tokens | Zero-downtime key rotation & PBKDF2 |
+| **`policy`** | **Authorization** | Sub-30ms RBAC/ABAC evaluation, IP Allowlisting | Fail-Closed on service unavailability |
+| **`dlp`** | **Data Protection** | Real-time PII, Credential, and Financial data scanning | Inline blocking & Audit log masking |
+| **`threat`** | **Detection** | Streaming anomaly scoring (ATO, Geo-velocity, Brute-force) | Detection latency < 5s |
+| **`audit`** | **Assurance** | Hash-Chained, append-only event trail | Cryptographically verifiable integrity |
+| **`compliance`**| **Analytics** | ClickHouse reports (GDPR, SOC 2, HIPAA) | Real-time dashboards for 100M+ events |
+| **`alerting`** | **Alerting** | SIEM (Splunk/CrowdStrike), Slack, and Email delivery | HMAC-signed webhook export |
+| **`webhook-delivery`** | **Automation** | Outbound webhooks to Connected Apps | Exactly-once delivery via Outbox |
+| **`control-plane`** | **Management** | Centralized API, Ingestion Gateway, Dashboard Backend | Standardized mTLS service mesh |
+| **`connector-registry`** | **Inventory** | Application lifecycle, API Key mgmt, Webhook config | Multi-tenant isolation (RLS) |
 
-OpenGuard is built to operate at scale (100k+ users, millions of events/day) without compromising integrity:
+## 🏗️ Enterprise Architecture
 
-- **Transactional Outbox Pattern:** Every Kafka publish is buffered in PostgreSQL via a transactional outbox. Guarantees exactly-once audit trails and eliminates the dual-write problem.
-- **Row-Level Security (RLS):** Multi-tenancy isolation is enforced at the database layer (PostgreSQL). A bug in application code cannot expose another organization's data.
-- **Resilience & Circuit Breakers:** Every inter-service HTTP call wraps a circuit breaker. Fails gracefully (or fails closed for security decisions).
-- **CQRS & Saga Pattern:** Read/write splitting for audit logs. Complex provisioning operations use choreography-based Sagas for atomic distributed transactions.
-- **Secret Rotation:** Multi-key JWT signing and AES-encrypted MFA secrets support zero-downtime rotation.
-- **Zero-Trust internals:** All internal service-to-service calls use mTLS.
+OpenGuard is built for high-scale, zero-trust environments (100k+ users, millions of events/day):
+
+- **Row-Level Security (RLS):** All multi-tenancy isolation is enforced at the database layer (PostgreSQL).
+- **Transactional Outbox:** Every Kafka publish is buffered via a transactional outbox to ensure exactly-once audit trails.
+- **Resilience & Circuit Breakers:** Every inter-service call wraps a circuit breaker with fail-closed security decisions.
+- **CQRS & Saga Pattern:** Clean separation of read/write paths and atomic distributed transactions (Sagas) for provisioning.
+- **Zero-Trust internals:** All internal service-to-service communication is secured via mTLS.
 
 ## 🔐 System Architecture & Security Ecosystem
 
@@ -99,19 +106,6 @@ graph TD
     Console --> CP
     Console --> CR
 ```
-
-### 🗝️ Core Security Features
-
-| Component | Capabilities | Security Guarantee |
-|:--- |:--- |:--- |
-| **Control Plane** | Connectors, App Registration, Central Monitoring | Standardized mTLS communication |
-| **Identity (IAM)** | SSO (SAML/OIDC), SCIM, MFA (WebAuthn), API Tokens | Zero-downtime JWT key rotation |
-| **Logic (Policy)** | RBAC, ABAC, IP Allowlisting, Session Management | Fail-closed on service unavailability |
-| **Protection (DLP)** | PII, Credential, and Financial data scanning | Real-time masking and ingestion blocking |
-| **Detection (Threat)** | Anomaly scoring, Brute-force, Geo-velocity | Streaming detection with < 5s latency |
-| **Assurance (Audit)**| Hash-chained, append-only event trail | Cryptographically verifiable integrity |
-| **Insight (Analytics)**| ClickHouse-powered reporting (GDPR, SOC2) | Real-time dashboards for 100M+ events |
-| **Automation** | Outbound Webhooks for event-driven security | HMAC-signed delivery with retry tracking |
 
 ## 💻 Tech Stack
 
