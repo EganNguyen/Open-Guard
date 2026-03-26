@@ -21,8 +21,97 @@ OpenGuard is built to operate at scale (100k+ users, millions of events/day) wit
 - **Row-Level Security (RLS):** Multi-tenancy isolation is enforced at the database layer (PostgreSQL). A bug in application code cannot expose another organization's data.
 - **Resilience & Circuit Breakers:** Every inter-service HTTP call wraps a circuit breaker. Fails gracefully (or fails closed for security decisions).
 - **CQRS & Saga Pattern:** Read/write splitting for audit logs. Complex provisioning operations use choreography-based Sagas for atomic distributed transactions.
-- **Zero-Trust internals:** All internal service-to-service calls use mTLS.
 - **Secret Rotation:** Multi-key JWT signing and AES-encrypted MFA secrets support zero-downtime rotation.
+- **Zero-Trust internals:** All internal service-to-service calls use mTLS.
+
+## 🔐 System Architecture & Security Ecosystem
+
+OpenGuard follows a **Control Plane + SDK** model. Applications (like the TodoApp) integrate the OpenGuard SDK to perform high-performance policy checks and asynchronous event logging without traffic flowing through a centralized proxy.
+
+```mermaid
+graph TD
+    User((End User))
+    Admin((Security Admin))
+    IdP[External IdP]
+
+    subgraph "Application Layer"
+        App[TodoApp / Connected App]
+        subgraph "OpenGuard SDK"
+            PC[Policy Cache]
+            EB[Event Batcher]
+            CB[Circuit Breaker]
+        end
+    end
+
+    subgraph "OpenGuard Control Plane"
+        direction TB
+        CP[Control Plane Service]
+        CR[Connector Registry]
+        IAM[IAM Service]
+        PE[Policy Engine]
+        WD[Webhook Delivery]
+        DB[(PostgreSQL RLS)]
+    end
+
+    subgraph "Streaming & Big Data Services"
+        direction TB
+        EI[Event Ingest]
+        Kafka((Kafka Bus))
+        TD[Threat Detection]
+        DLP[DLP / Content Scanning]
+        Audit[Audit Service]
+        Comp[Compliance Service]
+        CH[(ClickHouse DB)]
+        Alert[Alerting Service]
+    end
+
+    User -- "1. Authenticate" --> IAM
+    IdP -- "Federate" --> IAM
+    IAM -- "MFA / JWT" --> User
+    
+    User -- "2. Access" --> App
+    App -- "3. Authorize" --> PC
+    PC -- "Cache Miss" --> CB
+    CB -- "4. Evaluate" --> CP
+    CP -- "Policy Check" --> PE
+    PE -- "RLS Guard" --> DB
+    
+    App -- "5. Push Events" --> EB
+    EB -- "6. Async Ingest" --> EI
+    EI -- "7. Publish" --> Kafka
+    
+    Kafka --> TD
+    Kafka --> DLP
+    Kafka --> Audit
+    Kafka --> Comp
+    Comp --> CH
+    
+    TD -- "Threat Alert" --> Alert
+    DLP -- "DLP Finding" --> Alert
+    
+    Alert -- "External Notifications" --> SIEM[SIEM / Slack / Email]
+    
+    CR -- "Config" --> CP
+    CR -- "Events" --> WD
+    WD -- "Webhooks" --> App
+    
+    Admin -- "Dashboard & Reports" --> Console[Admin Console<br/>Next.js 14]
+    Console --> CP
+    Console --> CR
+```
+
+### 🗝️ Core Security Features
+
+| Component | Capabilities | Security Guarantee |
+|:--- |:--- |:--- |
+| **Control Plane** | Connectors, App Registration, Central Monitoring | Standardized mTLS communication |
+| **Identity (IAM)** | SSO (SAML/OIDC), SCIM, MFA (WebAuthn), API Tokens | Zero-downtime JWT key rotation |
+| **Logic (Policy)** | RBAC, ABAC, IP Allowlisting, Session Management | Fail-closed on service unavailability |
+| **Protection (DLP)** | PII, Credential, and Financial data scanning | Real-time masking and ingestion blocking |
+| **Detection (Threat)** | Anomaly scoring, Brute-force, Geo-velocity | Streaming detection with < 5s latency |
+| **Assurance (Audit)**| Hash-chained, append-only event trail | Cryptographically verifiable integrity |
+| **Insight (Analytics)**| ClickHouse-powered reporting (GDPR, SOC2) | Real-time dashboards for 100M+ events |
+| **Automation** | Outbound Webhooks for event-driven security | HMAC-signed delivery with retry tracking |
 
 ## 💻 Tech Stack
 
