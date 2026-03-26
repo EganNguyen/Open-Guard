@@ -60,7 +60,7 @@ func setupAuthHandler(beginErr error) (*AuthHandler, *chi.Mux) {
 		&repository.MFARepository{},
 		nil,
 		logger,
-		nil, nil, 3600,
+		nil, nil, 900, 3600,
 	)
 
 	h := NewAuthHandler(authSvc)
@@ -236,7 +236,7 @@ func TestUserHandler_Success(t *testing.T) {
 func TestAuthHandler_Success(t *testing.T) {
 	keyring := crypto.NewJWTKeyring([]crypto.JWTKey{{Kid: "k1", Secret: "12345678901234567890123456789012", Algorithm: "HS256", Status: "active"}})
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	authSvc := service.NewAuthService(&goodPool{}, &repository.UserRepository{}, &repository.OrgRepository{}, &repository.SessionRepository{}, &repository.MFARepository{}, nil, logger, keyring, nil, 3600)
+	authSvc := service.NewAuthService(&goodPool{}, &repository.UserRepository{}, &repository.OrgRepository{}, &repository.SessionRepository{}, &repository.MFARepository{}, nil, logger, keyring, nil, 900, 3600)
 	h := NewAuthHandler(authSvc)
 
 	r := chi.NewRouter()

@@ -8,11 +8,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/openguard/controlplane/pkg/config"
+	"github.com/openguard/controlplane/pkg/db"
+	"github.com/openguard/controlplane/pkg/handlers"
+	"github.com/openguard/controlplane/pkg/repository"
 	"github.com/openguard/controlplane/pkg/router"
+	"github.com/openguard/shared/kafka"
+	"github.com/openguard/shared/outbox"
 	sharedcfg "github.com/openguard/shared/config"
 	"github.com/openguard/shared/crypto"
 	"github.com/redis/go-redis/v9"
@@ -20,9 +26,9 @@ import (
 
 type dummyValidator struct{}
 
-func (d *dummyValidator) ValidateKey(ctx context.Context, keyHash string) (string, error) {
+func (d *dummyValidator) ValidateKey(ctx context.Context, token string) (string, string, error) {
 	// TODO: Replace with actual database lookup in repository
-	return "org-dummy", nil
+	return "org-dummy", "conn-dummy", nil
 }
 
 func main() {
@@ -66,36 +72,71 @@ func main() {
 		logger.Info("Redis connected", "addr", cfg.RedisAddr)
 	}
 
+	// Database
+	pgPool, err := db.Connect(ctx, cfg.PostgresDSN())
+	if err != nil {
+		logger.Error("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer pgPool.Close()
+	logger.Info("connected to PostgreSQL")
+
 	// Load Keyring
 	keyring := crypto.NewJWTKeyring(cfg.JWTKeys)
 
 	// Load mTLS for backend services
-	caCertPath := sharedcfg.Default("CA_CERT_PATH", "/app/certs/ca.crt")
-	tlsCertPath := sharedcfg.Default("TLS_CERT_PATH", "/app/certs/server.crt")
-	tlsKeyPath := sharedcfg.Default("TLS_KEY_PATH", "/app/certs/server.key")
+	var tlsConfig *tls.Config
+	if cfg.AppEnv != "development" {
+		caCertPath := sharedcfg.Default("CA_CERT_PATH", "/app/certs/ca.crt")
+		tlsCertPath := sharedcfg.Default("TLS_CERT_PATH", "/app/certs/server.crt")
+		tlsKeyPath := sharedcfg.Default("TLS_KEY_PATH", "/app/certs/server.key")
 
-	caCert, err := os.ReadFile(caCertPath)
-	if err != nil {
-		logger.Error("failed to load CA cert for mtls", "error", err)
-	}
-	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(caCert)
+		caCert, err := os.ReadFile(caCertPath)
+		if err != nil {
+			logger.Error("failed to load CA cert for mtls", "error", err)
+		} else {
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(caCert)
 
-	clientCert, err := tls.LoadX509KeyPair(tlsCertPath, tlsKeyPath)
-	if err != nil {
-		logger.Error("failed to load client keys for mtls", "error", err)
+			clientCert, err := tls.LoadX509KeyPair(tlsCertPath, tlsKeyPath)
+			if err != nil {
+				logger.Error("failed to load client keys for mtls", "error", err)
+			} else {
+				tlsConfig = &tls.Config{
+					RootCAs:      caCertPool,
+					Certificates: []tls.Certificate{clientCert},
+				}
+			}
+		}
 	}
 
-	tlsConfig := &tls.Config{
-		RootCAs:      caCertPool,
-		Certificates: []tls.Certificate{clientCert},
-	}
+
+	// Outbox
+	brokers := strings.Split(sharedcfg.Default("KAFKA_BROKERS", "localhost:9092"), ",")
+	producer := kafka.NewProducer(brokers, []string{kafka.TopicAuditTrail}, logger)
+	defer producer.Close()
+
+	outboxWriter := outbox.NewWriter()
+	outboxWriter.TableName = "outbox_records"
+
+	outboxRelay := outbox.NewRelay(pgPool, producer)
+	outboxRelay.TableName = "outbox_records"
+	go outboxRelay.Start(ctx)
+
+	// Repositories
+	connectorRepo := repository.NewConnectorRepository(pgPool, outboxWriter)
+
+	// Handlers
+	connectorHandler := handlers.NewConnectorHandler(connectorRepo, pgPool)
+	ingestHandler := handlers.NewIngestHandler(connectorRepo)
 
 	// Build router
 	r, err := router.New(router.Config{
-		JWTKeyring:      keyring,
-		APIKeyValidator: &dummyValidator{},
-		Redis:           rdb,
+		JWTKeyring:       keyring,
+		APIKeyValidator:  connectorRepo, // Use the real repo
+		Redis:            rdb,
+		ConnectorHandler: connectorHandler,
+		IngestHandler:    ingestHandler,
 		Logger:         logger,
 		TLSConfig:      tlsConfig,
 		IAMAddr:        sharedcfg.Default("IAM_TARGET", "http://localhost:8081"),

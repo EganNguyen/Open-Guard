@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/cors"
 	mw "github.com/openguard/controlplane/pkg/middleware"
 	"github.com/openguard/controlplane/pkg/proxy"
+	"github.com/openguard/controlplane/pkg/handlers"
 	"github.com/openguard/shared/crypto"
 	sharedmw "github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/resilience"
@@ -21,7 +22,9 @@ type Config struct {
 	JWTKeyring      *crypto.JWTKeyring
 	APIKeyValidator sharedmw.APIKeyValidator
 	Redis           redis.UniversalClient
-	Logger     *slog.Logger
+	ConnectorHandler *handlers.ConnectorHandler
+	IngestHandler    *handlers.IngestHandler
+	Logger           *slog.Logger
 	TLSConfig  *tls.Config
 
 	IAMAddr        string
@@ -85,8 +88,7 @@ func New(cfg Config) (*chi.Mux, error) {
 		policyHandler := serviceUnavailableHandler("policy", cfg.PolicyAddr, cfg.Logger, cfg.TLSConfig)
 		r.Handle("/v1/policy/*", policyHandler)
 
-		auditHandler := serviceUnavailableHandler("audit", cfg.AuditAddr, cfg.Logger, cfg.TLSConfig)
-		r.Handle("/v1/events/ingest", auditHandler) // Control plane handles ingestion, or proxies for now
+		r.Post("/v1/events/ingest", cfg.IngestHandler.IngestEvents)
 	})
 
 	// Admin-JWT-authenticated routes
@@ -97,6 +99,15 @@ func New(cfg Config) (*chi.Mux, error) {
 		r.Handle("/api/v1/scim/*", iamStripHandler)
 		r.Handle("/api/v1/users", iamStripHandler)
 		r.Handle("/api/v1/users/*", iamStripHandler)
+
+		r.Handle("/api/v1/admin/connectors", http.HandlerFunc(cfg.ConnectorHandler.List))
+		r.Handle("/api/v1/admin/connectors/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				cfg.ConnectorHandler.Create(w, r)
+			} else {
+				cfg.ConnectorHandler.List(w, r)
+			}
+		}))
 		
 		policyHandler := serviceUnavailableHandler("policy", cfg.PolicyAddr, cfg.Logger, cfg.TLSConfig)
 		r.Handle("/api/v1/policies", policyHandler)

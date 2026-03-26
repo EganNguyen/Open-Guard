@@ -185,6 +185,9 @@ func applyPolicy(req EvalRequest, p *models.Policy) (matched bool, deny bool, re
 	case models.PolicyTypeIPAllowlist:
 		return applyIPAllowlist(req, rules)
 
+	case models.PolicyTypeRBAC:
+		return applyRBAC(req, rules)
+
 	case models.PolicyTypeSessionLimit:
 		// Session limits are enforced at login time, not at evaluation time.
 		// Return not matched so we don't block API calls.
@@ -240,6 +243,32 @@ func applyAnonAccessPolicy(req EvalRequest, rules map[string]interface{}) (bool,
 		return true, true, "anonymous access not permitted"
 	}
 	return false, false, ""
+}
+
+// applyRBAC checks whether the user belongs to at least one of the allowed_roles
+// defined in the RBAC policy rules. If the user has no matching role, access is denied.
+// Rules shape: { "allowed_roles": ["admin", "editor"] }
+func applyRBAC(req EvalRequest, rules map[string]interface{}) (bool, bool, string) {
+	allowedRoles, ok := rules["allowed_roles"].([]interface{})
+	if !ok || len(allowedRoles) == 0 {
+		// No roles configured means RBAC policy is a no-op for this request.
+		return false, false, ""
+	}
+
+	allowedSet := make(map[string]struct{}, len(allowedRoles))
+	for _, r := range allowedRoles {
+		if role, ok := r.(string); ok {
+			allowedSet[role] = struct{}{}
+		}
+	}
+
+	for _, group := range req.UserGroups {
+		if _, ok := allowedSet[group]; ok {
+			return true, false, fmt.Sprintf("rbac: role %q permitted", group)
+		}
+	}
+
+	return true, true, fmt.Sprintf("rbac: user %q has no permitted role (required one of: %v)", req.UserID, allowedRoles)
 }
 
 // InvalidateCacheForOrg deletes all cached eval results for an org using SCAN + DEL.

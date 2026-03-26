@@ -44,13 +44,13 @@ func TestAuthService_Coverage(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	
 	// Test early begin failure
-	svcBadDB := NewAuthService(&mockedPool{beginErr: errors.New("db unreachable")}, &repository.UserRepository{}, &repository.OrgRepository{}, &repository.SessionRepository{}, &repository.MFARepository{}, nil, logger, nil, nil, 3600)
+	svcBadDB := NewAuthService(&mockedPool{beginErr: errors.New("db unreachable")}, &repository.UserRepository{}, &repository.OrgRepository{}, &repository.SessionRepository{}, &repository.MFARepository{}, nil, logger, nil, nil, 900, 3600)
 	
 	_, err := svcBadDB.Register(context.Background(), RegisterRequest{OrgName:"O", Email:"e@e.c", Password:"password123"})
 	assert.ErrorContains(t, err, "begin tx")
 
 	// Test inner query failures (covers much more of the functions)
-	svc := NewAuthService(&mockedPool{beginErr: nil}, &repository.UserRepository{}, &repository.OrgRepository{}, &repository.SessionRepository{}, &repository.MFARepository{}, nil, logger, nil, nil, 3600)
+	svc := NewAuthService(&mockedPool{beginErr: nil}, &repository.UserRepository{}, &repository.OrgRepository{}, &repository.SessionRepository{}, &repository.MFARepository{}, nil, logger, nil, nil, 900, 3600)
 
 	t.Run("invalid inputs", func(t *testing.T) {
 		_, err := svc.Register(context.Background(), RegisterRequest{})
@@ -199,7 +199,7 @@ func TestAuthService_Success(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	keyring := crypto.NewJWTKeyring([]crypto.JWTKey{{Kid: "k1", Secret: "12345678901234567890123456789012", Algorithm: "HS256", Status: "active"}})
 
-	svc := NewAuthService(&goodPool{}, &repository.UserRepository{}, &repository.OrgRepository{}, &repository.SessionRepository{}, &repository.MFARepository{}, nil, logger, keyring, nil, 3600)
+	svc := NewAuthService(&goodPool{}, &repository.UserRepository{}, &repository.OrgRepository{}, &repository.SessionRepository{}, &repository.MFARepository{}, nil, logger, keyring, nil, 900, 3600)
 
 	t.Run("login success", func(t *testing.T) {
 		ip, ua := "1.1.1.1", "curl"

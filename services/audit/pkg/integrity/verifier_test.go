@@ -82,4 +82,39 @@ func TestVerifier_VerifyChain(t *testing.T) {
 		assert.False(t, res.Ok)
 		assert.Greater(t, res.Gaps, 0)
 	})
+
+	t.Run("broken prev_hash link", func(t *testing.T) {
+		ev0 := models.AuditEvent{
+			EventID: "0", OrgID: "org1", Type: "t", OccurredAt: now,
+			PrevChainHash: "", ChainSeq: 0,
+		}
+		ev0.ChainHash = models.ChainHash(secret, "", ev0)
+
+		ev1 := models.AuditEvent{
+			EventID: "1", OrgID: "org1", Type: "t", OccurredAt: now.Add(time.Second),
+			PrevChainHash: "wrong-prev-hash", // broken link
+			ChainSeq:      1,
+		}
+		ev1.ChainHash = models.ChainHash(secret, "wrong-prev-hash", ev1)
+
+		repo := &mockReadRepo{events: []models.AuditEvent{ev0, ev1}}
+		v := integrity.NewVerifier(repo, secret)
+
+		res, err := v.VerifyChain(context.Background(), "org1")
+		require.NoError(t, err)
+		assert.False(t, res.Ok)
+		assert.Contains(t, res.Mismatches[0], "invalid prev_hash linking")
+	})
+
+	t.Run("empty event list", func(t *testing.T) {
+		repo := &mockReadRepo{events: []models.AuditEvent{}}
+		v := integrity.NewVerifier(repo, secret)
+
+		res, err := v.VerifyChain(context.Background(), "org1")
+		require.NoError(t, err)
+		assert.True(t, res.Ok)
+		assert.Equal(t, int64(0), res.CheckedCount)
+		assert.Empty(t, res.Mismatches)
+	})
 }
+

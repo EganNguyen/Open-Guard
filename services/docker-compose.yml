@@ -15,7 +15,9 @@ services:
       REDIS_ADDR: redis:6379
       IAM_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
       IAM_MFA_ENCRYPTION_KEYS_JSON: '[{"id":"v1","secret":"Y2hhbmdlLW1lLXRvLWEtc2VjdXJlLTMyLWJ5dGUta2V5IQ==","status":"active"}]'
+      APP_ENV: ${APP_ENV:-development}
       TLS_CERT_PATH: /app/certs/server.crt
+
       TLS_KEY_PATH: /app/certs/server.key
       CA_CERT_PATH: /app/certs/ca.crt
     ports:
@@ -36,6 +38,8 @@ services:
       dockerfile: services/controlplane/Dockerfile
     container_name: openguard-controlplane
     environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:-openguard}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
       POSTGRES_DB: ${POSTGRES_DB:-openguard}
@@ -46,6 +50,7 @@ services:
       POLICY_TARGET: http://policy:8082
       LOG_LEVEL: debug
       CONTROLPLANE_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
+      APP_ENV: ${APP_ENV:-development}
       TLS_CERT_PATH: /app/certs/server.crt
       TLS_KEY_PATH: /app/certs/server.key
     ports:
@@ -77,6 +82,7 @@ services:
       REDIS_ADDR: redis:6379
       POLICY_PORT: "8082"
       POLICY_CACHE_TTL_SECONDS: "30"
+      APP_ENV: ${APP_ENV:-development}
       TLS_CERT_PATH: /app/certs/server.crt
       TLS_KEY_PATH: /app/certs/server.key
       CA_CERT_PATH: /app/certs/ca.crt

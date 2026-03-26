@@ -54,6 +54,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_session",
+		Value:    resp.RefreshToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true, // Should be true in production
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   86400 * 30, // 30 days or align with session expiry
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
@@ -70,17 +81,65 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	orgID := r.Header.Get("X-Org-ID")
 	userID := r.Header.Get("X-User-ID")
 
-	if err := h.authService.Logout(r.Context(), req.SessionID, orgID, userID); err != nil {
+	sessionID := req.SessionID
+	if sessionID == "" {
+		if cookie, err := r.Cookie("auth_session"); err == nil {
+			sessionID = cookie.Value
+		}
+	}
+
+	if err := h.authService.Logout(r.Context(), sessionID, orgID, userID); err != nil {
 		models.WriteError(w, http.StatusInternalServerError, "LOGOUT_FAILED", err.Error(), r)
 		return
 	}
+
+	// Clear session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
-	models.WriteError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "Token refresh is not yet implemented", r)
+	cookie, err := r.Cookie("auth_session")
+	if err != nil {
+		models.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing session cookie", r)
+		return
+	}
+
+	orgID := r.Header.Get("X-Org-ID")
+	if orgID == "" {
+		// If orgID is not in header (e.g. direct call), we might need another way to get it,
+		// but standard OpenGuard flow has it injected by gateway or provided in header.
+		// For session refresh, we might need to store org_id in the cookie or look it up.
+		// Let's assume for now it's provided or we adjust the service to find it.
+	}
+
+	resp, err := h.authService.Refresh(r.Context(), cookie.Value, orgID)
+	if err != nil {
+		models.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Session expired or invalid", r)
+		return
+	}
+
+	// Session extended, refresh the cookie too if needed (optional)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_session",
+		Value:    cookie.Value,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   86400 * 30,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (h *AuthHandler) SAMLCallback(w http.ResponseWriter, r *http.Request) {

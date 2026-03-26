@@ -157,6 +157,69 @@ func TestApplyAnonAccessPolicy(t *testing.T) {
 	}
 }
 
+func TestApplyRBAC(t *testing.T) {
+	rules := map[string]interface{}{
+		"allowed_roles": []interface{}{"admin", "editor"},
+	}
+
+	tests := []struct {
+		name    string
+		groups  []string
+		matched bool
+		deny    bool
+	}{
+		{
+			name:    "user has permitted role",
+			groups:  []string{"editor", "viewer"},
+			matched: true,
+			deny:    false,
+		},
+		{
+			name:    "user has no permitted role",
+			groups:  []string{"viewer"},
+			matched: true,
+			deny:    true,
+		},
+		{
+			name:    "user has no groups",
+			groups:  []string{},
+			matched: true,
+			deny:    true,
+		},
+		{
+			name:    "user has the admin role",
+			groups:  []string{"admin"},
+			matched: true,
+			deny:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matched, deny, _ := applyRBAC(EvalRequest{UserID: "u1", UserGroups: tt.groups}, rules)
+			if matched != tt.matched || deny != tt.deny {
+				t.Errorf("got (matched=%v, deny=%v), want (matched=%v, deny=%v)",
+					matched, deny, tt.matched, tt.deny)
+			}
+		})
+	}
+
+	t.Run("empty allowed_roles is a no-op", func(t *testing.T) {
+		emptyRules := map[string]interface{}{"allowed_roles": []interface{}{}}
+		matched, deny, _ := applyRBAC(EvalRequest{UserGroups: []string{"admin"}}, emptyRules)
+		if matched || deny {
+			t.Error("expected no-op (false, false) for empty allowed_roles")
+		}
+	})
+
+	t.Run("missing allowed_roles key is a no-op", func(t *testing.T) {
+		matched, deny, _ := applyRBAC(EvalRequest{UserGroups: []string{"admin"}}, map[string]interface{}{})
+		if matched || deny {
+			t.Error("expected no-op (false, false) when allowed_roles key is missing")
+		}
+	})
+}
+
 func TestEvaluateLogic(t *testing.T) {
 	svc := &EvaluatorService{}
 

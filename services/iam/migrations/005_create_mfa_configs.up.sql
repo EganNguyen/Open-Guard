@@ -1,4 +1,4 @@
-CREATE TABLE mfa_configs (
+CREATE TABLE IF NOT EXISTS mfa_configs (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
     org_id       UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,

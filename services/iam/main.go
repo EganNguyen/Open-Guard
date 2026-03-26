@@ -82,7 +82,7 @@ func main() {
 	mfaRepo := repository.NewMFARepository()
 
 	// Services
-	authService := service.NewAuthService(pool, userRepo, orgRepo, sessionRepo, mfaRepo, outboxWriter, logger, jwtKeyring, aesKeyring, cfg.JWTExpiry)
+	authService := service.NewAuthService(pool, userRepo, orgRepo, sessionRepo, mfaRepo, outboxWriter, logger, jwtKeyring, aesKeyring, cfg.JWTExpiry, cfg.SessionIdleTimeout)
 	userService := service.NewUserService(pool, userRepo, sessionRepo, tokenRepo, outboxWriter, logger)
 
 	// Handlers

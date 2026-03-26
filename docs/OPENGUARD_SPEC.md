@@ -32,11 +32,11 @@
 11. [Phase 3 — Event Bus, Outbox Relay & Audit Log](#11-phase-3--event-bus-outbox-relay--audit-log)
 12. [Phase 4 — Threat Detection & Alerting](#12-phase-4--threat-detection--alerting)
 13. [Phase 5 — Compliance & Analytics](#13-phase-5--compliance--analytics)
-14. [Phase 6 — Frontend (Next.js)](#14-phase-6--frontend-nextjs)
-15. [Phase 7 — Infra, CI/CD & Observability](#15-phase-7--infra-cicd--observability)
-16. [Phase 8 — Security Hardening & Secret Rotation](#16-phase-8--security-hardening--secret-rotation)
-17. [Phase 9 — Load Testing & Performance Tuning](#17-phase-9--load-testing--performance-tuning)
-18. [Phase 10 — Documentation & Runbooks](#18-phase-10--documentation--runbooks)
+14. [Phase 6 — Infra, CI/CD & Observability](#14-phase-6--infra-cicd--observability)
+15. [Phase 7 — Security Hardening & Secret Rotation](#15-phase-7--security-hardening--secret-rotation)
+16. [Phase 8 — Load Testing & Performance Tuning](#16-phase-8--load-testing--performance-tuning)
+17. [Phase 9 — Documentation & Runbooks](#17-phase-9--documentation--runbooks)
+18. [Phase 10 — Content Scanning & DLP](#18-phase-10--content-scanning--dlp)
 19. [Cross-Cutting Concerns](#19-cross-cutting-concerns)
 20. [Acceptance Criteria (Full System)](#20-acceptance-criteria-full-system)
 
@@ -1097,7 +1097,7 @@ Core capabilities:
 
 ### 1.2 Performance Targets (Canonical SLOs)
 
-These are hard targets. Phase 9 must verify each one with k6 load tests. No phase is complete until its SLOs are met.
+These are hard targets. Phase 8 must verify each one with k6 load tests. No phase is complete until its SLOs are met.
 
 | Operation | p50 | p99 | p999 | Throughput |
 |-----------|-----|-----|------|------------|
@@ -1245,7 +1245,8 @@ openguard/
 │   ├── audit/
 │   ├── alerting/
 │   ├── webhook-delivery/       # Reads TopicWebhookDelivery, delivers to connector webhook URLs
-│   └── compliance/
+│   ├── compliance/
+│   └── dlp/                    # Phase 10: Scanning service for PII, credentials, financial data
 ├── sdk/                        # Embeddable Go client library for connected apps
 │   ├── go.mod                  # module: github.com/openguard/sdk
 │   ├── policy/
@@ -1363,6 +1364,7 @@ use (
     ./services/alerting
     ./services/webhook-delivery
     ./services/compliance
+    ./services/dlp
 )
 ```
 
@@ -2462,7 +2464,7 @@ func (k *JWTKeyring) Verify(tokenString string) (jwt.MapClaims, error)
 **Key rotation procedure** (documented in `docs/runbooks/secret-rotation.md`):
 1. Generate new key, add to `IAM_JWT_KEYS_JSON` with `status: "active"`. Set old key to `status: "verify_only"`.
 2. Deploy IAM — new tokens are signed with the new key. Old tokens still verify.
-3. Wait for `IAM_JWT_EXPIRY_SECONDS` — all old tokens have expired.
+3. Wait for `IAM_JWT_EXPIRY_SECONDS` (default 900s / 15min) — all old tokens have expired.
 4. Remove the old key from the JSON array.
 5. Deploy IAM again.
 
@@ -2782,9 +2784,9 @@ IAM now serves two distinct roles: the internal user management API (called by t
 | Method | Path | Description | New in v2 |
 |--------|------|-------------|-----------|
 | `POST` | `/auth/register` | Create org + admin user | — |
-| `POST` | `/auth/login` | Password login → JWT + refresh | — |
-| `POST` | `/auth/refresh` | Exchange refresh token for new JWT | — |
-| `POST` | `/auth/logout` | Revoke session + blacklist refresh token | — |
+| `POST` | `/auth/login` | Password login → JWT + session cookie | — |
+| `POST` | `/auth/refresh` | Use session cookie to issue new JWT + reset idle clock | Yes |
+| `POST` | `/auth/logout` | Revoke session + clear cookie | — |
 | `POST` | `/auth/mfa/enroll` | Begin TOTP/WebAuthn enrollment | WebAuthn |
 | `POST` | `/auth/mfa/verify` | Complete enrollment | — |
 | `POST` | `/auth/mfa/challenge` | Verify TOTP at login | — |
@@ -2808,6 +2810,11 @@ IAM now serves two distinct roles: the internal user management API (called by t
 | `POST` | `/users/bulk` | Bulk create/update (SCIM internal) | Yes |
 | `GET` | `/orgs/me` | Get current org settings | Yes |
 | `PATCH` | `/orgs/me` | Update org settings | Yes |
+| `GET` | `/v1/connectors` | List registered connectors | Yes |
+| `POST` | `/v1/connectors` | Register new connector | — |
+| `GET` | `/v1/connectors/:id` | Get connector details | — |
+| `PATCH` | `/v1/connectors/:id` | Update/Suspend connector | — |
+| `DELETE` | `/v1/connectors/:id` | Delete connector | — |
 
 **SCIM v2:** Exposed through the control plane at `/v1/scim/v2/*` (proxied to IAM via mTLS). IAM handles the logic. Add `ETag` header support for conditional updates.
 
@@ -2902,7 +2909,24 @@ Cache is invalidated on any `policy.changes` Kafka event for the org. The policy
 
 ### 10.3 Evaluator Interface
 
-The evaluator must be called within the circuit breaker. The control plane calls the policy service via mTLS HTTP when handling `POST /v1/policy/evaluate` from the SDK. The SDK also maintains a local LRU cache (keyed on `org_id + sha256(principal+action+resource+context)`) with TTL = `SDK_POLICY_CACHE_TTL_SECONDS`. A cache hit on the SDK side never reaches the control plane. A cache hit on the Redis (server) side skips the policy engine's DB query. Policy service does not expose gRPC in Phase 2 (scaffold it in Phase 7).
+The evaluator must be called within the circuit breaker. The control plane calls the policy service via mTLS HTTP when handling `POST /v1/policy/evaluate` from the SDK. The SDK also maintains a local LRU cache (keyed on `org_id + sha256(principal+action+resource+context)`) with TTL = `SDK_POLICY_CACHE_TTL_SECONDS`. A cache hit on the SDK side never reaches the control plane. A cache hit on the Redis (server) side skips the policy engine's DB query. Policy service does not expose gRPC in Phase 2 (scaffold it in Phase 6).
+
+### 10.4 Policy Management API (Admin Surface)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/v1/policies` | List all policies (RBAC, IP, etc.) |
+| `POST` | `/v1/policies` | Create new policy |
+| `GET` | `/v1/policies/:id` | Get policy rules |
+| `PUT` | `/v1/policies/:id` | Update policy rules |
+| `DELETE` | `/v1/policies/:id` | Delete policy |
+| `GET` | `/v1/policy/eval-logs` | List recent evaluation history |
+
+### 10.5 Policy Evaluation API (Public / Connector Surface)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/v1/policy/evaluate` | Sub-30ms real-time decision |
 
 ### 10.4 Phase 2 Acceptance Criteria
 
@@ -3086,6 +3110,17 @@ threat.alert.resolved     → updates alert status, computes MTTR, publishes aud
 
 MTTR (mean time to resolve) is tracked per org per severity for the compliance dashboard.
 
+### 12.3 Threat & Alerting API (Admin Surface)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/v1/threats/alerts` | List security alerts (status, severity filters) |
+| `GET` | `/v1/threats/alerts/:id` | Get alert details + saga status |
+| `POST` | `/v1/threats/alerts/:id/acknowledge` | Mark alert as acknowledged |
+| `POST` | `/v1/threats/alerts/:id/resolve` | Mark alert as resolved |
+| `GET` | `/v1/threats/stats` | Alert counts and MTTR per org |
+| `GET` | `/v1/threats/detectors` | List active detectors and risk weights |
+
 ### 12.3 SIEM Webhook Signing
 
 Every SIEM webhook POST includes:
@@ -3170,9 +3205,19 @@ for _, event := range bufferedEvents {
 batch.Send()
 ```
 
-Throughput target: 100,000 rows/second. Verify in Phase 9.
+Throughput target: 100,000 rows/second. Verify in Phase 8.
 
-### 13.3 Report Generation with Bulkhead
+### 13.3 Compliance API (Admin Surface)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/v1/compliance/reports` | List generated compliance reports (PDF/JSON) |
+| `POST` | `/v1/compliance/reports` | Trigger new report generation (SOC2, GDPR) |
+| `GET` | `/v1/compliance/reports/:id` | Get report metadata + download link |
+| `GET` | `/v1/compliance/stats` | Global compliance score and daily trends |
+| `GET` | `/v1/compliance/posture` | Real-time posture assessment against controls |
+
+### 13.4 Report Generation with Bulkhead
 
 ```go
 // pkg/reporter/generator.go
@@ -3204,40 +3249,6 @@ When bulkhead is full: return `429` with `Retry-After: 30`.
 
 ---
 
-## 14. Phase 6 — Frontend (Next.js)
-
-### 14.1 Real-Time Threat Dashboard
-
-Replace the 30-second polling on the threats page with Server-Sent Events (SSE):
-
-```ts
-// app/(dashboard)/threats/page.tsx
-// Use native EventSource connected to GET /api/v1/threats/stream
-// The alerting service exposes an SSE endpoint that pushes new alerts
-// Reconnects automatically on disconnect
-```
-
-The alerting service adds `GET /alerts/stream` — an SSE endpoint that keeps the connection open and writes `data: <json>\n\n` for each new alert.
-
-### 14.2 Audit Log — Virtual Scrolling
-
-The audit log page must use virtual scrolling (TanStack Virtual) for the events table. Loading 1,000+ rows into the DOM is not acceptable. Fetch 100 rows at a time using cursor pagination.
-
-### 14.3 Security Headers (Next.js)
-
-In `next.config.ts`, add all security headers plus a strict Content Security Policy:
-
-```ts
-const securityHeaders = [
-    { key: 'X-Content-Type-Options', value: 'nosniff' },
-    { key: 'X-Frame-Options', value: 'DENY' },
-    { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
-    { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-    { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-    {
-        key: 'Content-Security-Policy',
-        value: [
-            "default-src 'self'",
             "script-src 'self' 'unsafe-inline'",  // Next.js requires unsafe-inline
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data: blob:",
@@ -3315,7 +3326,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
 ---
 
-## 15. Phase 7 — Infra, CI/CD & Observability
+## 14. Phase 6 — Infra, CI/CD & Observability
 
 ### 15.1 Docker Compose
 
@@ -3653,7 +3664,7 @@ groups:
 - `Secret` references via `external-secrets.io` annotations for production. Plain secrets for dev.
 - `topologySpreadConstraints`: spread pods across 3 AZs.
 
-### 15.6 Phase 7 Acceptance Criteria
+### 14.6 Phase 6 Acceptance Criteria
 
 - [ ] `docker compose up` starts all infra healthy with MongoDB replica set initialized.
 - [ ] `go test ./... -race` passes in CI with ≥ 70% coverage.
@@ -3667,7 +3678,7 @@ groups:
 
 ---
 
-## 16. Phase 8 — Security Hardening & Secret Rotation
+## 15. Phase 7 — Security Hardening & Secret Rotation
 
 ### 16.1 HTTP Security Middleware (all services)
 
@@ -3778,7 +3789,7 @@ Note: During the window between steps 1 and 3, the connector cannot authenticate
 
 `go.sum` must be committed and CI must fail if `go.sum` is not up to date (`go mod verify`). Node dependencies pinned with `package-lock.json` (exact versions, not ranges). `dependabot.yml` configured for weekly auto-PRs for Go and Node.
 
-### 16.6 Phase 8 Acceptance Criteria
+### 15.6 Phase 7 Acceptance Criteria
 
 - [ ] Security headers on every HTTP response from every service.
 - [ ] SSRF: webhook URL `http://localhost/internal` is rejected at configuration time.
@@ -3790,7 +3801,7 @@ Note: During the window between steps 1 and 3, the connector cannot authenticate
 
 ---
 
-## 17. Phase 9 — Load Testing & Performance Tuning
+## 16. Phase 8 — Load Testing & Performance Tuning
 
 **Goal:** Verify every SLO from Section 1.2. No phase is "done" until SLOs are met.
 
@@ -3878,7 +3889,7 @@ Run `make load-test` and address failures:
 | Memory OOM on IAM pod | Connection pool too large | Reduce `POSTGRES_POOL_MAX_CONNS` per replica, add replicas instead |
 | Webhook delivery backlog | Delivery service under-scaled | Increase `webhook-delivery` replicas; tune `WEBHOOK_DELIVERY_TIMEOUT_MS` |
 
-### 17.3 Phase 9 Acceptance Criteria
+### 16.3 Phase 8 Acceptance Criteria
 
 - [ ] `auth.js` k6 run: p99 login < 150ms at 2,000 req/s, error rate < 1%.
 - [ ] `policy-evaluate.js`: p99 < 5ms (Redis cached), p99 < 30ms (uncached) at 10,000 req/s.
@@ -3891,7 +3902,7 @@ Run `make load-test` and address failures:
 
 ---
 
-## 18. Phase 10 — Documentation & Runbooks
+## 17. Phase 9 — Documentation & Runbooks
 
 ### 18.1 Required Documents
 
@@ -3944,7 +3955,7 @@ Run `make load-test` and address failures:
 | `connector-suspension.md` | How to suspend a misbehaving connector immediately. Steps: `PATCH /v1/admin/connectors/:id`, verify 401 responses, investigate event log for abuse pattern. |
 | `webhook-delivery-failure.md` | Connector not receiving webhooks. Steps: check delivery log, inspect DLQ, verify connector URL is reachable, re-enable after fix. |
 
-### 18.3 Phase 10 Acceptance Criteria
+### 17.3 Phase 9 Acceptance Criteria
 
 - [ ] `make dev` runs to a working state on a clean machine following `README.md` only.
 - [ ] All OpenAPI specs pass `redocly lint` including `control-plane.openapi.json`.
@@ -3954,6 +3965,94 @@ Run `make load-test` and address failures:
 - [ ] `docs/contributing.md` — adding a new control plane route by following the guide produces a route with correct scope enforcement and circuit breaker.
 
 ---
+
+---
+
+## 18. Phase 10 — Content Scanning & DLP
+
+**Goal:** Detect and mitigate sensitive data leakage (PII, credentials, financial data) in real-time. Target: scan latency p99 < 50ms. High-risk findings trigger immediate alerts and can optionally block event ingestion or mask data in the audit log.
+
+### 18.1 Database Schema (services/dlp)
+
+**001_create_dlp_policies.up.sql**
+```sql
+CREATE TABLE dlp_policies (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id       UUID NOT NULL,
+    name         TEXT NOT NULL,
+    rules        JSONB NOT NULL,    -- Array of rule objects: {type: "pii", kind: "email", action: "mask"}
+    enabled      BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_dlp_policies_org ON dlp_policies(org_id);
+ALTER TABLE dlp_policies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dlp_policies FORCE ROW LEVEL SECURITY;
+CREATE POLICY dlp_org_isolation ON dlp_policies
+    USING (org_id = current_setting('app.org_id', true)::UUID);
+```
+
+**002_create_dlp_findings.up.sql**
+```sql
+CREATE TABLE dlp_findings (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id       UUID NOT NULL,
+    event_id     UUID NOT NULL,
+    rule_id      UUID REFERENCES dlp_policies(id),
+    finding_type TEXT NOT NULL,    -- PII | CREDENTIAL | FINANCIAL
+    finding_kind TEXT NOT NULL,    -- email | ssn | credit_card | api_key
+    action_taken TEXT NOT NULL,    -- monitor | mask | block
+    occurred_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_dlp_findings_event ON dlp_findings(event_id);
+ALTER TABLE dlp_findings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dlp_findings FORCE ROW LEVEL SECURITY;
+CREATE POLICY dlp_findings_org_isolation ON dlp_findings
+    USING (org_id = current_setting('app.org_id', true)::UUID);
+```
+
+### 18.2 Scanning Engine logic
+
+The DLP service consumes from `TopicAuthEvents`, `TopicConnectorEvents`, and `TopicPolicyChanges`. It uses a two-tier scanning approach:
+
+1.  **Regex-based (PII & Financial):**
+    - Email: Standard RFC 5322.
+    - SSN: `\b\d{3}-\d{2}-\d{4}\b`.
+    - Credit Card: Luhn-validated patterns (Visa, MC, Amex).
+2.  **Entropy-based (Credentials):**
+    - High-entropy strings (>4.5 shannon entropy) for 24+ characters.
+    - Known prefixes: `sk_live_`, `AIza...`, etc.
+
+### 18.3 DLP API (Admin Surface)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/v1/dlp/policies` | List all DLP policies (PII, Credentials, etc.) |
+| `POST` | `/v1/dlp/policies` | Create new DLP policy |
+| `GET` | `/v1/dlp/policies/:id` | Get DLP policy rules |
+| `PUT` | `/v1/dlp/policies/:id` | Update DLP rules |
+| `DELETE` | `/v1/dlp/policies/:id` | Delete DLP policy |
+| `GET` | `/v1/dlp/findings` | List all sensitive data findings |
+| `GET` | `/v1/dlp/findings/:id` | Get finding details + JSON path |
+| `GET` | `/v1/dlp/stats` | Findings count by type (PII vs Credential) |
+
+### 18.4 Integration Flow
+
+1.  **Ingestion:** SDK/Connector pushes events to Control Plane.
+2.  **Sync Scan (Optional):** If policy is set to "Block", the Control Plane calls the DLP service synchronously via mTLS before accepting the event.
+3.  **Async Scan (Default):** The DLP service consumes Kafka events, scans in the background, and publishes `dlp.finding.created` if sensitive data is found.
+4.  **Masking:** If "Mask" is active, the Audit service consumes the DLP finding and redacts the sensitive fields in MongoDB using the `event_id` and JSON path.
+
+### 18.5 Phase 10 Acceptance Criteria
+
+- [ ] Regex scanner correctly identifies test email and SSN in JSON payloads.
+- [ ] Luhn scanner identifies valid credit card numbers and ignores random numbers.
+- [ ] Entropy scanner detects AWS secret keys with 100% precision in test data.
+- [ ] Sync "Block" policy rejects a `POST /v1/events/ingest` call containing a cleartext credit card.
+- [ ] Async "Mask" policy redacts sensitive data in the audit log within 5s of ingestion.
+- [ ] DLP finding triggers a HIGH threat alert automatically.
 
 ## 19. Cross-Cutting Concerns
 
@@ -4055,7 +4154,7 @@ Use `github.com/go-playground/validator/v10` for struct-level validation. Every 
 | Contract tests | Custom (in `shared/`) | Verify producer → consumer schema compatibility |
 | API tests | `net/http/httptest` | All happy paths + key error paths |
 | Load tests | k6 | All SLOs from Section 1.2 |
-| Chaos tests (Phase 9+) | `toxiproxy` | Verify circuit breaker and outbox behavior under network partition |
+| Chaos tests (Phase 8+) | `toxiproxy` | Verify circuit breaker and outbox behavior under network partition |
 
 **Mandatory CI flags:**
 ```bash
@@ -4070,7 +4169,7 @@ go test ./... -race -count=1 -coverprofile=coverage.out -covermode=atomic -timeo
 
 ---
 
-## 20. Acceptance Criteria (Full System)
+## 18. Acceptance Criteria (Full System)
 
 When all 10 phases are complete, the following end-to-end scenario must execute without manual intervention. Run it as a CI job on every release.
 
@@ -4099,27 +4198,22 @@ When all 10 phases are complete, the following end-to-end scenario must execute 
 16. POST /compliance/reports {type:gdpr}               → report job created
 17. Poll GET /compliance/reports/:id                   → status=completed within 60s
 18. GET /compliance/reports/:id/download               → valid PDF, all 5 GDPR sections
-19. Open http://localhost:3000                         → redirect to /login (IAM OIDC)
-20. Login with admin credentials via OIDC flow         → dashboard loads, alert count = 1
-21. Open /threats                                      → SSE stream delivers alert within 1s
-22. Open /audit                                        → virtual-scrolled table, all events
-23. Open /connectors                                   → AcmeApp and AcmeApp2 listed with correct scopes
-24. PATCH /v1/admin/connectors/:id2 {status:suspended} → AcmeApp2 suspended
-25. POST /v1/events/ingest (AcmeApp2 API key)          → 401 CONNECTOR_SUSPENDED
-26. POST /v1/admin/connectors/:id/test                 → test webhook delivered, HMAC valid
-27. GET /v1/admin/connectors/:id/deliveries            → delivery log shows test + policy-change webhooks
-28. JWT key rotation: add new IAM key, deploy IAM      → old tokens still verify
-29. JWT key rotation: remove old IAM key, deploy IAM   → old tokens return 401
-30. Kill policy service                                → SDK falls back to local cache (60s grace)
+19. PATCH /v1/admin/connectors/:id2 {status:suspended} → AcmeApp2 suspended
+20. POST /v1/events/ingest (AcmeApp2 API key)          → 401 CONNECTOR_SUSPENDED
+21. POST /v1/admin/connectors/:id/test                 → test webhook delivered, HMAC valid
+22. GET /v1/admin/connectors/:id/deliveries            → delivery log shows test + policy-change webhooks
+23. JWT key rotation: add new IAM key, deploy IAM      → old tokens still verify
+24. JWT key rotation: remove old IAM key, deploy IAM   → old tokens return 401
+25. Kill policy service                                → SDK falls back to local cache (60s grace)
                                                          → /v1/policy/evaluate returns 503 POLICY_SERVICE_UNAVAILABLE after TTL
-31. Restart policy service                             → circuit breaker resets, evaluate succeeds
-32. Kill Kafka                                         → POST /v1/events/ingest succeeds, outbox records pending
-33. Restart Kafka                                      → outbox records published within 30s
-34. go test ./... -race                                → all tests pass
-35. k6 run loadtest/auth.js                            → p99 < 150ms at 2,000 req/s
-36. k6 run loadtest/policy-evaluate.js                 → p99 < 30ms uncached, p99 < 5ms Redis cached at 10,000 req/s
-37. k6 run loadtest/event-ingest.js                    → p99 < 50ms at 20,000 req/s
-38. docker compose down                                → clean shutdown, no data loss
+26. Restart policy service                             → circuit breaker resets, evaluate succeeds
+27. Kill Kafka                                         → POST /v1/events/ingest succeeds, outbox records pending
+28. Restart Kafka                                      → outbox records published within 30s
+29. go test ./... -race                                → all tests pass
+30. k6 run loadtest/auth.js                            → p99 < 150ms at 2,000 req/s
+31. k6 run loadtest/policy-evaluate.js                 → p99 < 30ms uncached, p99 < 5ms Redis cached at 10,000 req/s
+32. k6 run loadtest/event-ingest.js                    → p99 < 50ms at 20,000 req/s
+33. docker compose down                                → clean shutdown, no data loss
 ```
 
-Every step is a CI assertion. The release pipeline does not publish unless all 38 steps pass.
+Every step is a CI assertion. The release pipeline does not publish unless all 33 steps pass.

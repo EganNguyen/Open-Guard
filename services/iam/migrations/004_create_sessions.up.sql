@@ -1,4 +1,4 @@
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS sessions (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     org_id       UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
@@ -11,7 +11,7 @@ CREATE TABLE sessions (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 
 ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON sessions USING (org_id::text = current_setting('app.org_id', true));

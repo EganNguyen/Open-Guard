@@ -27,4 +27,5 @@ const (
 	PolicyTypeAnonAccess   PolicyType = "anon_access"
 	PolicyTypeIPAllowlist  PolicyType = "ip_allowlist"
 	PolicyTypeSessionLimit PolicyType = "session_limit"
+	PolicyTypeRBAC         PolicyType = "rbac"
 )

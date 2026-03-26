@@ -27,6 +27,7 @@ func New(cfg Config) *chi.Mux {
 	// Global middleware
 	r.Use(sharedmw.RequestID)
 	r.Use(sharedmw.Logging(cfg.Logger))
+	r.Use(sharedmw.CORS)
 
 	// Health endpoints
 	r.Get("/health/live", healthHandler)

@@ -34,7 +34,9 @@ export default function RegisterPage() {
 
     try {
       const res = await register({ org_name: orgName, email, password });
-      localStorage.setItem("access_token", res.access_token);
+      localStorage.setItem("access_token", res.token);
+      localStorage.setItem("user", JSON.stringify(res.user));
+      localStorage.setItem("org", JSON.stringify(res.org));
       router.push("/dashboard");
     } catch {
       setError("Registration failed. Please try again.");

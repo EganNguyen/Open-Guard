@@ -7,11 +7,33 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface User {
+  id: string;
+  org_id: string;
+  email: string;
+  display_name: string;
+  status: string;
+  mfa_enabled: boolean;
+  tier_isolation: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface LoginResponse {
-  access_token: string;
+  token: string;
   refresh_token: string;
   expires_in: number;
-  token_type: string;
+  user: User;
+  org: Organization;
 }
 
 export interface RegisterRequest {
@@ -21,20 +43,9 @@ export interface RegisterRequest {
 }
 
 export interface RegisterResponse {
-  org_id: string;
-  user_id: string;
-  access_token: string;
-  refresh_token: string;
-}
-
-
-export interface User {
-  id: string;
-  email: string;
-  name: string;
-  org_id: string;
-  status: string;
-  created_at: string;
+  user: User;
+  org: Organization;
+  token: string;
 }
 
 export interface Policy {
@@ -44,6 +55,16 @@ export interface Policy {
   actions: string[];
   resources: string[];
   subjects: string[];
+}
+
+export interface Connector {
+  id: string;
+  org_id: string;
+  name: string;
+  webhook_url: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ListResponse<T> {
@@ -161,3 +182,94 @@ export async function getAlerts(token: string): Promise<ListResponse<any>> {
     headers: { Authorization: `Bearer ${token}` },
   });
 }
+/* ── Connector API ── */
+
+export async function getConnectors(token: string): Promise<ListResponse<Connector>> {
+  return request<ListResponse<Connector>>("/api/v1/admin/connectors", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function createConnector(token: string, data: { name: string; webhook_url: string }): Promise<Connector> {
+  return request<Connector>("/api/v1/admin/connectors", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateConnector(
+  token: string,
+  id: string,
+  data: Partial<{ name: string; webhook_url: string; scopes: string[] }>
+): Promise<Connector> {
+  return request<Connector>(`/api/v1/admin/connectors/${id}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function suspendConnector(token: string, id: string): Promise<void> {
+  await request<void>(`/api/v1/admin/connectors/${id}/suspend`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function activateConnector(token: string, id: string): Promise<void> {
+  await request<void>(`/api/v1/admin/connectors/${id}/activate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function deleteConnector(token: string, id: string): Promise<void> {
+  await request<void>(`/api/v1/admin/connectors/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+/* ── Policy CRUD API ── */
+
+export async function createPolicy(
+  token: string,
+  data: { name: string; description?: string; type: string; rules: object; enabled?: boolean }
+): Promise<Policy> {
+  return request<Policy>("/api/v1/policies", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updatePolicy(token: string, id: string, data: Partial<Policy>): Promise<Policy> {
+  return request<Policy>(`/api/v1/policies/${id}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deletePolicy(token: string, id: string): Promise<void> {
+  await request<void>(`/api/v1/policies/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function getPolicyEvalLogs(token: string): Promise<ListResponse<any>> {
+  return request<ListResponse<any>>("/api/v1/policy/eval-logs", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+/* ── Compliance API ── */
+
+export async function getComplianceReports(token: string): Promise<ListResponse<any>> {
+  return request<ListResponse<any>>("/api/v1/compliance", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+

@@ -1,4 +1,4 @@
-CREATE TABLE api_tokens (
+CREATE TABLE IF NOT EXISTS api_tokens (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     org_id       UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,

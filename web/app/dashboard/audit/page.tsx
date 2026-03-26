@@ -1,56 +1,90 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import styles from "../dashboard.module.css";
+import { getAuditEvents } from "@/lib/api";
 
 export default function AuditPage() {
+  const [events, setEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadEvents();
+  }, []);
+
+  const loadEvents = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("access_token");
+      if (!token) throw new Error("No token");
+      const resp = await getAuditEvents(token);
+      setEvents(resp.data);
+    } catch (err) {
+      console.error("Failed to load audit events:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <DashboardLayout title="Audit log">
       <div className={styles.panel}>
         <div className={styles.panelHeader}>
           <span className={styles.panelTitle} data-testid="page-title">
             System Audit Events
-            <span className="tag tag-green" style={{ marginLeft: "8px" }}>Phase 3</span>
           </span>
         </div>
-        <div style={{ padding: "20px" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
+        
+        {loading ? (
+          <div style={{ padding: "40px", textAlign: "center", color: "var(--muted)" }}>Loading...</div>
+        ) : events.length === 0 ? (
+          <div style={{ padding: "40px", textAlign: "center", color: "var(--muted)" }}>
+            <div style={{ fontSize: "48px", marginBottom: "16px" }}>📜</div>
+            <h3>No events found</h3>
+            <p style={{ maxWidth: "400px", margin: "0 auto" }}>
+              Events will appear here as you interact with the system.
+            </p>
+          </div>
+        ) : (
+          <table className={styles.auditTable}>
             <thead>
-              <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--muted)", textAlign: "left" }}>
-                <th style={{ padding: "12px" }}>Timestamp</th>
-                <th style={{ padding: "12px" }}>Actor</th>
-                <th style={{ padding: "12px" }}>Action</th>
-                <th style={{ padding: "12px" }}>Target</th>
-                <th style={{ padding: "12px" }}>Status</th>
+              <tr>
+                <th>Timestamp</th>
+                <th>Actor</th>
+                <th>Action</th>
+                <th>Target</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody data-testid="audit-list">
-              <tr style={{ borderBottom: "1px solid var(--border-light)" }}>
-                <td style={{ padding: "12px" }}>2026-03-24 10:45:12</td>
-                <td style={{ padding: "12px" }}>admin@openguard.io</td>
-                <td style={{ padding: "12px" }}>policy.create</td>
-                <td style={{ padding: "12px" }}>pol_rbac_01</td>
-                <td style={{ padding: "12px" }}><span className="tag tag-green">Success</span></td>
-              </tr>
-              <tr style={{ borderBottom: "1px solid var(--border-light)" }}>
-                <td style={{ padding: "12px" }}>2026-03-24 10:48:05</td>
-                <td style={{ padding: "12px" }}>system</td>
-                <td style={{ padding: "12px" }}>threat.detected</td>
-                <td style={{ padding: "12px" }}>brute_force_attack</td>
-                <td style={{ padding: "12px" }}><span className="tag tag-red">Alert</span></td>
-              </tr>
+              {events.map((event: any) => (
+                <tr key={event.id}>
+                  <td className={styles.timeCell}>{new Date(event.occurred_at).toLocaleString()}</td>
+                  <td>
+                    <div className={styles.actorCell}>
+                      <span className={styles.miniAvatar} style={{ background: "var(--surface2)", border: "1px solid var(--border)" }}>
+                        {event.actor_id?.substring(0, 2).toUpperCase() || "SY"}
+                      </span>
+                      {event.actor_email || event.actor_id}
+                    </div>
+                  </td>
+                  <td>
+                    <span className={styles.eventType}>{event.type}</span>
+                  </td>
+                  <td style={{ fontSize: "11px", color: "var(--muted)", fontFamily: "var(--mono)" }}>
+                    {event.resource_id}
+                  </td>
+                  <td>
+                    <span className={`tag tag-${event.status === 'success' ? 'green' : 'red'}`}>
+                      {event.status || 'success'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
-
-          <div style={{ padding: "20px", textAlign: "center", color: "var(--muted)", marginTop: "20px" }}>
-            <div style={{ fontSize: "48px", marginBottom: "16px" }}>📜</div>
-            <h3>High-performance log viewer coming in Phase 3/6</h3>
-            <p style={{ maxWidth: "400px", margin: "0 auto" }}>
-              The full audit log will support virtual scrolling for 10,000+ events and 
-              cryptographic integrity verification.
-            </p>
-          </div>
-        </div>
+        )}
       </div>
     </DashboardLayout>
   );

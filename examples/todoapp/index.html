@@ -143,7 +143,7 @@
         <div class="form-group">
             <label>API Endpoint (Todo App)</label>
             <div class="target-url">
-                <input type="text" id="apiUrl" value="http://localhost:8081/api/v1/todos" readonly />
+                <input type="text" id="apiUrl" value="http://localhost:8082/api/v1/todos" readonly />
             </div>
             <p style="font-size: 0.8rem; color: #8b949e; margin-top: 0.5rem;">
                 Requests hit the App directly. The App will evaluate policies against the Control Plane.
@@ -186,14 +186,75 @@
 </div>
 
 <script>
+    const DASHBOARD_URL = "http://localhost:3000";
+    const IAM_URL = "https://localhost:8081";
+
+    // 1. Handle callback from OpenGuard Login
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get('access_token');
+    const urlRefresh = urlParams.get('refresh_token');
+
+    if (urlToken && urlRefresh) {
+        localStorage.setItem('access_token', urlToken);
+        localStorage.setItem('refresh_token', urlRefresh);
+        // Clean up URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+        showStatus("Logged in via OpenGuard!", false);
+    }
+
+    // 2. Check Auth State and Redirect if needed
+    function checkAuth() {
+        const token = localStorage.getItem('access_token');
+        if (!token) {
+            window.location.href = `${DASHBOARD_URL}/login?redirect_uri=${encodeURIComponent(window.location.href)}`;
+            return false;
+        }
+        document.getElementById('jwtToken').value = token;
+        return true;
+    }
+
+    // 3. Silent Refresh Logic
+    async function silentRefresh() {
+        const refreshToken = localStorage.getItem('refresh_token');
+        if (!refreshToken) return;
+
+        try {
+            const res = await fetch(`${IAM_URL}/api/v1/auth/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refresh_token: refreshToken })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                localStorage.setItem('access_token', data.token);
+                if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+                document.getElementById('jwtToken').value = data.token;
+                console.log("Tokens refreshed silently");
+            } else {
+                console.error("Silent refresh failed");
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('refresh_token');
+                checkAuth();
+            }
+        } catch (err) {
+            console.error("Refresh network error", err);
+        }
+    }
+
+    // Run on load
+    if (checkAuth()) {
+        fetchTodos();
+        // Periodically refresh tokens (e.g. every 10 mins)
+        setInterval(silentRefresh, 10 * 60 * 1000);
+    }
+
     function getHeaders() {
         const headers = { 'Content-Type': 'application/json' };
-        
-        const token = document.getElementById('jwtToken').value.trim();
+        const token = localStorage.getItem('access_token');
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
         }
-        
         return headers;
     }
 
@@ -211,6 +272,13 @@
         try {
             const res = await fetch(url, { headers: getHeaders() });
             
+            if (res.status === 401) {
+                showStatus("Session expired. Redirecting...", true);
+                localStorage.removeItem('access_token');
+                checkAuth();
+                return;
+            }
+
             if (!res.ok) {
                 const text = await res.text();
                 showStatus(`Failed (${res.status}): ${text}`, true);
@@ -250,6 +318,12 @@
                 body: JSON.stringify({ title })
             });
             
+            if (res.status === 401) {
+                localStorage.removeItem('access_token');
+                checkAuth();
+                return;
+            }
+
             if (!res.ok) {
                 const text = await res.text();
                 showStatus(`Failed (${res.status}): ${text}`, true);

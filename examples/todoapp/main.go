@@ -197,10 +197,10 @@ func main() {
 		}
 	})
 
-	log.Println("[TodoApp] Starting on http://localhost:8081")
+	log.Println("[TodoApp] Starting on http://localhost:8082")
 	log.Println("[TodoApp] Ready. Using OpenGuard SDK pattern to call Control Plane (port 8080).")
 
-	if err := http.ListenAndServe(":8081", mux); err != nil {
+	if err := http.ListenAndServe(":8082", mux); err != nil {
 		log.Fatal(err)
 	}
 }

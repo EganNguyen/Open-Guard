@@ -31,8 +31,9 @@ type AuthService struct {
 	outbox     *outbox.Writer
 	logger     *slog.Logger
 	jwtKeyring *crypto.JWTKeyring
-	aesKeyring *crypto.AESKeyring
-	jwtExpiry  time.Duration
+	aesKeyring         *crypto.AESKeyring
+	jwtExpiry          time.Duration
+	sessionIdleTimeout time.Duration
 }
 
 func NewAuthService(
@@ -46,18 +47,20 @@ func NewAuthService(
 	jwtKeyring *crypto.JWTKeyring,
 	aesKeyring *crypto.AESKeyring,
 	jwtExpiry int,
+	sessionIdleTimeout int,
 ) *AuthService {
 	return &AuthService{
-		pool:       pool,
-		users:      users,
-		orgs:       orgs,
-		sessions:   sessions,
-		mfa:        mfa,
-		outbox:     outboxWriter,
-		logger:     logger,
-		jwtKeyring: jwtKeyring,
-		aesKeyring: aesKeyring,
-		jwtExpiry:  time.Duration(jwtExpiry) * time.Second,
+		pool:               pool,
+		users:              users,
+		orgs:               orgs,
+		sessions:           sessions,
+		mfa:                mfa,
+		outbox:             outboxWriter,
+		logger:             logger,
+		jwtKeyring:         jwtKeyring,
+		aesKeyring:         aesKeyring,
+		jwtExpiry:          time.Duration(jwtExpiry) * time.Second,
+		sessionIdleTimeout: time.Duration(sessionIdleTimeout) * time.Second,
 	}
 }
 
@@ -136,6 +139,7 @@ type LoginResponse struct {
 	RefreshToken string           `json:"refresh_token"`
 	ExpiresIn    int              `json:"expires_in"`
 	User         *repository.User `json:"user"`
+	Org          *repository.Org  `json:"org"`
 }
 
 func (s *AuthService) Login(ctx context.Context, req LoginRequest, ipAddress, userAgent *string) (*LoginResponse, error) {
@@ -171,13 +175,18 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ipAddress, us
 	hashSum := sha256.Sum256([]byte(refreshToken))
 	refreshHash := hex.EncodeToString(hashSum[:])
 
-	expiresAt := time.Now().Add(s.jwtExpiry)
+	expiresAt := time.Now().Add(s.sessionIdleTimeout)
 	_, err = s.sessions.Create(ctx, tx, user.ID, user.OrgID, refreshHash, ipAddress, userAgent, nil, expiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
 	}
 
 	s.publishEvent(ctx, tx, kafka.TopicAuthEvents, "auth.login.success", user.OrgID, user.ID)
+
+	org, err := s.orgs.GetByID(ctx, tx, user.OrgID)
+	if err != nil {
+		return nil, fmt.Errorf("get org: %w", err)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
@@ -188,6 +197,52 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ipAddress, us
 		RefreshToken: refreshToken,
 		ExpiresIn:    int(s.jwtExpiry.Seconds()),
 		User:         user,
+		Org:          org,
+	}, nil
+}
+
+func (s *AuthService) Refresh(ctx context.Context, sessionID, orgID string) (*LoginResponse, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	session, err := s.sessions.GetActiveSession(ctx, tx, orgID, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid or expired session: %w", err)
+	}
+
+	user, err := s.users.GetByID(ctx, tx, orgID, session.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+
+	token, err := s.generateJWT(user)
+	if err != nil {
+		return nil, fmt.Errorf("generate jwt: %w", err)
+	}
+
+	// Reset idle clock (extend session)
+	newExpiresAt := time.Now().Add(s.sessionIdleTimeout)
+	if err := s.sessions.ExtendExpiry(ctx, tx, orgID, sessionID, newExpiresAt); err != nil {
+		return nil, fmt.Errorf("extend session: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	org, err := s.orgs.GetByID(ctx, tx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("get org: %w", err)
+	}
+
+	return &LoginResponse{
+		Token:     token,
+		ExpiresIn: int(s.jwtExpiry.Seconds()),
+		User:      user,
+		Org:       org,
 	}, nil
 }
 

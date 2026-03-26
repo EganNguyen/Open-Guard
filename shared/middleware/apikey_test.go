@@ -2,8 +2,6 @@ package middleware_test
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -18,21 +16,18 @@ type mockValidator struct {
 	validHashes map[string]string
 }
 
-func (m *mockValidator) ValidateKey(ctx context.Context, keyHash string) (string, error) {
-	if orgID, ok := m.validHashes[keyHash]; ok {
-		return orgID, nil
+func (m *mockValidator) ValidateKey(ctx context.Context, token string) (string, string, error) {
+	if orgID, ok := m.validHashes[token]; ok {
+		return orgID, "conn-1", nil
 	}
-	return "", errors.New("not found")
+	return "", "", errors.New("not found")
 }
 
 func TestAPIKeyAuth(t *testing.T) {
 	token := "my-secret-token"
-	hash := sha256.Sum256([]byte(token))
-	hashHex := hex.EncodeToString(hash[:])
-
 	validator := &mockValidator{
 		validHashes: map[string]string{
-			hashHex: "org-1",
+			token: "org-1",
 		},
 	}
 

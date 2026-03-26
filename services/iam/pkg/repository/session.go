@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -61,6 +62,34 @@ func (r *SessionRepository) GetByID(ctx context.Context, tx pgx.Tx, orgID, id st
 		return nil, fmt.Errorf("get session: %w", err)
 	}
 	return s, nil
+}
+
+func (r *SessionRepository) GetActiveSession(ctx context.Context, tx pgx.Tx, orgID, id string) (*Session, error) {
+	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		return nil, fmt.Errorf("rls config: %w", err)
+	}
+
+	s := &Session{}
+	err := tx.QueryRow(ctx,
+		`SELECT id, user_id, org_id, refresh_hash, ip_address::TEXT, user_agent, country_code, expires_at, revoked, created_at
+		 FROM sessions WHERE id = $1 AND revoked = FALSE AND expires_at > $2`,
+		id, time.Now(),
+	).Scan(&s.ID, &s.UserID, &s.OrgID, &s.RefreshHash, &s.IPAddress, &s.UserAgent, &s.CountryCode, &s.ExpiresAt, &s.Revoked, &s.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("session not found or expired")
+		}
+		return nil, fmt.Errorf("get active session: %w", err)
+	}
+	return s, nil
+}
+
+func (r *SessionRepository) ExtendExpiry(ctx context.Context, tx pgx.Tx, orgID, id string, newExpiresAt time.Time) error {
+	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		return fmt.Errorf("rls config: %w", err)
+	}
+	_, err := tx.Exec(ctx, `UPDATE sessions SET expires_at = $1 WHERE id = $2`, newExpiresAt, id)
+	return err
 }
 
 func (r *SessionRepository) Revoke(ctx context.Context, tx pgx.Tx, orgID, id string) error {

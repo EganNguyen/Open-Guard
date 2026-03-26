@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import styles from "./Sidebar.module.css";
+import { User, Organization } from "@/lib/api";
 
 /* ── SVG Icons (inline for zero dependency) ── */
 const ShieldIcon = () => (
@@ -36,6 +38,33 @@ function NavItem({ href, label, icon, badge, badgeColor, active }: NavItemProps)
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [user, setUser] = useState<User | null>(null);
+  const [org, setOrg] = useState<Organization | null>(null);
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem("user");
+    const storedOrg = localStorage.getItem("org");
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (e) {
+        console.error("Failed to parse stored user", e);
+      }
+    }
+    if (storedOrg) {
+      try {
+        setOrg(JSON.parse(storedOrg));
+      } catch (e) {
+        console.error("Failed to parse stored org", e);
+      }
+    }
+  }, []);
+
+  const userInitials = user?.display_name
+    ? user.display_name.split(" ").map((n) => n[0]).join("").substring(0, 2).toUpperCase()
+    : user?.email?.substring(0, 2).toUpperCase() || "??";
+
+  const orgInitial = org?.name ? org.name[0].toUpperCase() : "O";
 
   return (
     <aside className={styles.sidebar}>
@@ -49,8 +78,8 @@ export default function Sidebar() {
 
       {/* Org Switcher */}
       <div className={styles.orgSwitcher}>
-        <div className={styles.orgAvatar}>A</div>
-        <span className={styles.orgName}>Acme Corp</span>
+        <div className={styles.orgAvatar}>{orgInitial}</div>
+        <span className={styles.orgName}>{org?.name || "Loading..."}</span>
         <span className={styles.orgCaret}>⌄</span>
       </div>
 
@@ -105,9 +134,9 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div className={styles.footer}>
-        <div className={styles.userAvatar}>JD</div>
+        <div className={styles.userAvatar}>{userInitials}</div>
         <div className={styles.userInfo}>
-          <div className={styles.userName}>Jane Doe</div>
+          <div className={styles.userName}>{user?.display_name || user?.email || "Loading..."}</div>
           <div className={styles.userRole}>Org Admin</div>
         </div>
         <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" style={{ color: "var(--muted)", flexShrink: 0 }}>

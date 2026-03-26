@@ -11,6 +11,7 @@ const (
 	TopicNotificationsOut  = "notifications.outbound"
 	TopicSagaOrchestration = "saga.orchestration"
 	TopicOutboxDLQ         = "outbox.dlq"
+	TopicConnectorEvents   = "connector.events"
 )
 
 const (

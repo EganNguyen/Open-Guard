@@ -113,6 +113,13 @@ func (r *Relay) Start(ctx context.Context) {
 	}
 }
 
+// maxAttempts is the number of publish failures after which a record is marked dead
+// and copied to the outbox.dlq topic, per the OpenGuard spec.
+const maxAttempts = 5
+
+// dlqTopic is the canonical Kafka DLQ topic for dead-lettered outbox records.
+const dlqTopic = "outbox.dlq"
+
 func (r *Relay) processBatch(ctx context.Context) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -121,11 +128,11 @@ func (r *Relay) processBatch(ctx context.Context) error {
 	defer tx.Rollback(ctx)
 
 	query := `
-		SELECT id, topic, key, payload 
-		FROM ` + r.getTableName() + ` 
-		WHERE status = 'pending' 
-		ORDER BY created_at ASC 
-		LIMIT 100 
+		SELECT id, topic, key, payload, attempts
+		FROM ` + r.getTableName() + `
+		WHERE status = 'pending'
+		ORDER BY created_at ASC
+		LIMIT 100
 		FOR UPDATE SKIP LOCKED
 	`
 	rows, err := tx.Query(ctx, query)
@@ -135,16 +142,17 @@ func (r *Relay) processBatch(ctx context.Context) error {
 	defer rows.Close()
 
 	type record struct {
-		ID      string
-		Topic   string
-		Key     string
-		Payload []byte
+		ID       string
+		Topic    string
+		Key      string
+		Payload  []byte
+		Attempts int
 	}
 	var batch []record
 
 	for rows.Next() {
 		var rec record
-		if err := rows.Scan(&rec.ID, &rec.Topic, &rec.Key, &rec.Payload); err != nil {
+		if err := rows.Scan(&rec.ID, &rec.Topic, &rec.Key, &rec.Payload, &rec.Attempts); err != nil {
 			return err
 		}
 		batch = append(batch, rec)
@@ -156,13 +164,35 @@ func (r *Relay) processBatch(ctx context.Context) error {
 	}
 
 	for _, rec := range batch {
+		newAttempts := rec.Attempts + 1
+
 		recordCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		pubErr := r.producer.PublishRaw(recordCtx, rec.Topic, []byte(rec.Key), rec.Payload)
 		cancel()
 
 		if pubErr != nil {
-			log.Printf("Failed to publish record %s: %v", rec.ID, pubErr)
-			_, _ = tx.Exec(ctx, `UPDATE `+r.getTableName()+` SET attempts = attempts + 1, last_error = $1 WHERE id = $2`, pubErr.Error(), rec.ID)
+			log.Printf("Failed to publish record %s (attempt %d): %v", rec.ID, newAttempts, pubErr)
+
+			if newAttempts >= maxAttempts {
+				// Mark dead and publish to DLQ — per spec: mark 'dead' after 5 failures.
+				_, _ = tx.Exec(ctx,
+					`UPDATE `+r.getTableName()+`
+					 SET status = 'dead', dead_at = NOW(), attempts = $1, last_error = $2
+					 WHERE id = $3`,
+					newAttempts, pubErr.Error(), rec.ID,
+				)
+				// Best-effort DLQ publish — failure here does not roll back the transaction.
+				dlqCtx, dlqCancel := context.WithTimeout(ctx, 3*time.Second)
+				if dlqErr := r.producer.PublishRaw(dlqCtx, dlqTopic, []byte(rec.ID), rec.Payload); dlqErr != nil {
+					log.Printf("Failed to publish dead record %s to DLQ: %v", rec.ID, dlqErr)
+				}
+				dlqCancel()
+			} else {
+				_, _ = tx.Exec(ctx,
+					`UPDATE `+r.getTableName()+` SET attempts = $1, last_error = $2 WHERE id = $3`,
+					newAttempts, pubErr.Error(), rec.ID,
+				)
+			}
 		} else {
 			_, err = tx.Exec(ctx, `UPDATE `+r.getTableName()+` SET status = 'published', published_at = NOW() WHERE id = $1`, rec.ID)
 			if err != nil {
