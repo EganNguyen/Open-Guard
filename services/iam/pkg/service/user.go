@@ -14,6 +14,7 @@ import (
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/models"
 	"github.com/openguard/shared/outbox"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type UserService struct {
@@ -66,6 +67,7 @@ type CreateUserRequest struct {
 	OrgID       string `json:"org_id"`
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
+	Password    string `json:"password"` // optional initial password
 }
 
 func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*repository.User, error) {
@@ -75,7 +77,19 @@ func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*r
 	if err != nil { return nil, err }
 	defer tx.Rollback(ctx)
 
-	user, err := s.users.Create(ctx, tx, req.OrgID, req.Email, req.DisplayName, nil)
+	// Optionally hash a provided initial password
+	var passwordHash *string
+	if req.Password != "" {
+		if len(req.Password) < 8 {
+			return nil, fmt.Errorf("password must be at least 8 characters")
+		}
+		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 4) // bcrypt.MinCost
+		if err != nil { return nil, fmt.Errorf("hash password: %w", err) }
+		hashStr := string(hash)
+		passwordHash = &hashStr
+	}
+
+	user, err := s.users.Create(ctx, tx, req.OrgID, req.Email, req.DisplayName, passwordHash)
 	if err != nil { return nil, err }
 
 	s.publishAuditEvent(ctx, tx, "user.created", user.OrgID, user.ID)

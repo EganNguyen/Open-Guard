@@ -85,8 +85,8 @@ func New(cfg Config) (*chi.Mux, error) {
 		r.Use(sharedmw.APIKeyAuth(cfg.APIKeyValidator))
 		r.Use(injectOrgIDHeader)
 
-		policyHandler := serviceUnavailableHandler("policy", cfg.PolicyAddr, cfg.Logger, cfg.TLSConfig)
-		r.Handle("/v1/policy/*", policyHandler)
+		policyProxy := serviceProxyHandler("policy", cfg.PolicyAddr, "/v1", cfg.Logger, cfg.TLSConfig)
+		r.Handle("/v1/policies/*", policyProxy)
 
 		r.Post("/v1/events/ingest", cfg.IngestHandler.IngestEvents)
 	})
@@ -101,28 +101,30 @@ func New(cfg Config) (*chi.Mux, error) {
 		r.Handle("/api/v1/users", iamStripHandler)
 		r.Handle("/api/v1/users/*", iamStripHandler)
 
+		// Audit is administrative - protect with JWT but exempt from dynamic policy evaluation
+		auditAPIHandler := serviceProxyHandler("audit", cfg.AuditAddr, "/api/v1", cfg.Logger, cfg.TLSConfig)
+		r.Handle("/api/v1/audit", auditAPIHandler)
+		r.Handle("/api/v1/audit/*", auditAPIHandler)
+
 		r.Get("/api/v1/admin/connectors", cfg.ConnectorHandler.List)
 		r.Post("/api/v1/admin/connectors", cfg.ConnectorHandler.Create)
 		r.Handle("/api/v1/admin/connectors/*", http.HandlerFunc(cfg.ConnectorHandler.List))
 		
-		policyHandler := serviceUnavailableHandler("policy", cfg.PolicyAddr, cfg.Logger, cfg.TLSConfig)
-		r.Handle("/api/v1/policies", policyHandler)
-		r.Handle("/api/v1/policies/*", policyHandler)
+		policyAdminHandler := serviceProxyHandler("policy", cfg.PolicyAddr, "/api/v1", cfg.Logger, cfg.TLSConfig)
+		r.Handle("/api/v1/policies", policyAdminHandler)
+		r.Handle("/api/v1/policies/*", policyAdminHandler)
 
-		// Phase 2: Gateway Policy Enforcement (protect runtime data APIs, not management endpoints)
+		// Phase 2: Gateway Policy Enforcement (protect runtime data APIs)
 		r.Group(func(r chi.Router) {
 			pc := mw.NewPolicyClient(cfg.PolicyAddr, cfg.Logger)
 			r.Use(pc.Middleware())
 
-			threatHandler := serviceUnavailableHandler("threat", cfg.ThreatAddr, cfg.Logger, cfg.TLSConfig)
-			auditAPIHandler := serviceUnavailableHandler("audit", cfg.AuditAddr, cfg.Logger, cfg.TLSConfig)
-			alertingHandler := serviceUnavailableHandler("alerting", cfg.AlertingAddr, cfg.Logger, cfg.TLSConfig)
-			complianceHandler := serviceUnavailableHandler("compliance", cfg.ComplianceAddr, cfg.Logger, cfg.TLSConfig)
+			threatHandler := serviceProxyHandler("threat", cfg.ThreatAddr, "/api/v1", cfg.Logger, cfg.TLSConfig)
+			alertingHandler := serviceProxyHandler("alerting", cfg.AlertingAddr, "/api/v1", cfg.Logger, cfg.TLSConfig)
+			complianceHandler := serviceProxyHandler("compliance", cfg.ComplianceAddr, "/api/v1", cfg.Logger, cfg.TLSConfig)
 
 			r.Handle("/api/v1/threats", threatHandler)
 			r.Handle("/api/v1/threats/*", threatHandler)
-			r.Handle("/api/v1/audit", auditAPIHandler)
-			r.Handle("/api/v1/audit/*", auditAPIHandler)
 			r.Handle("/api/v1/alerts", alertingHandler)
 			r.Handle("/api/v1/alerts/*", alertingHandler)
 			r.Handle("/api/v1/compliance", complianceHandler)
@@ -148,7 +150,7 @@ func injectOrgIDHeader(next http.Handler) http.Handler {
 	})
 }
 
-func serviceUnavailableHandler(name, addr string, logger *slog.Logger, tlsCfg *tls.Config) http.Handler {
+func serviceProxyHandler(name, addr, prefix string, logger *slog.Logger, tlsCfg *tls.Config) http.Handler {
 	if addr != "" {
 		cb := resilience.NewBreaker(resilience.BreakerConfig{
 			Name:             name + "-breaker",
@@ -160,7 +162,7 @@ func serviceUnavailableHandler(name, addr string, logger *slog.Logger, tlsCfg *t
 		})
 		p, err := proxy.NewReverseProxy(addr, logger, cb, tlsCfg)
 		if err == nil {
-			return http.StripPrefix("/api/v1", p)
+			return http.StripPrefix(prefix, p)
 		}
 		logger.Error("failed to create proxy", "service", name, "error", err)
 	}

@@ -68,8 +68,8 @@ func TestRouter_Config(t *testing.T) {
 	}
 }
 
-func TestServiceUnavailableHandler(t *testing.T) {
-	h := serviceUnavailableHandler("test-svc", "", slog.Default(), nil)
+func TestServiceProxyHandler(t *testing.T) {
+	h := serviceProxyHandler("test-svc", "", "/api/v1", slog.Default(), nil)
 	
 	req := httptest.NewRequest("GET", "/api/v1/test", nil)
 	rec := httptest.NewRecorder()
@@ -80,9 +80,9 @@ func TestServiceUnavailableHandler(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "test-svc service is not available yet")
 }
 
-func TestServiceUnavailableHandler_WithAddr(t *testing.T) {
+func TestServiceProxyHandler_WithAddr(t *testing.T) {
 	// Should create a proxy
-	h := serviceUnavailableHandler("test-svc", "http://localhost:12345", slog.Default(), nil)
+	h := serviceProxyHandler("test-svc", "http://localhost:12345", "/api/v1", slog.Default(), nil)
 	assert.NotNil(t, h)
 	
 	// Since there is no actual server, it should return 503 if we call it

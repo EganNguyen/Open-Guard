@@ -95,7 +95,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*Regis
 		return nil, fmt.Errorf("create org: %w", err)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 4) // bcrypt.MinCost
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}

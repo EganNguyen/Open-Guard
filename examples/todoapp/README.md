@@ -11,12 +11,21 @@ This guide walks you through a complete, end-to-end integration of a real produc
    docker-compose up -d
    ```
 2. **Todo App Running**:
-   Start the Todo App Go server:
-   ```bash
-   cd examples/todoapp
-   go run .
-   ```
-   *The Todo App starts on `http://localhost:8081`.*
+
+   *The Todo App starts on `http://localhost:8083`.*
+   # Build the image
+   docker build -t todoapp:latest examples/todoapp/
+
+   # Run the container
+   # Use port 8083 to avoid conflict with 'policy' on 8082
+   docker rm -f todoapp-container 2>/dev/null || true
+   docker run -d \
+   --name todoapp-container \
+   --network services_default \
+  -p 8083:8082 \
+  -e CONTROLPLANE_URL=http://openguard-controlplane:8080/v1/policy/evaluate \
+  todoapp:latest
+
 
 ---
 
@@ -49,8 +58,8 @@ Even with a valid login, the Todo App will ask the Control Plane if you are allo
 
 Now, interact with your Todo App as a fully secured, enterprise-grade user.
 
-1. Open the **Todo App UI**: `http://localhost:8081`.
-2. The UI natively talks to the Todo App API at `http://localhost:8081/api/v1/todos`.
+1. Open the **Todo App UI**: `http://localhost:8083`.
+2. The UI natively talks to the Todo App API at `http://localhost:8083/api/v1/todos`.
 3. Paste your **JWT Token** into the Bearer field.
 4. **Add a Task**:
    - The Todo App parses your JWT to identify you.

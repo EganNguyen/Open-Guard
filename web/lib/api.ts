@@ -28,6 +28,12 @@ export interface User {
   updated_at: string;
 }
 
+export interface CreateUserRequest {
+  email: string;
+  display_name?: string;
+  password?: string;
+}
+
 export interface LoginResponse {
   token: string;
   refresh_token: string;
@@ -155,6 +161,53 @@ export async function logout(token: string): Promise<void> {
 
 export async function getUsers(token: string): Promise<ListResponse<User>> {
   return request<ListResponse<User>>("/api/v1/users", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function createUser(token: string, data: CreateUserRequest): Promise<User> {
+  return request<User>("/api/v1/users", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getUserById(token: string, id: string): Promise<User> {
+  return request<User>(`/api/v1/users/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function updateUser(
+  token: string,
+  id: string,
+  data: { display_name?: string; status?: string }
+): Promise<User> {
+  return request<User>(`/api/v1/users/${id}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function suspendUser(token: string, id: string): Promise<User> {
+  return request<User>(`/api/v1/users/${id}/suspend`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function activateUser(token: string, id: string): Promise<User> {
+  return request<User>(`/api/v1/users/${id}/activate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function deleteUser(token: string, id: string): Promise<void> {
+  await request<void>(`/api/v1/users/${id}`, {
+    method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
 }

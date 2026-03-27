@@ -48,6 +48,7 @@ services:
       CA_CERT_PATH: /app/certs/ca.crt
       IAM_TARGET: https://iam:8081
       POLICY_TARGET: http://policy:8082
+      AUDIT_TARGET: http://audit:8083
       LOG_LEVEL: debug
       CONTROLPLANE_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
       APP_ENV: ${APP_ENV:-development}
@@ -63,6 +64,8 @@ services:
       iam:
         condition: service_started
       policy:
+        condition: service_started
+      audit:
         condition: service_started
       redis:
         condition: service_healthy
@@ -98,6 +101,28 @@ services:
       kafka:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  # ─────────── Audit Service ───────────
+  audit:
+    build:
+      context: ../
+      dockerfile: services/audit/Dockerfile
+    container_name: openguard-audit
+    environment:
+      AUDIT_PORT: "8083"
+      KAFKA_BROKERS: kafka:9092
+      MONGO_URI_PRIMARY: mongodb://mongodb:27017
+      MONGO_URI_SECONDARY: mongodb://mongodb:27017
+      AUDIT_HASH_CHAIN_SECRET: change-me-audit-hash-secret
+      AUDIT_BULK_INSERT_MAX_DOCS: "100"
+      AUDIT_BULK_INSERT_FLUSH_MS: "500"
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: debug
+    ports:
+      - "8085:8083"
+    depends_on:
+      kafka:
         condition: service_healthy
 
   # ─────────── Frontend ───────────
