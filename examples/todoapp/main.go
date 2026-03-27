@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -92,7 +93,11 @@ func EnsureOpenGuardAuth(action string, next http.HandlerFunc) http.HandlerFunc 
 		evalReq.Context.UserID = userID
 
 		bodyBytes, _ := json.Marshal(evalReq)
-		req, _ := http.NewRequest("POST", "http://localhost:8080/v1/policy/evaluate", bytes.NewReader(bodyBytes))
+		cpURL := os.Getenv("CONTROLPLANE_URL")
+		if cpURL == "" {
+			cpURL = "http://localhost:8080/v1/policy/evaluate"
+		}
+		req, _ := http.NewRequest("POST", cpURL, bytes.NewReader(bodyBytes))
 		
 		// The Todo App authenticates itself to the Control Plane using its Connector API Key
 		req.Header.Set("Authorization", "Bearer my-connector-api-key")
