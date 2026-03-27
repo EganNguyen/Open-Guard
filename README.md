@@ -21,6 +21,19 @@ OpenGuard provides a unified security control plane built on 10 core Go microser
 | **`control-plane`** | **Management** | Centralized API, Ingestion Gateway, Dashboard Backend | Standardized mTLS service mesh |
 | **`connector-registry`** | **Inventory** | Application lifecycle, API Key mgmt, Webhook config | Multi-tenant isolation (RLS) |
 
+### 🚀 Organization Security Capability Analysis
+
+| Domain | Capability in OpenGuard | Status |
+| :--- | :--- | :--- |
+| **Security & Privacy** | Multi-tenancy isolation via PostgreSQL RLS, zero cross-tenant leakage, and cryptographically verifiable audit trails. | **Core Architecture** |
+| **IAM** | SSO (SAML/OIDC), SCIM 2.0 provisioning, and MFA (WebAuthn/TOTP) via the `iam` service. | **Implemented** |
+| **Secrets Management** | Secrets (keys, tokens) are loaded via **Environment Variables**. Support for local `.env` and production-grade managers like Vault/AWS SM. | **Flexible (Env Vars)** |
+| **Threat Detection** | Streaming anomaly scoring for Account Takeover (ATO), Geo-velocity, and Brute-force. | **Roadmap (Phase 4)** |
+| **Network Security** | Zero-trust service mesh using mTLS and short-lived certificates (SPIFFE). *Note: Not a WAF or network firewall.* | **Core Architecture** |
+| **Data Security** | Data Loss Prevention (DLP) for PII/financial scanning and row-level security (RLS). | **Roadmap (Phase 7)** |
+| **Application Security** | Real-time RBAC/ABAC policy evaluation via the `policy` engine and integration SDK. | **Implemented** |
+| **Fraud Prevention** | Detection of anomalous patterns like impossible travel and brute force in the `threat` service. | **Roadmap (Phase 4)** |
+
 ## 🏗️ Enterprise Architecture
 
 OpenGuard is built for high-scale, zero-trust environments (100k+ users, millions of events/day):
