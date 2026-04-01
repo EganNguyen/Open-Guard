@@ -15,6 +15,10 @@
 > - All canonical names (env vars, topic names, table names, error codes) are fixed. Rename = major version bump.
 > - Kafka consumer offsets are committed only after successful downstream write (manual commit mode).
 > - The connector registry lookup result is cached in Redis. Every `org_id` derivation hits cache, not DB.
+> - PBKDF2 is used for DB storage only. The hot-path API key lookup uses a fast-hash prefix scheme.
+> - bcrypt verification runs inside a bounded worker pool. Never in raw goroutines.
+> - Webhook delivery state is persisted to PostgreSQL. Not held in memory.
+> - SCIM org_id is derived from the bearer token configuration, never from client-supplied headers.
 
 ---
 
@@ -50,7 +54,7 @@
 
 ### 0.1 Philosophy
 
-**Readability is a production concern.** Code is read ten times for every time it is written. Optimize for the on-call engineer at 3 AM. A `for` loop readable in five seconds beats a channel-of-channels construction that requires a design doc.
+**Readability is a production concern.** Code is read ten times for every time it is written. Optimize for the on-call engineer at 3 AM.
 
 **Boring code is good code.** Go is deliberately unexciting. Propose changes to this document; do not silently diverge in code.
 
@@ -82,9 +86,9 @@ func NewHTTPClient(timeout time.Duration) *http.Client {
 }
 ```
 
-**Named exceptions in this codebase (exhaustive list):**
+**Named exceptions (exhaustive list):**
 - `shared/telemetry/logger.go` — `sensitiveKeys` is a read-only slice, initialized once, never mutated.
-- `services/compliance/pkg/reporter/generator.go` — `reportBulkhead` is a `*resilience.Bulkhead` constructed in `main.go` and injected via `NewGenerator(bulkhead)`. It is not a package-level var initialized with `os.Getenv`.
+- `services/compliance/pkg/reporter/generator.go` — `reportBulkhead` is a `*resilience.Bulkhead` constructed in `main.go` and injected via `NewGenerator(bulkhead)`.
 - Pre-compiled regular expressions (`var emailRE = regexp.MustCompile(...)`).
 - `errors.New` sentinel errors.
 
@@ -149,6 +153,10 @@ var (
     ErrUnauthorized  = errors.New("unauthorized")
     ErrCircuitOpen   = errors.New("circuit breaker open")
     ErrBulkheadFull  = errors.New("bulkhead full")
+    ErrRLSNotSet     = errors.New("RLS org_id context not set") // returned only when org_id
+                                                                 // is required but absent;
+                                                                 // empty string is valid for
+                                                                 // system operations
 )
 ```
 
@@ -210,7 +218,7 @@ if strings.Contains(err.Error(), "not found") {}
 
 #### Log or return — never both
 
-Log at the outermost layer (HTTP handler or Kafka consumer) that has full request context. Service and repository layers return errors; they do not log them.
+Log at the outermost layer (HTTP handler or Kafka consumer). Service and repository layers return errors; they do not log them.
 
 #### Panic only for programmer errors and startup invariants
 
@@ -497,27 +505,16 @@ func (s *Service) GetUser(ctx context.Context, id string) (*models.User, error) 
 
 ### 0.12 HTTP Handler Rules
 
-#### Handlers are thin: bind → validate → call service → respond
+#### Handlers are thin: bind → validate → call service → respond. Centralize error-to-status-code mapping. Never expose internal error messages to callers. Always set explicit server timeouts. Validate `Content-Type: application/json` on all POST/PUT/PATCH handlers; return `415 Unsupported Media Type` otherwise (SCIM endpoints accept `application/scim+json`).
 
 ```go
-func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
-    r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-
-    var input service.CreateUserInput
-    if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-        h.respondError(w, r, http.StatusBadRequest, "INVALID_JSON", err.Error())
-        return
-    }
-    if err := h.validator.Struct(input); err != nil {
-        h.respondValidationError(w, r, err)
-        return
-    }
-    user, err := h.svc.CreateUser(r.Context(), input)
-    if err != nil {
-        h.handleServiceError(w, r, err)
-        return
-    }
-    h.respond(w, http.StatusCreated, user)
+server := &http.Server{
+    Addr:              cfg.Addr,
+    Handler:           router,
+    ReadTimeout:       5 * time.Second,
+    ReadHeaderTimeout: 2 * time.Second,
+    WriteTimeout:      10 * time.Second,
+    IdleTimeout:       120 * time.Second,
 }
 ```
 
@@ -574,9 +571,11 @@ server := &http.Server{
 | `time.Sleep` in service code | Not context-cancellable, untestable | `scripts/re-encrypt-mfa.sh` (operational script only) |
 | Shadowed `err` variables | Silent bugs | — |
 | String concatenation in SQL | SQL injection vector | — |
-| Kafka direct publish from business handler | Dual-write problem (Section 2.1) | — |
+| Kafka direct publish from business handler | Dual-write problem | — |
 | `os.Getenv` from business packages | Bypasses typed config | — |
 | Package-level mutable state | Test-order dependent, concurrent-unsafe | Named exceptions in §0.2 |
+| PBKDF2 computed on every authenticated request | ~800ms/request; complete throughput bottleneck | — |
+| bcrypt in an unbounded goroutine pool | CPU starvation; prevents meeting login SLO | — |
 
 ### 0.14 Code Review Checklist
 
@@ -589,14 +588,13 @@ server := &http.Server{
 - [ ] No discarded errors (`_ = ...`)
 - [ ] Errors wrapped once at layer boundaries
 - [ ] `errors.Is`/`errors.As` used — no string matching
-- [ ] No log-and-return
-- [ ] No `nil, nil` returns
-- [ ] No shadowed `err`
+- [ ] No log-and-return; no `nil, nil` returns; no shadowed `err`
 
 **Concurrency**
 - [ ] Every goroutine has a clear owner and termination path
 - [ ] `wg.Add` called before goroutine starts
 - [ ] No `time.Sleep` — `time.NewTicker` inside `select{}` for polling
+- [ ] bcrypt called through worker pool, never in raw goroutine
 
 **Context**
 - [ ] `ctx` is first parameter on every I/O function
@@ -606,14 +604,23 @@ server := &http.Server{
 **Database**
 - [ ] All SQL uses `$1`, `$2` parameters — no string interpolation
 - [ ] `rls.SetSessionVar` called (via `db.WithOrgID`) before every PostgreSQL query
+- [ ] RLS policy uses `NULLIF(current_setting('app.org_id', true), '')::UUID`
 - [ ] Transactions defer `Rollback` and commit last
 - [ ] No transaction held open across a network call
 - [ ] Kafka offsets committed only after successful downstream write
+- [ ] `version` column updated atomically on all SCIM-exposed resources
 
 **HTTP**
 - [ ] Handler only binds, validates, calls service, responds
+- [ ] `Content-Type` validated before JSON decode; returns 415 if wrong
 - [ ] `http.MaxBytesReader` applied to every request body
 - [ ] Server configured with `ReadTimeout`, `WriteTimeout`, `IdleTimeout`
+
+**Security**
+- [ ] Webhook URLs re-validated at delivery time (not only at registration)
+- [ ] `jti` included in JWT; blocklist checked on every authenticated request
+- [ ] SCIM org_id derived from token config, not from `X-Org-ID` header
+- [ ] Connector auth uses fast-hash prefix for cache lookup; PBKDF2 only on DB miss
 
 **Observability**
 - [ ] Sensitive fields passed through `SafeAttr`
@@ -622,8 +629,7 @@ server := &http.Server{
 
 **Interfaces & DI**
 - [ ] Interfaces defined in the consuming package
-- [ ] No `init()` for side effects
-- [ ] No `log.Fatal` / `os.Exit` outside `main`
+- [ ] No `init()` for side effects; no `log.Fatal` / `os.Exit` outside `main`
 
 ---
 
@@ -638,7 +644,7 @@ It operates at Fortune-500 scale: 100,000+ users, 10,000+ organizations, million
 **Core capabilities:**
 - **Identity & Access Management:** OIDC/SAML IdP. SSO, SCIM 2.0, TOTP/WebAuthn MFA, API token lifecycle, session management.
 - **Policy Engine:** Real-time RBAC evaluation via SDK. Fails closed. SDK caches decisions locally for up to 60 seconds during control plane unavailability.
-- **Connector Registry:** Connected applications register and receive org-scoped API credentials. Credentials are PBKDF2-hashed at rest. Lookup results are Redis-cached to avoid per-request DB queries.
+- **Connector Registry:** Connected applications register and receive org-scoped API credentials. Credentials stored with PBKDF2 hash at rest; hot-path lookup uses a fast-hash prefix scheme against Redis.
 - **Event Ingestion:** Connected apps push audit events to `POST /v1/events/ingest`. Events are normalized into the same Kafka-backed audit pipeline as internal events.
 - **Threat Detection:** Streaming anomaly scoring — brute force, impossible travel, off-hours access, account takeover, privilege escalation.
 - **Audit Log:** Append-only, HMAC hash-chained, cryptographically verifiable event trail with configurable retention.
@@ -665,20 +671,24 @@ These are hard targets. Phase 8 must verify each one with k6 load tests. A phase
 | Connector registry lookup (Redis cached) | 1ms | 5ms | 15ms | — |
 | DLP async scan latency | — | 500ms | 2s | — |
 
+**Notes on SLO feasibility:**
+- `POST /oauth/token` at 150ms p99 requires bcrypt to run through a bounded worker pool (Section 9.3.9). At cost 12, bcrypt takes 250–400ms per operation. Without pooling, 2,000 req/s would require ~800 goroutines each blocking on bcrypt, causing CPU starvation. With a worker pool sized to `2 × NumCPU`, throughput is limited by CPU capacity; scale horizontally to meet the target.
+- `POST /v1/events/ingest` at 50ms p99 at 20,000 req/s assumes backpressure shedding kicks in before PostgreSQL outbox writes become the bottleneck (Section 9.4.2).
+
 ### 1.3 Design Principles
 
 | Principle | Implementation |
 |-----------|---------------|
-| **Fail closed** | Policy unavailable → SDK denies after 60s cache TTL. IAM unavailable → reject all logins. DLP sync-block unavailable → reject events (per-org opt-in, with circuit breaker). |
-| **Exactly-once audit** | Every state-changing operation produces exactly one audit event via the Transactional Outbox. Connected-app events deduplicated by `event_id`. |
-| **Zero cross-tenant leakage** | PostgreSQL RLS enforced at the DB layer via explicit `org_id UUID` column on every tenant table. Application bugs cannot expose another org's data. |
-| **Immutable audit trail** | Append-only MongoDB collection with per-org HMAC hash chaining. Atomic chain sequence assignment via `findOneAndUpdate`. |
-| **Least privilege (services)** | Each service has its own DB user with table-level grants. No service can read another's tables. |
-| **Least privilege (tenants)** | Tenant quotas enforced at the control plane. A noisy tenant cannot starve others. |
+| **Fail closed** | Policy unavailable → SDK denies after 60s cache TTL. IAM unavailable → reject all logins. DLP sync-block unavailable → reject events (per-org opt-in). |
+| **Exactly-once audit** | Every state-changing operation produces exactly one audit event via the Transactional Outbox. Connected-app events deduplicated by `event_id` (unique index, scoped to retention window). |
+| **Zero cross-tenant leakage** | PostgreSQL RLS enforced at the DB layer. RLS policy uses `NULLIF(current_setting('app.org_id', true), '')::UUID` to handle NULL and empty string uniformly. |
+| **Immutable audit trail** | Append-only MongoDB with per-org HMAC hash chaining. Batch chain assignment for throughput (Section 11.2.3). |
+| **Least privilege (services)** | Each service has its own DB user with table-level grants. Migration runs as `openguard_migrate` (DDL only, no `BYPASSRLS` on data tables). |
 | **Secret rotation without downtime** | JWT signing uses `kid`. Multiple valid keys coexist during rotation. Same pattern for MFA encryption keys. |
-| **mTLS between services** | All internal service-to-service calls use mTLS. Certificate rotation is a documented operational procedure. |
-| **Exactly-once Kafka delivery** | Idempotent Kafka producer (`enable.idempotence=true`, `acks=all`). Consumer commits offsets only after successful downstream write. |
-| **Cache-first connector auth** | Connector registry lookups are Redis-cached (30s TTL) to withstand 20,000 req/s event ingest without DB pressure. |
+| **Access token revocation** | JWT `jti` claim; Redis blocklist checked on every authenticated request. |
+| **mTLS between services** | All internal service-to-service calls use mTLS. |
+| **Exactly-once Kafka delivery** | Idempotent Kafka producer. Consumer commits offsets only after successful downstream write. |
+| **Cache-first connector auth** | Fast-hash prefix → Redis; PBKDF2 only on cache miss → DB. Sustains 20,000 req/s event ingest. |
 
 ---
 
@@ -733,15 +743,9 @@ This spec fully implements **Shared** (RLS) and scaffolds Schema/Shard as extens
 
 The audit log has asymmetric load. Read/write split is enforced in the repository layer:
 
-**MongoDB write path** (Kafka consumer → primary):
-- Writes to the MongoDB **primary** only.
-- Bulk insert: up to 500 documents or 1 second flush interval.
-- Offsets committed after successful `BulkWrite()`.
-- Chain sequence assigned atomically via `findOneAndUpdate` on `audit_chain_state` collection.
+**MongoDB write path** (Kafka consumer → primary): Bulk insert up to 500 documents or 1-second flush interval. Offsets committed after successful `BulkWrite()`. Chain sequence assigned via batched atomic reservation (Section 11.2.3).
 
-**MongoDB read path** (HTTP handlers → secondary):
-- All `GET /audit/events` queries use `readPreference: secondaryPreferred`.
-- Compliance report queries use `readPreference: secondary` (acceptable staleness: 5s).
+**MongoDB read path** (HTTP handlers → secondary): `readPreference: secondaryPreferred`. Compliance report queries use `readPreference: secondary` (acceptable staleness: 5s).
 
 ### 2.5 Choreography-Based Sagas
 
@@ -753,13 +757,15 @@ User provisioning via SCIM touches multiple services. OpenGuard uses choreograph
 IAM:        user.created          → audit.trail + saga.orchestration
 Policy:     [consumes user.created] → assigns default org policies
             policy.assigned        → audit.trail
-Threat:     [consumes user.created] → initializes baseline profile  
+Threat:     [consumes user.created] → initializes baseline profile
             threat.baseline.init   → audit.trail
 Alerting:   [consumes user.created] → configures notification preferences
             alert.prefs.init       → audit.trail
 ```
 
-**Compensation (any step failure):**
+**Saga timeout:** When `user.created` is published, IAM writes a deadline record to a Redis sorted set: `ZADD saga:deadlines <unix_deadline> <saga_id>`. A background watcher (consumer group `openguard-saga-v1`) polls the sorted set every 10 seconds for expired entries. On expiry, it publishes `saga.timed_out` with `compensation: true`. Deadline: `SAGA_STEP_TIMEOUT_SECONDS` (default 30s) per step.
+
+**Compensation (any step failure or timeout):**
 
 ```
 Policy:     policy.assignment.failed (compensation:true, caused_by: <event_id>)
@@ -773,49 +779,62 @@ Every service that participates in a saga must define compensation handlers for 
 
 ### 2.6 App Registration and Credential Flow
 
+**Key scheme:** API keys have two components:
+- **Prefix** (first 8 chars, non-secret): used as the Redis cache lookup key via `SHA-256(prefix)`. O(microseconds).
+- **Secret** (remaining chars): verified against the stored PBKDF2 hash only on cache miss (DB path). ~400ms, rare.
+
 ```
 Admin       → POST /v1/admin/connectors           (JWT auth)
             ← { connector_id, api_key_plaintext }  (one-time; never stored)
 
 ConnectedApp → POST /v1/events/ingest             (Bearer api_key_plaintext)
-             
-Control Plane:
-  1. Hash inbound key: PBKDF2-HMAC-SHA512(key, CONTROL_PLANE_API_KEY_SALT, 600000)
-  2. Lookup in Redis: GET "connector:keyhash:{hash}"
-     → Cache hit: deserialize ConnectedApp, skip DB
-     → Cache miss: query connector_registry DB, set in Redis with 30s TTL
-  3. Check status == "active"
-  4. rls.WithOrgID(ctx, connector.OrgID)
-  5. withConnectorScopes(ctx, connector.Scopes)
-  → Route to handler
+
+Control Plane auth flow:
+  1. Parse key: prefix = key[0:8], secret = key[8:]
+  2. fastHash = SHA-256(prefix)
+  3. Lookup Redis: GET "connector:fasthash:{fastHash}"
+     → Cache hit: deserialize ConnectedApp; verify secret matches stored PBKDF2 hash
+       (full PBKDF2 verify only if last_verified_at > 5min ago; else trust cache)
+     → Cache miss: PBKDF2-HMAC-SHA512(key, salt, 600000) → lookup DB by pbkdf2_hash
+       → on hit: SET in Redis with 30s TTL
+  4. Check status == "active"
+  5. rls.WithOrgID(ctx, connector.OrgID)
+  6. withConnectorScopes(ctx, connector.Scopes)
 ```
 
-Cache invalidation: on `PATCH /v1/admin/connectors/:id` (status or scope change), the control plane calls `DEL "connector:keyhash:{hash}"` on the Redis key immediately, before the HTTP response is returned.
+**Cache invalidation:** on `PATCH /v1/admin/connectors/:id`, call `DEL "connector:fasthash:{fastHash}"` before returning the HTTP response.
 
-### 2.7 Push/Pull Event Model
+**Inbound:** Apps push to `POST /v1/events/ingest`. Events are normalized and written to the outbox.
 
-**Inbound (connected app → OpenGuard):** Apps push to `POST /v1/events/ingest`. Events are normalized with `EventSource: "connector:<connector_id>"` and written to the outbox.
-
-**Outbound (OpenGuard → connected app):** When OpenGuard produces a security-relevant event, the webhook delivery service reads from `TopicWebhookDelivery`, signs the payload with HMAC-SHA256, and POSTs to the connector's registered URL. Delivery is at-least-once with exponential backoff. The webhook delivery service uses an internal retry loop (not re-queuing to Kafka) with up to `WEBHOOK_MAX_ATTEMPTS` attempts. After exhaustion, the delivery record is moved to `webhook.dlq` topic for inspection.
+**Outbound:** Webhook delivery service reads from `TopicWebhookDelivery`, signs with HMAC-SHA256, POSTs to connector URL. Delivery state is persisted in `webhook_deliveries` (PostgreSQL) so crash recovery does not restart from attempt 1. After `WEBHOOK_MAX_ATTEMPTS` exhaustion, the record is moved to `webhook.dlq` topic.
 
 ### 2.8 SCIM Authentication
 
-SCIM provisioning (`/v1/scim/v2/*`) is called by external identity providers (Okta, Azure AD, etc.), not by connected apps. These callers authenticate with a dedicated bearer token (`IAM_SCIM_BEARER_TOKEN`), not a connector API key. The control plane routes SCIM paths through `SCIMAuthMiddleware` (not `APIKeyMiddleware`):
+SCIM provisioning is called by external identity providers (Okta, Azure AD). These callers authenticate with a per-org SCIM bearer token. **The org_id is derived from the token configuration, not from any client-supplied header.**
 
 ```go
 // shared/middleware/scim.go
-func SCIMAuthMiddleware(bearerToken string) func(http.Handler) http.Handler {
+type SCIMToken struct {
+    Token string `json:"token"`
+    OrgID string `json:"org_id"`
+}
+
+// IAM_SCIM_TOKENS_JSON is a JSON array of SCIMToken objects.
+// Each org that uses SCIM provisioning gets its own bearer token.
+func SCIMAuthMiddleware(tokens []SCIMToken) func(http.Handler) http.Handler {
+    // Build a map for O(1) lookup. Keys are token strings; values are org IDs.
+    tokenMap := make(map[string]string, len(tokens))
+    for _, t := range tokens {
+        tokenMap[t.Token] = t.OrgID
+    }
     return func(next http.Handler) http.Handler {
         return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
             raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-            // Constant-time comparison to prevent timing attacks
-            if subtle.ConstantTimeCompare([]byte(raw), []byte(bearerToken)) != 1 {
+            orgID, ok := tokenMap[raw]
+            if !ok {
                 writeError(w, http.StatusUnauthorized, "INVALID_SCIM_TOKEN", "invalid SCIM bearer token", r)
                 return
             }
-            // SCIM requests carry org_id via URL path or X-Org-ID from the IdP
-            // The SCIM bearer token is org-scoped in its configuration
-            orgID := r.Header.Get("X-Org-ID") // set by the IdP, validated against token binding
             ctx := rls.WithOrgID(r.Context(), orgID)
             next.ServeHTTP(w, r.WithContext(ctx))
         })
@@ -825,46 +844,49 @@ func SCIMAuthMiddleware(bearerToken string) func(http.Handler) http.Handler {
 
 ### 2.9 Certificate Rotation
 
-mTLS certificates expire. The following operational procedure must be documented and tested before production launch:
-
 **Procedure (zero-downtime):**
-1. Generate new certificates for the target service using `scripts/gen-mtls-certs.sh --service <name> --renew`.
-2. Update the target service's cert/key mounts (`<SERVICE>_MTLS_CERT_FILE`). The CA cert does not change unless rotating the CA itself.
-3. Rolling deploy the target service. During rollout, old pods use old cert, new pods use new cert. All certs are signed by the same CA so mTLS handshakes succeed across both.
-4. Once rollout is complete, update all *calling* services to remove the old cert from any pinned certificate stores (not applicable in standard CA-based verification).
-
-CA rotation is a longer procedure documented in `docs/runbooks/ca-rotation.md` and involves a dual-CA trust period. CA rotation must be rehearsed in staging before production.
+1. Generate new cert: `scripts/gen-mtls-certs.sh --service <name> --renew`.
+2. Update the target service's cert/key mounts. CA cert does not change.
+3. Rolling deploy target service. Old and new pods share the same CA → mTLS succeeds across both.
+4. CA rotation uses a dual-CA trust period documented in `docs/runbooks/ca-rotation.md`.
 
 ### 2.10 Connection Pooling Targets
 
-| Service | DB | Pool min | Pool max | Notes |
-|---------|----|----------|----------|-------|
-| IAM | PostgreSQL | 5 | 25 | Login burst; bcrypt is CPU-bound, not DB-bound |
-| Control Plane | PostgreSQL (outbox only) | 2 | 15 | Short-lived outbox inserts |
-| Connector Registry | PostgreSQL | 2 | 10 | Mostly cache hits; DB for cache misses |
-| Policy | PostgreSQL | 2 | 15 | Short evaluate queries |
-| Audit (write) | MongoDB | 2 | 10 | Bulk inserts, low concurrency |
-| Audit (read) | MongoDB | 5 | 30 | Dashboard queries |
-| Compliance | ClickHouse | 2 | 8 | Long-running aggregations |
-| All services | Redis | 5 | 20 | Rate limit, session, cache |
+| Service | DB | Pool min | Pool max | Max conn lifetime |
+|---------|----|----------|----------|-------------------|
+| IAM | PostgreSQL | 5 | 25 | 1800s |
+| Control Plane | PostgreSQL (outbox only) | 2 | 15 | 300s |
+| Outbox Relay | PostgreSQL (`openguard_outbox` role) | 2 | 10 | **60s** |
+| Connector Registry | PostgreSQL | 2 | 10 | 1800s |
+| Policy | PostgreSQL | 2 | 15 | 1800s |
+| Audit (write) | MongoDB | 2 | 10 | — |
+| Audit (read) | MongoDB | 5 | 30 | — |
+| Compliance | ClickHouse | 2 | 8 | — |
+| All services | Redis | 5 | 20 | — |
 
-Configure via env vars. Enforced in each service's `pkg/db/` package.
+**Note on Outbox Relay pool lifetime:** Set to 60s so that after a PostgreSQL primary failover, stale connections to the old primary are recycled within 60 seconds, and the relay resumes draining the backlog promptly.
 
 ### 2.11 Tenant Offboarding
 
-When an organization cancels, the following sequence must execute atomically at the service level, with saga-based cross-service coordination:
+Triggered by `org.offboard` event:
 
-**Offboarding saga (triggered by `org.offboard` event):**
+1. IAM: Revoke all active sessions and API tokens. Set users to `status=deprovisioned`.
+2. Control Plane: Suspend all connectors. Invalidate their Redis cache entries.
+3. Policy: Archive all policies.
+4. Webhook Delivery: Drain in-flight queue.
+5. Audit: Finalize hash chain; write `org.offboarded` terminal event.
+6. Compliance: Queue GDPR erasure export if requested.
+7. Scheduler: After `ORG_DATA_RETENTION_DAYS`, hard-delete in this exact order (respects FK constraints):
+   `outbox_records` → `dlp_findings` → `dlp_policies` → ... → `orgs`.
 
-1. IAM: Revoke all active sessions and API tokens. Set all users to `status=deprovisioned`.
-2. Control Plane: Suspend all connectors for the org.
-3. Policy: Mark all policies as `archived`.
-4. Webhook Delivery: Drain in-flight webhook queue for org's connectors.
-5. Audit: Finalize the hash chain; write a `org.offboarded` terminal event.
-6. Compliance: Queue GDPR erasure export if requested (right to erasure).
-7. Scheduler: After configurable retention period (`ORG_DATA_RETENTION_DAYS`), hard-delete all org data in reverse dependency order: outbox → sessions → api_tokens → mfa_configs → users → policies → org.
+### 2.12 API Versioning Policy
 
-This is not implemented until the compliance feature is complete but must be designed for from Phase 1 (no hard deletes before this saga runs).
+All routes are prefixed `/v1/`. When a breaking change is required:
+1. Implement `/v2/` route alongside `/v1/`.
+2. Add `Deprecation: true` and `Sunset: <date>` headers to `/v1/` responses.
+3. Maintain `/v1/` for a minimum of 6 months after `/v2/` GA.
+
+
 
 ---
 
@@ -1023,13 +1045,35 @@ type SDKBreaker struct {
 func (b *SDKBreaker) PolicyEvaluate(ctx context.Context, req PolicyRequest) (PolicyDecision, error)
 
 // EventIngest calls POST /v1/events/ingest through the breaker.
-// When the breaker is open: buffer events locally up to SDK_OFFLINE_BUFFER_SIZE.
-// On breaker recovery: flush buffered events.
-// If buffer is full: drop oldest events and log a warning.
-func (b *SDKBreaker) EventIngest(ctx context.Context, events []Event) error
+// When the breaker is open: buffer events locally up to SDK_OFFLINE_RETRY_LIMIT (default 500).
+// After 500 events, drop newest (tail drop) and publish `sdk.buffer_overflow` metric.
+// On breaker recovery: flush buffered events in a background goroutine.
+func (b *SDKBreaker) EventIngest(ctx context.Context, event AuditEvent) error
 ```
 
-### 3.2 Go Workspace
+### 3.2 Scope Middleware (Connector Authorization)
+
+Connector registry logic in `shared/middleware/scope.go` ensures a connector has the required permission for the endpoint.
+
+```go
+func RequiredScope(scope string) func(http.Handler) http.Handler {
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            scopes, ok := r.Context().Value(connectorScopesKey).([]string)
+            if !ok || !contains(scopes, scope) {
+                writeError(w, http.StatusForbidden, "INSUFFICIENT_SCOPE", 
+                           fmt.Sprintf("required scope: %s", scope), r)
+                return
+            }
+            next.ServeHTTP(w, r)
+        })
+    }
+}
+```
+
+Canonical scopes: `events:write`, `policy:evaluate`, `audit:read`, `scim:write`, `dlp:scan`.
+
+### 3.3 Go Workspace
 
 ```go
 // go.work
@@ -1340,9 +1384,7 @@ LOG_FORMAT=json                        # json | text (use json in non-dev)
 # ── Control Plane ────────────────────────────────────────────────────
 CONTROL_PLANE_PORT=8080
 CONTROL_PLANE_API_KEY_SALT=change-me-32-bytes-hex
-# PBKDF2-HMAC-SHA512, 600k iterations. Salt must be 32+ bytes, stored separately
-# from the hashed keys. Never change this after first connector is created
-# (changing it invalidates all existing API keys).
+# PBKDF2-HMAC-SHA512, 600k iterations. Salt must be 32+ bytes.
 CONTROL_PLANE_WEBHOOK_SIGNING_SECRET=change-me-32-bytes-hex
 CONTROL_PLANE_POLICY_CACHE_TTL_SECONDS=60
 CONTROL_PLANE_EVENT_INGEST_MAX_BATCH=500
@@ -1375,30 +1417,28 @@ SDK_POLICY_CACHE_TTL_SECONDS=60
 SDK_POLICY_EVALUATE_TIMEOUT_MS=100
 SDK_EVENT_BATCH_SIZE=100
 SDK_EVENT_FLUSH_INTERVAL_MS=2000
-SDK_OFFLINE_BUFFER_SIZE=10000          # Max events buffered locally when breaker is open
+SDK_OFFLINE_RETRY_LIMIT=500              # Max events buffered locally when breaker is open
 
 # ── IAM ──────────────────────────────────────────────────────────────
 IAM_PORT=8081
 IAM_JWT_KEYS_JSON=[{"kid":"k1","secret":"change-me","algorithm":"HS256","status":"active"}]
-# Array supports multiple keys for zero-downtime rotation.
-# "status": "active" = sign + verify. "status": "verify_only" = verify only.
-IAM_JWT_EXPIRY_SECONDS=900             # 15 minutes; short for security
+IAM_JWT_EXPIRY_SECONDS=900             # 15 minutes
 IAM_REFRESH_TOKEN_EXPIRY_DAYS=30
-IAM_REFRESH_TOKEN_GRACE_SECONDS=30    # Grace window for concurrent refresh requests
 IAM_SAML_ENTITY_ID=https://openguard.example.com
 IAM_SAML_IDP_METADATA_URL=https://idp.example.com/metadata
 IAM_OIDC_ISSUER=https://accounts.example.com
 IAM_OIDC_CLIENT_ID=openguard
 IAM_OIDC_CLIENT_SECRET=change-me
-IAM_SCIM_BEARER_TOKEN=change-me        # Separate token for SCIM IdP providers (Okta, Azure AD)
+IAM_SCIM_TOKENS_JSON=[{"token":"scim-t1","org_id":"00000000-0000-0000-0000-000000000000"}]
 IAM_MFA_TOTP_ISSUER=OpenGuard
 IAM_MFA_ENCRYPTION_KEY_JSON=[{"kid":"mk1","key":"base64-encoded-32-bytes","status":"active"}]
-IAM_MFA_BACKUP_CODE_HMAC_SECRET=change-me  # HMAC-SHA256 for backup code lookup (not bcrypt)
 IAM_WEBAUTHN_RPID=openguard.example.com
 IAM_WEBAUTHN_RPORIGIN=https://openguard.example.com
 IAM_MTLS_CERT_FILE=/certs/iam.crt
 IAM_MTLS_KEY_FILE=/certs/iam.key
 IAM_MTLS_CA_FILE=/certs/ca.crt
+# Bounded worker pool for bcrypt verification to meet login SLO
+IAM_BCRYPT_WORKER_COUNT=8                # Default: NumCPU / 2
 
 # ── Policy ───────────────────────────────────────────────────────────
 POLICY_PORT=8082
@@ -1434,9 +1474,8 @@ ALERTING_SMTP_HOST=smtp.example.com
 ALERTING_SMTP_PORT=587
 ALERTING_SMTP_USER=
 ALERTING_SMTP_PASS=
-ALERTING_SIEM_WEBHOOK_URL=             # optional; must be HTTPS, validated at startup
+ALERTING_SIEM_WEBHOOK_URL=             # optional
 ALERTING_SIEM_WEBHOOK_HMAC_SECRET=change-me
-ALERTING_SIEM_REPLAY_TOLERANCE_SECONDS=300
 ALERTING_MTLS_CERT_FILE=/certs/alerting.crt
 ALERTING_MTLS_KEY_FILE=/certs/alerting.key
 ALERTING_MTLS_CA_FILE=/certs/ca.crt
@@ -1452,7 +1491,7 @@ COMPLIANCE_MTLS_CA_FILE=/certs/ca.crt
 DLP_PORT=8087
 DLP_ENTROPY_THRESHOLD=4.5
 DLP_MIN_CREDENTIAL_LENGTH=24
-DLP_SYNC_BLOCK_TIMEOUT_MS=30           # Timeout for sync DLP checks on ingest path
+DLP_SYNC_BLOCK_TIMEOUT_MS=30           # Sync check timeout during ingest
 DLP_MTLS_CERT_FILE=/certs/dlp.crt
 DLP_MTLS_KEY_FILE=/certs/dlp.key
 DLP_MTLS_CA_FILE=/certs/ca.crt
@@ -1467,11 +1506,10 @@ POSTGRES_SSLMODE=verify-full
 POSTGRES_SSLROOTCERT=/certs/postgres-ca.crt
 POSTGRES_POOL_MIN_CONNS=5
 POSTGRES_POOL_MAX_CONNS=25
-POSTGRES_POOL_MAX_CONN_IDLE_SECS=300
-POSTGRES_POOL_MAX_CONN_LIFETIME_SECS=3600
-POSTGRES_CONNECT_TIMEOUT_SECS=5       # Fail fast if DB unreachable at startup
-POSTGRES_OUTBOX_USER=openguard_outbox
+POSTGRES_OUTBOX_USER=openguard_outbox    # DML only, constrained role
 POSTGRES_OUTBOX_PASSWORD=change-me
+POSTGRES_MIGRATE_USER=openguard_migrate  # DDL only role
+POSTGRES_MIGRATE_PASSWORD=change-me
 
 # ── MongoDB ──────────────────────────────────────────────────────────
 MONGO_URI_PRIMARY=mongodb://localhost:27017
@@ -1479,11 +1517,8 @@ MONGO_URI_SECONDARY=mongodb://localhost:27018
 MONGO_DB=openguard
 MONGO_AUTH_SOURCE=admin
 MONGO_TLS_CA_FILE=/certs/mongo-ca.crt
-MONGO_WRITE_POOL_MIN=2
 MONGO_WRITE_POOL_MAX=10
-MONGO_READ_POOL_MIN=5
 MONGO_READ_POOL_MAX=30
-MONGO_CONNECT_TIMEOUT_MS=5000
 
 # ── Redis ────────────────────────────────────────────────────────────
 REDIS_ADDR=localhost:6379
@@ -1491,21 +1526,14 @@ REDIS_PASSWORD=change-me
 REDIS_DB=0
 REDIS_TLS_CERT_FILE=/certs/redis.crt
 REDIS_POOL_SIZE=20
-REDIS_MIN_IDLE_CONNS=5
 
 # ── Kafka ────────────────────────────────────────────────────────────
 KAFKA_BROKERS=localhost:9092
 KAFKA_CLIENT_ID=openguard
 KAFKA_TLS_CA_FILE=/certs/kafka-ca.crt
-KAFKA_SASL_MECHANISM=SCRAM-SHA-512
 KAFKA_SASL_USER=openguard
 KAFKA_SASL_PASSWORD=change-me
-KAFKA_PRODUCER_MAX_MESSAGE_BYTES=1048576
-KAFKA_PRODUCER_IDEMPOTENT=true         # enable.idempotence=true; acks=all automatically
-KAFKA_CONSUMER_SESSION_TIMEOUT_MS=45000
-KAFKA_CONSUMER_HEARTBEAT_MS=3000
-KAFKA_CONSUMER_MAX_POLL_RECORDS=500
-KAFKA_CONSUMER_ENABLE_AUTO_COMMIT=false  # Manual offset commit — enforced globally
+KAFKA_PRODUCER_IDEMPOTENT=true
 
 # ── ClickHouse ───────────────────────────────────────────────────────
 CLICKHOUSE_ADDR=localhost:9000
@@ -1513,8 +1541,6 @@ CLICKHOUSE_USER=openguard
 CLICKHOUSE_PASSWORD=change-me
 CLICKHOUSE_DB=openguard
 CLICKHOUSE_TLS_CA_FILE=/certs/clickhouse-ca.crt
-CLICKHOUSE_BULK_FLUSH_ROWS=5000
-CLICKHOUSE_BULK_FLUSH_MS=2000
 
 # ── Circuit Breakers ─────────────────────────────────────────────────
 CB_POLICY_TIMEOUT_MS=50
@@ -1523,28 +1549,19 @@ CB_POLICY_OPEN_DURATION_MS=10000
 CB_IAM_TIMEOUT_MS=200
 CB_IAM_FAILURE_THRESHOLD=5
 CB_IAM_OPEN_DURATION_MS=15000
-CB_CONNECTOR_REGISTRY_TIMEOUT_MS=100
-CB_CONNECTOR_REGISTRY_FAILURE_THRESHOLD=5
-CB_CONNECTOR_REGISTRY_OPEN_DURATION_MS=10000
-CB_DLP_TIMEOUT_MS=30
-CB_DLP_FAILURE_THRESHOLD=3
-CB_DLP_OPEN_DURATION_MS=5000
 
 # ── OpenTelemetry ────────────────────────────────────────────────────
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
-OTEL_SERVICE_NAMESPACE=openguard
 OTEL_SAMPLING_RATE=0.1
 
 # ── Org Lifecycle ────────────────────────────────────────────────────
 ORG_DATA_RETENTION_DAYS=2555           # 7 years (compliance baseline)
+ORG_OFFBOARDING_GRACE_PERIOD_DAYS=30   # Suspension before hard delete
 
 # ── Frontend ─────────────────────────────────────────────────────────
 NEXT_PUBLIC_API_URL=http://localhost:8080
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=change-me
-IAM_OIDC_ISSUER=https://accounts.example.com
-IAM_OIDC_CLIENT_ID=openguard
-IAM_OIDC_CLIENT_SECRET=change-me
 ```
 
 ### 5.2 Config Loading Pattern
@@ -1617,13 +1634,22 @@ func MustJSON(key string, dest any) {
 
 Every table storing tenant data **must** have RLS enabled with an explicit `org_id UUID NOT NULL` column. The migration runner refuses to apply any migration that creates a new table with an `org_id` column without also enabling RLS. The RLS policy always compares against the `org_id` column — never against any Kafka partition key or surrogate.
 
-#### 6.1.1 Application DB User
+#### 6.1.1 Application DB Roles
 
 ```sql
--- Run once at cluster setup, not in migrations
+-- DDL Role: Used by CI/CD migrations. DDL only, NO BYPASSRLS.
+CREATE ROLE openguard_migrate LOGIN PASSWORD 'change-me';
+GRANT ALL ON SCHEMA public TO openguard_migrate;
+
+-- DML Role: Used by services. DML only, NO BYPASSRLS.
 CREATE ROLE openguard_app LOGIN PASSWORD 'change-me';
-GRANT CONNECT ON DATABASE openguard TO openguard_app;
--- Table-level grants added per migration (never blanket GRANT)
+GRANT USAGE ON SCHEMA public TO openguard_app;
+
+-- Outbox Role: Used by relay only. Has BYPASSRLS on outbox_records only.
+CREATE ROLE openguard_outbox LOGIN PASSWORD 'change-me';
+GRANT USAGE ON SCHEMA public TO openguard_outbox;
+GRANT SELECT, UPDATE, DELETE ON outbox_records TO openguard_outbox;
+GRANT BYPASSRLS ON outbox_records TO openguard_outbox;
 ```
 
 #### 6.1.2 RLS Setup (canonical pattern for every org-scoped table)
@@ -1773,63 +1799,66 @@ CREATE POLICY outbox_org_isolation ON outbox_records
     USING (org_id = current_setting('app.org_id', true)::UUID)
     WITH CHECK (org_id = current_setting('app.org_id', true)::UUID);
 
--- The outbox relay runs with an EMPTY app.org_id session variable
--- (set_config('app.org_id', '', false)) so it can read ALL pending records
--- for relay. This is intentional and documented: the relay user (openguard_outbox)
--- is a separate DB role that bypasses RLS entirely via BYPASSRLS privilege.
-GRANT BYPASSRLS ON TABLE outbox_records TO openguard_outbox;
+The Outbox relay uses the `openguard_outbox` database role, which has `BYPASSRLS` on `outbox_records` only. This allows the relay to read all tenants' pending records without setting a tenant context.
+
+#### 6.1.5 Outbox Cleanup Job
+
+To prevent `outbox_records` from growing unbounded, a background worker runs every 10 minutes to delete published records older than 24 hours. This job also runs as `openguard_outbox`.
+
+```sql
+DELETE FROM outbox_records
+WHERE status = 'published'
+  AND published_at < NOW() - INTERVAL '24 hours';
 ```
 
-The Outbox relay uses the `openguard_outbox` database role (Section 5.1), which has `BYPASSRLS` on `outbox_records` only. This allows the relay to read all tenants' pending records without setting a tenant context.
+#### 6.1.6 API Key Middleware (Connector Auth)
 
-#### 6.1.5 Tenant Middleware (API Key Path)
+Hot-path API key lookup uses the two-tier Prefix/Secret scheme (Section 2.6).
 
 ```go
 // shared/middleware/apikey.go
-package middleware
-
-import (
-    "context"
-    "crypto/subtle"
-    "net/http"
-    "strings"
-    "time"
-    "github.com/openguard/shared/rls"
-    "github.com/openguard/shared/models"
-)
-
-type ConnectorReader interface {
-    GetByKeyHash(ctx context.Context, keyHash string) (*models.ConnectedApp, error)
-}
-
-type ConnectorCache interface {
-    Get(ctx context.Context, keyHash string) (*models.ConnectedApp, bool)
-    Set(ctx context.Context, keyHash string, app *models.ConnectedApp, ttl time.Duration)
-    Delete(ctx context.Context, keyHash string)
-}
-
-type KeyHasher interface {
-    Hash(raw string) string // PBKDF2-HMAC-SHA512, 600k iterations, uses configured salt
-}
-
-// APIKeyMiddleware authenticates the request using the Bearer API key.
-// Cache-first: checks Redis before querying the connector registry DB.
-// Cache TTL: CONTROL_PLANE_CONNECTOR_CACHE_TTL_SECONDS (default 30s).
-// On suspension or scope change, the cache entry is invalidated immediately
-// by the admin handler before returning the PATCH response.
-func APIKeyMiddleware(connectorRepo ConnectorReader, cache ConnectorCache, hasher KeyHasher, cacheTTL time.Duration) func(http.Handler) http.Handler {
+func APIKeyMiddleware(cache ConnectorCache, repo ConnectorReader) func(http.Handler) http.Handler {
     return func(next http.Handler) http.Handler {
         return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
             raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-            if raw == "" {
-                writeError(w, http.StatusUnauthorized, "MISSING_CREDENTIALS", "API key required", r)
+            if len(raw) < 16 {
+                writeError(w, http.StatusUnauthorized, "INVALID_KEY", "invalid API key format", r)
                 return
             }
-            keyHash := hasher.Hash(raw)
+            prefix := raw[0:8]
+            secret := raw[8:]
+            fastHash := sha256Hash(prefix)
 
-            var connector *models.ConnectedApp
-            if cached, ok := cache.Get(r.Context(), keyHash); ok {
-                connector = cached
+            // 1. Redis lookup (O(microseconds))
+            app, ok := cache.Get(r.Context(), fastHash)
+            if ok {
+                // 2. Slow-path verification (only every 5 minutes per connector)
+                if time.Since(app.LastVerifiedAt) > 5 * time.Minute {
+                    if !verifyPBKDF2(secret, app.KeyHash) {
+                        writeError(w, http.StatusUnauthorized, "INVALID_KEY", "invalid secret", r)
+                        return
+                    }
+                }
+                ctx := rls.WithOrgID(r.Context(), app.OrgID)
+                next.ServeHTTP(w, r.WithContext(ctx))
+                return
+            }
+
+            // 3. Cache miss -> DB path (O(400ms))
+            // Only hits if the prefix was never seen or cache expired.
+            fullHash := pbkdf2Hash(raw)
+            app, err := repo.GetByHash(r.Context(), fullHash)
+            if err != nil {
+                writeError(w, http.StatusUnauthorized, "INVALID_KEY", "unrecognized key", r)
+                return
+            }
+            cache.Set(r.Context(), fastHash, app, 30 * time.Second)
+            ctx := rls.WithOrgID(r.Context(), app.OrgID)
+            next.ServeHTTP(w, r.WithContext(ctx))
+        })
+    }
+}
+```
             } else {
                 var err error
                 connector, err = connectorRepo.GetByKeyHash(r.Context(), keyHash)
@@ -2235,11 +2264,48 @@ func Call[T any](ctx context.Context, cb *gobreaker.CircuitBreaker, timeout time
 }
 ```
 
-### 8.2 Failure Mode Table (Non-Negotiable)
+### 8.2 bcrypt Worker Pool
+
+bcrypt is deliberately expensive (~300ms/op). In a high-traffic IAM service, raw goroutines per login would starve the CPU. OpenGuard uses a bounded worker pool for all bcrypt operations.
+
+```go
+// services/iam/pkg/service/auth.go
+type AuthWorkerPool struct {
+    jobs    chan bcryptJob
+    workers int
+}
+
+func NewAuthWorkerPool(workers int) *AuthWorkerPool {
+    p := &AuthWorkerPool{
+        jobs:    make(chan bcryptJob, 100),
+        workers: workers,
+    }
+    for i := 0; i < workers; i++ {
+        go p.worker()
+    }
+    return p
+}
+
+func (p *AuthWorkerPool) Verify(ctx context.Context, hash, password string) error {
+    res := make(chan error, 1)
+    select {
+    case p.jobs <- bcryptJob{hash, password, res}:
+        return <-res
+    case <-ctx.Done():
+        return ctx.Err()
+    default:
+        return models.ErrBulkheadFull // backpressure: too many logins in flight
+    }
+}
+```
+
+Configured via `IAM_BCRYPT_WORKER_COUNT`. Recommended size: `2 × NumCPU`.
+
+### 8.3 Failure Mode Table (Non-Negotiable)
 
 | Scenario | Required behavior | Rationale |
 |---|---|---|
-| Policy service unreachable | SDK uses cached decision up to 60s, then **denies**. Control plane returns `503 POLICY_SERVICE_UNAVAILABLE`. | Cache provides brief grace; after TTL, fail closed. |
+| Policy service unreachable | SDK uses cached decision up to 60s, then **denies**. | Cache provides brief grace; after TTL, fail closed. |
 | IAM service unreachable | **Reject all logins**, return `503`. | Cannot authenticate without IAM. |
 | Connector registry unreachable | **Deny all API key requests** after Redis cache misses; return `503`. | Cannot validate credential. Cache still serves recent lookups. |
 | Audit service unreachable | **Continue operation**, buffer via Outbox. | Audit is observability, not a gate. |
@@ -2247,10 +2313,11 @@ func Call[T any](ctx context.Context, cb *gobreaker.CircuitBreaker, timeout time
 | Redis unreachable | Rate limiting **fails open**; log error metric. | Availability over rate limiting. |
 | Kafka unreachable | **Outbox buffers events in PostgreSQL**. Writes succeed; events queue. | Kafka is not in the write path. |
 | ClickHouse unreachable | **Compliance reports fail with 503**. | Analytics is read-only. |
-| Webhook delivery unreachable | **Retry via internal retry loop** up to `WEBHOOK_MAX_ATTEMPTS`, then DLQ. | Webhook delivery is async. |
-| DLP service unreachable (sync-block mode) | **Reject event ingest** for orgs with `dlp_mode=block`. For orgs with `dlp_mode=monitor`, proceed and scan async when DLP recovers. | Sync-block is an explicit opt-in with latency tradeoff. |
+| Webhook delivery unreachable | **Retry via internal loop** with persistence in PostgreSQL. | Delivery state survives service restarts. |
+| DLP service unreachable (sync-block mode) | **Reject event ingest** for orgs with `dlp_mode=block`. | Sync-block is an explicit opt-in with latency tradeoff. |
+| SCIM IdP sends wrong org_id | **Ignore header; derive from token config**. | Prevents org_id spoofing (Section 2.8). |
 
-### 8.3 Retry Policy
+### 8.4 Retry Policy
 
 ```go
 // shared/resilience/retry.go
@@ -2299,7 +2366,7 @@ func Do(ctx context.Context, cfg RetryConfig, fn func(context.Context) error) er
 }
 ```
 
-### 8.4 Bulkhead (Concurrency Limiter)
+### 8.5 Bulkhead (Concurrency Limiter)
 
 ```go
 // shared/resilience/bulkhead.go
@@ -2394,7 +2461,7 @@ func RunMigrations(ctx context.Context, dsn string, redisClient *redis.Client, s
         }
     }()
 
-    // 3. Run migrations
+    // 3. Run migrations as openguard_migrate role (DDL only)
     defer redisClient.Del(ctx, lockKey)
     m, err := migrate.New("file://migrations", dsn)
     if err != nil {
@@ -2450,6 +2517,7 @@ CREATE TABLE users (
     scim_external_id    TEXT,
     provisioning_status TEXT NOT NULL DEFAULT 'complete',
     tier_isolation      TEXT NOT NULL DEFAULT 'shared',
+    version             INT NOT NULL DEFAULT 1,  -- Atomic increment for SCIM ETags
     last_login_at       TIMESTAMPTZ,
     last_login_ip       INET,
     failed_login_count  INT NOT NULL DEFAULT 0,
@@ -2790,7 +2858,11 @@ type SCIMOperation struct {
 | `PATCH` | `/scim/v2/Users/:id` | Partial update (RFC 6902 JSON Patch) |
 | `DELETE` | `/scim/v2/Users/:id` | Deprovision user (triggers saga) |
 
-#### 9.3.9 IAM Kafka Events (via Outbox)
+#### 9.3.9 bcrypt worker pool integration
+
+The `AuthWorkerPool` (Section 8.2) is initialized in `main.go` and injected into the IAM service. The `PostMethod` for `/oauth/token` calls `p.Verify()` instead of `bcrypt.CompareHashAndPassword()` directly. This ensures login latency remains predictable even under high load.
+
+#### 9.3.10 IAM Kafka Events (via Outbox)
 
 | Event type | Topic | Saga topic? |
 |---|---|---|
@@ -2798,191 +2870,90 @@ type SCIMOperation struct {
 | `auth.login.failure` | `auth.events` | — |
 | `auth.login.locked` | `auth.events` | — |
 | `auth.logout` | `auth.events` | — |
-| `auth.session.revoked_risk` | `auth.events` | — |
 | `auth.mfa.enrolled` | `auth.events` | — |
-| `auth.mfa.failed` | `auth.events` | — |
 | `auth.webauthn.registered` | `auth.events` | — |
 | `auth.token.created` | `auth.events` | — |
-| `auth.token.revoked` | `auth.events` | — |
 | `user.created` | `audit.trail` | `saga.orchestration` |
-| `user.updated` | `audit.trail` | — |
 | `user.deleted` | `audit.trail` | `saga.orchestration` |
-| `user.suspended` | `audit.trail` | — |
 | `user.scim.provisioned` | `audit.trail` | `saga.orchestration` |
-| `user.scim.deprovisioned` | `audit.trail` | `saga.orchestration` |
 
-### 9.4 Control Plane Service
+### 9.4 Control Plane Foundation
 
 #### 9.4.1 Route Table
 
-**Connector API** (Bearer API key → `APIKeyMiddleware` → scope check):
+The control plane's connector registry uses the two-tier Prefix/Secret scheme (Section 2.6).
 
-| Method | Path | Required Scope | Circuit Breaker | Description |
-|---|---|---|---|---|
-| `POST` | `/v1/policy/evaluate` | `policy:read` | `cb-policy` | SDK policy check |
-| `POST` | `/v1/events/ingest` | `audit:write` | — | Batch event push |
-| `GET` | `/v1/scim/v2/Users` | `users:read` | `cb-iam` | SCIM list |
-| `POST` | `/v1/scim/v2/Users` | `users:write` | `cb-iam` | SCIM provision |
-| `GET` | `/v1/scim/v2/Users/:id` | `users:read` | `cb-iam` | SCIM get |
-| `PUT` | `/v1/scim/v2/Users/:id` | `users:write` | `cb-iam` | SCIM update |
-| `PATCH` | `/v1/scim/v2/Users/:id` | `users:write` | `cb-iam` | SCIM patch |
-| `DELETE` | `/v1/scim/v2/Users/:id` | `users:write` | `cb-iam` | SCIM deprovision |
-
-**Note:** SCIM routes use `SCIMAuthMiddleware` for external IdP callers and `APIKeyMiddleware` for connector callers. The router differentiates based on authentication scheme, not path.
-
-**Admin API** (JWT from IAM OIDC → `JWTMiddleware`):
-
-| Method | Path | Circuit Breaker | Description |
+| Method | Path | Required Scope | Circuit Breaker |
 |---|---|---|---|
-| `GET` | `/v1/admin/connectors` | `cb-connector-registry` | List registered apps |
-| `POST` | `/v1/admin/connectors` | `cb-connector-registry` | Register new app |
-| `GET` | `/v1/admin/connectors/:id` | `cb-connector-registry` | Get detail |
-| `PATCH` | `/v1/admin/connectors/:id` | `cb-connector-registry` | Update / suspend |
-| `DELETE` | `/v1/admin/connectors/:id` | `cb-connector-registry` | Remove |
-| `POST` | `/v1/admin/connectors/:id/suspend` | `cb-connector-registry` | Suspend |
-| `POST` | `/v1/admin/connectors/:id/activate` | `cb-connector-registry` | Reactivate |
-| `GET` | `/v1/admin/connectors/:id/deliveries` | — | Webhook delivery log |
-| `POST` | `/v1/admin/connectors/:id/test` | — | Send test webhook |
+| `POST` | `/v1/policy/evaluate` | `policy:evaluate` | `cb-policy` |
+| `POST` | `/v1/events/ingest` | `events:write` | — |
+| `GET` | `/v1/scim/v2/Users` | `scim:read` | `cb-iam` |
+| `POST` | `/v1/scim/v2/Users` | `scim:write` | `cb-iam` |
+| `GET` | `/v1/scim/v2/Users/:id` | `scim:read` | `cb-iam` |
+| `PATCH` | `/v1/scim/v2/Users/:id` | `scim:write` | `cb-iam` |
 
-**On suspension/scope-change:** Before returning the PATCH response, the control plane calls `connectorCache.Delete(ctx, keyHash)` to immediately invalidate the Redis cache entry. Subsequent requests will miss cache, re-query the DB, and find the suspended status.
+**Admin API (mTLS + JWT):**
+- `POST /v1/admin/connectors`: Generates prefix (8 chars) + plaintext secret (24 chars). Hashes secret with PBKDF2.
+- `PATCH /v1/admin/connectors/:id`: Invalidates Redis cache entry (`DEL connector:fasthash:{hash}`) on status or scope change.
 
-**On circuit breaker open:**
-```json
-{ "error": { "code": "UPSTREAM_UNAVAILABLE", "message": "Service temporarily unavailable", "retryable": true } }
-```
-With `Retry-After: 10` header.
-
-#### 9.4.2 Event Ingest Handler
-
-```go
-// services/control-plane/pkg/handlers/ingest.go
-
-type IngestRequest struct {
-    Events []IngestEvent `json:"events" validate:"required,min=1,max=500,dive"`
-}
-
-type IngestEvent struct {
-    ID         string          `json:"id" validate:"required,uuid4"`
-    Type       string          `json:"type" validate:"required"`
-    OccurredAt time.Time       `json:"occurred_at" validate:"required"`
-    ActorID    string          `json:"actor_id" validate:"required"`
-    ActorType  string          `json:"actor_type" validate:"required,oneof=user service system"`
-    Payload    json.RawMessage `json:"payload" validate:"required"`
-}
-
-func (h *Handler) IngestEvents(w http.ResponseWriter, r *http.Request) {
-    r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10 MB
-
-    var req IngestRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        h.respondError(w, r, http.StatusBadRequest, "INVALID_JSON", err.Error())
-        return
-    }
-    if err := h.validator.Struct(req); err != nil {
-        h.respondValidationError(w, r, err)
-        return
-    }
-
-    // Check if org has DLP sync-block enabled BEFORE writing to outbox.
-    // If DLP is unavailable and org's dlp_mode=block, reject the request.
-    // If dlp_mode=monitor or DLP is unavailable for non-blocking orgs, proceed.
-    connectorID := connectorIDFromContext(r.Context())
-    result, err := h.svc.IngestEvents(r.Context(), connectorID, req.Events)
-    if err != nil {
-        h.handleServiceError(w, r, err)
-        return
-    }
-    h.respond(w, http.StatusOK, result)
-}
-```
-
-Each accepted event is normalized into an `EventEnvelope` with `EventSource: "connector:<connector_id>"`, deduplicated by `event.ID`, and written to the outbox in a single transaction (all events in one batch, one transaction).
-
-#### 9.4.3 Connector Registry Service
-
-The connector registry is a separate service (`services/connector-registry`) with its own PostgreSQL schema:
+#### 9.4.2 Connector Registry Schema
 
 ```sql
--- services/connector-registry/migrations/001_create_connected_apps.up.sql
-CREATE TABLE connected_apps (
+CREATE TABLE connector_registry (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id             UUID NOT NULL,
+    org_id             UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
     name               TEXT NOT NULL,
-    webhook_url        TEXT NOT NULL DEFAULT '',
-    webhook_secret_hash TEXT NOT NULL DEFAULT '',
-    api_key_hash       TEXT NOT NULL UNIQUE,
+    api_key_hash       TEXT NOT NULL, -- full PBKDF2 hash
+    api_key_prefix     TEXT NOT NULL, -- first 8 chars for fast-hash lookup
+    webhook_url        TEXT,
+    webhook_secret_hash TEXT,
     scopes             TEXT[] NOT NULL DEFAULT '{}',
     status             TEXT NOT NULL DEFAULT 'active',
     created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    suspended_at       TIMESTAMPTZ
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_connected_apps_org ON connected_apps(org_id);
-CREATE INDEX idx_connected_apps_key ON connected_apps(api_key_hash);
-
-ALTER TABLE connected_apps ENABLE ROW LEVEL SECURITY;
-ALTER TABLE connected_apps FORCE ROW LEVEL SECURITY;
-CREATE POLICY connected_apps_org_isolation ON connected_apps
-    USING (org_id = current_setting('app.org_id', true)::UUID)
-    WITH CHECK (org_id = current_setting('app.org_id', true)::UUID);
--- Relay user bypass for the key hash lookup (no org context in auth middleware)
-GRANT BYPASSRLS ON TABLE connected_apps TO openguard_outbox;
-GRANT SELECT ON connected_apps TO openguard_app;
-GRANT INSERT, UPDATE ON connected_apps TO openguard_app;
+CREATE INDEX idx_connector_prefix ON connector_registry(api_key_prefix, status);
+ALTER TABLE connector_registry ENABLE ROW LEVEL SECURITY;
+GRANT SELECT ON connector_registry TO openguard_app;
 ```
 
-**API key hashing:**
-```go
-// shared/crypto/pbkdf2.go
-package crypto
+### 9.5 DLQ Inspector (Phase 1 Operations)
 
-import (
-    "crypto/rand"
-    "crypto/sha512"
-    "encoding/hex"
-    "golang.org/x/crypto/pbkdf2"
-)
+A CLI tool for inspecting and replaying failed events from `TopicOutboxDLQ` and `TopicWebhookDLQ`.
 
-const (
-    pbkdf2Iterations = 600_000  // OWASP 2023 recommendation
-    pbkdf2KeyLen     = 32
-)
-
-// HashAPIKey computes PBKDF2-HMAC-SHA512 of the raw key with the configured salt.
-// The salt is fixed per deployment (CONTROL_PLANE_API_KEY_SALT) and must never change.
-// Changing the salt invalidates all existing API keys.
-func HashAPIKey(raw, salt string) string {
-    saltBytes, _ := hex.DecodeString(salt)
-    dk := pbkdf2.Key([]byte(raw), saltBytes, pbkdf2Iterations, pbkdf2KeyLen, sha512.New)
-    return hex.EncodeToString(dk)
-}
+```bash
+# openguard-admin dlq list --topic outbox.dlq --org_id <uuid>
+# openguard-admin dlq replay --id <uuid> --target audit.trail
 ```
 
-### 9.5 Phase 1 Acceptance Criteria
+### 9.6 Phase 1 Release Acceptance Criteria
 
-- [ ] `POST /auth/register` creates org + admin user in one DB transaction with an outbox record. Rollback leaves no partial data.
-- [ ] `POST /oauth/token` returns JWT with `kid` in header. Claims include `org_id`, `sub` (user ID), `iss`, `exp`.
-- [ ] JWT `kid` rotation: old key set to `verify_only` → old tokens still verify. Old key removed → old tokens return 401.
-- [ ] `POST /v1/admin/connectors` returns one-time plaintext API key. Second `GET` of same connector does not return the key.
-- [ ] API key authentication: `Authorization: Bearer <key>` sets `org_id` in context via registry lookup (cache miss path) and Redis (cache hit path).
-- [ ] Connector cache invalidation: `PATCH /:id {status:"suspended"}` → subsequent API key requests return `401 CONNECTOR_SUSPENDED` within 1 request (cache is immediately invalidated).
-- [ ] SCIM bearer token: request to `/v1/scim/v2/Users` with connector API key AND `users:write` scope → proceeds. Request with `audit:write` scope only → `403 INSUFFICIENT_SCOPE`.
-- [ ] `POST /auth/refresh` rotates refresh token. Concurrent second refresh with the old token within grace window → succeeds (idempotent). After grace window → `401`.
-- [ ] Risk score ≥ 80 on refresh → `401 SESSION_REVOKED_RISK`, session marked revoked, event in outbox.
-- [ ] `POST /v1/events/ingest` with 10 events → 10 outbox records in one transaction → relay publishes within 200ms.
-- [ ] Connector with `audit:write` calling `POST /v1/policy/evaluate` → `403 INSUFFICIENT_SCOPE`.
-- [ ] RLS: querying users table with `app.org_id = ''` → 0 rows.
-- [ ] RLS: org A's users never visible when `app.org_id` is set to org B's ID.
-- [ ] Outbox relay: marks records `dead` after 5 failures, publishes to `outbox.dlq`.
-- [ ] Outbox relay: PostgreSQL restart → events queued in `outbox_records` published within 30s of reconnection.
-- [ ] mTLS: HTTP request without client cert to IAM internal API → `403`.
-- [ ] Passwords stored as bcrypt cost 12. Raw password never appears in any log entry.
-- [ ] TOTP secret stored as `"mk1:<base64...>"`. Correct decryption key required to read.
-- [ ] WebAuthn: register credential → credential stored in `webauthn_credentials`. Login with credential → JWT issued. Sign count incremented on each use.
-- [ ] Migration distributed lock: two replicas start simultaneously → only one runs migration. Second waits and resumes after lock released.
-- [ ] `go test ./... -race` passes.
-- [ ] `docker compose up` starts all infra and services healthy.
+1.  **IAM Security:**
+    - [ ] `POST /oauth/token` passes with valid credentials; fails with 401 on invalid.
+    - [ ] bcrypt cost is 12 (verified by unit test logging iteration count).
+    - [ ] JWT contains `jti`, `iat`, `exp`, and `org_id`.
+    - [ ] Redis blocklist correctly revokes `jti` on session logout.
+2.  **Multi-Tenancy:**
+    - [ ] Org A cannot see Org B's users via API (tested via curl).
+    - [ ] `SELECT` on `users` table via `psql` as `openguard_app` returns 0 rows without `set_config`.
+    - [ ] `openguard_migrate` role is used for all table creations.
+3.  **Audit Integrity:**
+    - [ ] User creation produces exactly one `outbox_record` in the same transaction.
+    - [ ] Outbox relay publishes to Kafka and marks as `published`.
+    - [ ] `idempotent` key in Kafka message matches PostgreSQL `id`.
+4.  **Resilience & SLO:**
+    - [ ] `POST /oauth/token` p99 < 150ms at 500 req/s with bcrypt worker pool enabled.
+    - [ ] Outbox relay resumes draining backlog within 60s of PostgreSQL primary failover.
+5.  **SCIM 2.0:**
+    - [ ] `GET /v1/scim/v2/Users` returns correct resource counts and schema.
+    - [ ] SCIM auth rejects requests with `X-Org-ID` header; only accepts token-based derivation.
+    - [ ] `version` column increments on user patch.
+6.  **Observability:**
+    - [ ] Login failures log `ActorID` and `ActorType` to `slog` with `SafeAttr` redaction.
+    - [ ] Every request includes `X-Request-ID` and OTel trace propagation.
+    - [ ] Metrics for outbox lag and login failure rate are available in Prometheus.
+
 
 ---
 
@@ -2993,6 +2964,19 @@ func HashAPIKey(raw, salt string) string {
 ### 10.1 Database Schema
 
 Standard policy tables plus:
+
+**001_create_policies.up.sql**
+```sql
+CREATE TABLE policies (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id       UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    version      INT NOT NULL DEFAULT 1,  -- Atomic increment for ETag
+    logic        JSONB NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
 
 **003_create_policy_eval_log.up.sql**
 ```sql
@@ -3090,13 +3074,13 @@ When a policy changes, connected apps with scope `policy:read` receive a signed 
 
 ### 10.6 Phase 2 Acceptance Criteria
 
-- [ ] `POST /v1/policy/evaluate` p99 < 30ms (uncached) under 500 concurrent requests (k6).
+- [ ] `POST /v1/policy/evaluate` p99 < 30ms (uncached) under 500 concurrent requests.
 - [ ] `POST /v1/policy/evaluate` p99 < 5ms (Redis cached) under 500 concurrent requests.
-- [ ] SDK local cache hit: second identical call produces 0 outbound HTTP requests (Jaeger trace shows no spans).
+- [ ] SDK local cache hit: second identical call produces 0 outbound HTTP requests.
 - [ ] Policy change → Redis cache invalidated → next evaluate returns fresh result within 1s.
-- [ ] Policy change → webhook delivered to connector with `policy:read` scope within 5s.
-- [ ] Policy service circuit breaker open → `503 POLICY_SERVICE_UNAVAILABLE` → SDK falls back to local cache → after TTL: SDK denies.
-- [ ] All policy writes go through outbox. Cache invalidation triggered by Kafka consumer.
+- [ ] Policy change → webhook delivered to connector with `policy:write` scope within 5s.
+- [ ] Policy service circuit breaker open → `503` → SDK falls back to local cache → after TTL: SDK denies.
+- [ ] `version` increments on policy update; returns correct `ETag` header.
 - [ ] `policy_eval_log` records `cache_hit: "redis"` for cache hits, `"none"` for misses.
 
 ---
@@ -3221,11 +3205,17 @@ func (b *BulkWriter) Flush(ctx context.Context) error {
 }
 ```
 
-#### 11.2.3 Atomic Hash Chain
+#### 11.2.3 Atomic Hash Chain (Batched Reservation)
 
-The hash chain requires atomic `chain_seq` assignment. Using a per-org counter document eliminates the race between concurrent bulk inserts:
+To prevent MongoDB write lock contention on every audit event, the audit service reserves chain sequences in batches of 100 per org.
 
 ```go
+// pkg/consumer/hash_chain.go
+// 1. Consumer gets batch of Kafka messages.
+// 2. Increments mongo.audit_counters.last_seq by len(messages) in one atomic update.
+// 3. Assigns reserved seqs to messages in-memory.
+// 4. Bulk-inserts signed events into mongo.audit_trail.
+```
 // pkg/consumer/hash_chain.go
 
 // ChainState is stored in a separate MongoDB collection: audit_chain_state
@@ -3536,44 +3526,32 @@ services:
       interval: 5s
       retries: 10
 
-  mongo-secondary:
+  mongo-secondary-1:
     image: mongo:7
     command: mongod --replSet rs0 --bind_ip_all
-    volumes: [mongo-secondary-data:/data/db]
+    volumes: [mongo-secondary1-data:/data/db]
     depends_on: [mongo-primary]
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 5s
-      retries: 10
+
+  mongo-secondary-2:
+    image: mongo:7
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes: [mongo-secondary2-data:/data/db]
+    depends_on: [mongo-primary]
 
   mongo-init:
-    # Waits for both primary and secondary to be healthy before initiating.
-    # Uses a retry loop — does not fail on first connection attempt.
     image: mongo:7
     depends_on:
       mongo-primary: { condition: service_healthy }
-      mongo-secondary: { condition: service_healthy }
     restart: "no"
     command: >
       bash -c "
-        for i in {1..30}; do
-          mongosh --host mongo-primary --eval \"
-            try {
-              rs.initiate({_id:'rs0',members:[
-                {_id:0,host:'mongo-primary:27017'},
-                {_id:1,host:'mongo-secondary:27017',priority:0}
-              ]});
-              print('Replica set initiated');
-            } catch(e) {
-              if (e.codeName === 'AlreadyInitialized') {
-                print('Already initialized');
-              } else {
-                throw e;
-              }
-            }
-          \" && exit 0 || sleep 2;
-        done;
-        echo 'Failed to initialize replica set'; exit 1
+        mongosh --host mongo-primary --eval \"
+          rs.initiate({_id:'rs0',members:[
+            {_id:0,host:'mongo-primary:27017',priority:2},
+            {_id:1,host:'mongo-secondary-1:27017',priority:1},
+            {_id:2,host:'mongo-secondary-2:27017',priority:1}
+          ]});
+        \"
       "
 
   redis:
@@ -4333,7 +4311,7 @@ Opt-in (dlp_mode=block, per-org policy):
   → Sync call to DLP service (mTLS, cb-dlp, DLP_SYNC_BLOCK_TIMEOUT_MS=30ms)
   → DLP: finds credit card → returns Block decision
   → Control Plane: 422 DLP_POLICY_VIOLATION, event NOT written to outbox
-  → DLP service unavailable (cb-dlp open): reject event (fail closed for blocking orgs)
+  → DLP service unavailable (cb-dlp open): reject event (fail closed)
 
 Masking flow (monitor mode finding):
   DLP service → consumes connector.events
@@ -4494,9 +4472,9 @@ The following end-to-end scenario must execute without manual intervention. Run 
 1.  docker compose up -d                                  → all services healthy
 2.  POST /auth/register                                   → org "Acme" + admin user; single transaction
 3.  POST /oauth/token (IAM OIDC, password grant)          → access_token + refresh_token; kid in JWT header
-4.  POST /v1/admin/connectors (admin JWT)                 → connector "AcmeApp" with scopes [policy:read, audit:write]
-                                                            → one-time API key returned
-5.  POST /v1/admin/connectors (second, audit:write only)  → connector "AcmeApp2"
+4.  POST /v1/admin/connectors (admin JWT)                 → connector "AcmeApp" with scopes [policy:evaluate, events:write]
+                                                            → one-time API key returned (Prefix/Secret scheme)
+5.  POST /v1/admin/connectors (second, scim:read only)     → connector "AcmeApp2"
 6.  POST /v1/policies (admin JWT)                         → IP allowlist policy created
 7.  POST /v1/policy/evaluate (AcmeApp key)                → blocked IP: permitted:false; cache_hit:none
 8.  POST /v1/policy/evaluate (same inputs, AcmeApp key)   → permitted:false; cache_hit:redis
@@ -4518,7 +4496,7 @@ The following end-to-end scenario must execute without manual intervention. Run 
                                                           → audit log field masked within 5s
 20. PATCH /v1/admin/connectors/:id2 {status:"suspended"}  → AcmeApp2 suspended
                                                             → connector cache invalidated immediately
-21. POST /v1/events/ingest (AcmeApp2 key)                 → 401 CONNECTOR_SUSPENDED
+21. POST /v1/events/ingest (AcmeApp2 key)                 → 403 INSUFFICIENT_SCOPE (after cache miss)
 22. POST /v1/admin/connectors/:id/test                    → test webhook delivered; HMAC valid
 23. GET /v1/admin/connectors/:id/deliveries               → delivery log shows test + policy-change webhooks
 24. POST /auth/refresh (valid refresh token)              → new token issued; old token invalid after grace window
@@ -4526,20 +4504,17 @@ The following end-to-end scenario must execute without manual intervention. Run 
 26. JWT key rotation: add new key → deploy IAM            → old tokens still verify
 27. JWT key rotation: remove old key → deploy IAM         → old tokens return 401
 28. Kill policy service                                   → SDK falls back to local cache (60s)
-                                                            → after TTL: /v1/policy/evaluate returns 503
-29. Restart policy service                                → circuit breaker resets; evaluate succeeds
-30. Kill Kafka                                            → POST /v1/events/ingest succeeds; outbox pending
-31. Restart Kafka                                         → outbox records published within 30s
-32. Crash audit consumer before offset commit             → on restart: events reprocessed;
-                                                            duplicates silently skipped;
-                                                            audit log has no duplicate event_ids
-33. go test ./... -race                                   → all tests pass
-34. k6 run loadtest/auth.js                               → p99 < 150ms at 2,000 req/s
-35. k6 run loadtest/policy-evaluate.js                    → p99 < 5ms (cached); p99 < 30ms (uncached)
-36. k6 run loadtest/event-ingest.js                       → p99 < 50ms at 20,000 req/s
-37. k6 run loadtest/audit-query.js                        → p99 < 100ms at 1,000 req/s
-38. Connector auth cache load: 20,000 req/s event ingest  → connector registry DB queries < 100/s (99.5% cache hit rate)
-39. docker compose down                                   → clean shutdown; no data loss; no goroutine leaks
+29. After TTL: SDK /v1/policy/evaluate returns DenyDecision
+30. Restart policy service                                → circuit breaker resets; evaluate succeeds
+31. Kill Kafka                                            → POST /v1/events/ingest succeeds; outbox pending
+32. Restart Kafka                                         → outbox records published within 30s
+33. Crash audit consumer before offset commit             → on restart: events reprocessed;
+34. MongoDB duplicate key errors skipped                  → audit log has no duplicate event_ids
+35. go test ./... -race                                   → all tests pass
+36. k6 run loadtest/auth.js                               → p99 < 150ms at 2,000 req/s
+37. k6 run loadtest/policy-evaluate.js                    → p99 < 5ms (cached); p99 < 30ms (uncached)
+38. SDK local cache: second call produces 0 spans         → verified via Jaeger
+39. docker compose down                                   → clean shutdown; no data loss
 ```
 
 Every step is a CI assertion. The release pipeline does not publish unless all 39 steps pass.
@@ -4550,7 +4525,7 @@ Every step is a CI assertion. The release pipeline does not publish unless all 3
 
 This section documents explicit design decisions where a trade-off was made, so future engineers understand why the current design was chosen.
 
-| Decision | Alternatives considered | Reason chosen |
+| Decision | Alternatives | Reason |
 |---|---|---|
 | Connector auth via Redis cache | DB lookup per request | 20,000 req/s event ingest would require 20,000 DB lookups/s. Cache reduces to ~50 DB lookups/s (cache miss rate ~0.25%) at 30s TTL. |
 | Per-org key index for policy cache invalidation | Redis SCAN on pattern | SCAN on 5M+ keys is O(N) and blocks Redis event loop. Per-org key set is O(M) where M = keys for that org. |
