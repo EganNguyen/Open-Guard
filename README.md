@@ -2,24 +2,37 @@
 
 > **Enterprise-scale, open-source organization security platform.**
 
-OpenGuard is a self-hostable identity and data security platform, inspired by Atlassian Guard. It provides Fortune-500 grade identity management, real-time policy evaluation, threat detection, and cryptographically verifiable audit trails—all designed with **zero cross-tenant data leakage** and **fail-closed** security principles.
+OpenGuard is an open-source, self-hostable **centralized security control plane**. Connected applications register with OpenGuard and integrate via a lightweight SDK, SCIM 2.0, OIDC/SAML, and outbound webhooks—all designed with **zero cross-tenant data leakage** and **fail-closed** security principles.
 
 ## 🛡️ Core Platform Capabilities & Security Guarantees
 
 OpenGuard provides a unified security control plane built on 10 core Go microservices.
 
-| Service | Category | Capabilities | Security Guarantee |
-|:--- |:--- |:--- |:--- |
-| **`iam`** | **Identity** | SSO (SAML/OIDC), SCIM 2.0, MFA (WebAuthn), API Tokens | Zero-downtime key rotation & PBKDF2 |
-| **`policy`** | **Authorization** | Sub-30ms RBAC/ABAC evaluation, IP Allowlisting | Fail-Closed on service unavailability |
-| **`dlp`** | **Data Protection** | Real-time PII, Credential, and Financial data scanning | Inline blocking & Audit log masking |
-| **`threat`** | **Detection** | Streaming anomaly scoring (ATO, Geo-velocity, Brute-force) | Detection latency < 5s |
-| **`audit`** | **Assurance** | Hash-Chained, append-only event trail | Cryptographically verifiable integrity |
-| **`compliance`**| **Analytics** | ClickHouse reports (GDPR, SOC 2, HIPAA) | Real-time dashboards for 100M+ events |
-| **`alerting`** | **Alerting** | SIEM (Splunk/CrowdStrike), Slack, and Email delivery | HMAC-signed webhook export |
-| **`webhook-delivery`** | **Automation** | Outbound webhooks to Connected Apps | Exactly-once delivery via Outbox |
-| **`control-plane`** | **Management** | Centralized API, Ingestion Gateway, Dashboard Backend | Standardized mTLS service mesh |
-| **`connector-registry`** | **Inventory** | Application lifecycle, API Key mgmt, Webhook config | Multi-tenant isolation (RLS) |
+| Service | Category | Capabilities | Security Guarantee | Status |
+|:--- |:--- |:--- |:--- | :--- |
+| **`iam`** | **Identity** | SSO (SAML/OIDC), SCIM 2.0, MFA (WebAuthn), API Tokens | Zero-downtime key rotation & PBKDF2 | **Implemented** |
+| **`policy`** | **Authorization** | Sub-30ms RBAC/ABAC evaluation, IP Allowlisting | Fail-Closed on service unavailability | **Implemented** |
+| **`audit`** | **Assurance** | Hash-Chained, append-only event trail | Cryptographically verifiable integrity | **Implemented** |
+| **`control-plane`** | **Management** | Centralized API, Ingestion Gateway, Dashboard Backend | Standardized mTLS service mesh | **Implemented** |
+| **`alerting`** | **Alerting** | SIEM (Splunk/CrowdStrike), Slack, and Email delivery | HMAC-signed webhook export | **Roadmap (Phase 4)** |
+| **`threat`** | **Detection** | Streaming anomaly scoring (ATO, Geo-velocity) | Detection latency < 5s | **Roadmap (Phase 4)** |
+| **`webhook-delivery`** | **Automation** | Outbound webhooks to Connected Apps | Exactly-once delivery via Outbox | **Roadmap (Phase 4)** |
+| **`compliance`**| **Analytics** | ClickHouse reports (GDPR, SOC 2, HIPAA) | Real-time dashboards for 100M+ events | **Roadmap (Phase 5)** |
+| **`dlp`** | **Data Protection** | Real-time PII, Credential, and Financial data scanning | Inline blocking & Audit log masking | **Roadmap (Phase 10)** |
+
+## 📊 Canonical SLOs (Performance Targets)
+
+OpenGuard is engineered for hard performance targets. These SLOs are verified via `k6` load tests in Phase 8.
+
+| Operation | p50 | p99 | Throughput |
+|-----------|-----|-----|------------|
+| `POST /oauth/token` (IAM OIDC) | 40ms | 150ms | 2,000 req/s |
+| `POST /v1/policy/evaluate` (uncached) | 5ms | 30ms | 10,000 req/s |
+| `POST /v1/policy/evaluate` (Redis cached) | 1ms | 5ms | 10,000 req/s |
+| `POST /v1/events/ingest` (connector push) | 10ms | 50ms | 20,000 req/s |
+| `GET /audit/events` (paginated) | 20ms | 100ms | 1,000 req/s |
+| Kafka event → audit DB insert | — | 2s | 50,000 events/s |
+| Compliance report generation | — | 30s | 10 concurrent |
 
 ### 🚀 Organization Security Capability Analysis
 
@@ -30,7 +43,7 @@ OpenGuard provides a unified security control plane built on 10 core Go microser
 | **Secrets Management** | Secrets (keys, tokens) are loaded via **Environment Variables**. Support for local `.env` and production-grade managers like Vault/AWS SM. | **Flexible (Env Vars)** |
 | **Threat Detection** | Streaming anomaly scoring for Account Takeover (ATO), Geo-velocity, and Brute-force. | **Roadmap (Phase 4)** |
 | **Network Security** | Zero-trust service mesh using mTLS and short-lived certificates (SPIFFE). *Note: Not a WAF or network firewall.* | **Core Architecture** |
-| **Data Security** | Data Loss Prevention (DLP) for PII/financial scanning and row-level security (RLS). | **Roadmap (Phase 7)** |
+| **Data Security** | Data Loss Prevention (DLP) for PII/financial scanning and row-level security (RLS). | **Roadmap (Phase 10)** |
 | **Application Security** | Real-time RBAC/ABAC policy evaluation via the `policy` engine and integration SDK. | **Implemented** |
 | **Fraud Prevention** | Detection of anomalous patterns like impossible travel and brute force in the `threat` service. | **Roadmap (Phase 4)** |
 
@@ -122,7 +135,7 @@ graph TD
 
 ## 💻 Tech Stack
 
-- **Backend:** Go 1.22 (Microservices: Gateway, IAM, Policy, Threat, Audit, Alerting, Compliance)
+- **Backend:** Go 1.22 (Microservices: `controlplane`, `iam`, `policy`, `audit`, `threat`, `alerting`, `compliance`, `dlp`, `webhook-delivery`)
 - **Frontend:** Next.js 14
 - **Databases:** PostgreSQL 16 (Primary data & Outbox), MongoDB 7 (Audit Logs), ClickHouse 24 (Analytics & Compliance)
 - **Event Bus & Cache:** Kafka 3.6, Redis 7
@@ -132,9 +145,10 @@ graph TD
 
 ```text
 openguard/
-├── services/           # Go microservices (gateway, iam, policy, threat, etc.)
+├── services/           # Go microservices (iam, policy, audit, controlplane, etc.)
 ├── shared/             # Shared Go module (Kafka outbox, RLS middleware, crypto, models)
 ├── web/                # Next.js 14 Admin Console
+├── docs/               # System specification, runbooks, and API definitions
 ├── infra/              # Docker Compose, K8s manifests, Kafka topics
 ├── proto/              # Protobuf definitions
 └── loadtest/           # k6 load testing scripts
