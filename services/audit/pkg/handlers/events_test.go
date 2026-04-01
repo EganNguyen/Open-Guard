@@ -9,11 +9,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/openguard/audit/pkg/handlers"
-	"github.com/openguard/audit/pkg/integrity"
 	"github.com/openguard/audit/pkg/models"
+	"github.com/openguard/audit/pkg/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.mongodb.org/mongo-driver/bson"
 	"log/slog"
 	"os"
 )
@@ -22,7 +21,7 @@ type mockReadRepo struct {
 	events []models.AuditEvent
 }
 
-func (m *mockReadRepo) FindEvents(ctx context.Context, filter bson.M, limit int64, skip int64) ([]models.AuditEvent, error) {
+func (m *mockReadRepo) FindEvents(ctx context.Context, filter interface{}, limit int64, skip int64) ([]models.AuditEvent, error) {
 	return m.events, nil
 }
 
@@ -30,11 +29,15 @@ func (m *mockReadRepo) GetIntegrityChain(ctx context.Context, orgID string) ([]m
 	return m.events, nil
 }
 
+func (m *mockReadRepo) GetLastChainState(ctx context.Context, orgID string) (int64, string, error) {
+	return 0, "", nil
+}
+
 type mockErrRepo struct {
 	mockReadRepo
 }
 
-func (m *mockErrRepo) FindEvents(ctx context.Context, filter bson.M, limit int64, skip int64) ([]models.AuditEvent, error) {
+func (m *mockErrRepo) FindEvents(ctx context.Context, filter interface{}, limit int64, skip int64) ([]models.AuditEvent, error) {
 	return nil, context.DeadlineExceeded
 }
 
@@ -47,8 +50,8 @@ func TestEventsHandler_ListEvents(t *testing.T) {
 	repo := &mockReadRepo{
 		events: []models.AuditEvent{{EventID: "123", OrgID: "org1"}},
 	}
-	v := integrity.NewVerifier(repo, "secret")
-	h := handlers.NewEventsHandler(repo, v, logger)
+	svc := service.New(repo, "secret", logger, true)
+	h := handlers.NewEventsHandler(svc, logger)
 	
 	req := httptest.NewRequest("GET", "/audit/events", nil)
 	req.Header.Set("X-Org-ID", "org1")
@@ -72,14 +75,14 @@ func TestEventsHandler_ListEvents(t *testing.T) {
 	
 	t.Run("db error", func(t *testing.T) {
 		repo := &mockErrRepo{}
-		v := integrity.NewVerifier(repo, "secret")
-		h := handlers.NewEventsHandler(repo, v, logger)
+		svc := service.New(repo, "secret", logger, true)
+		h := handlers.NewEventsHandler(svc, logger)
 		
 		req := httptest.NewRequest("GET", "/audit/events", nil)
 		req.Header.Set("X-Org-ID", "org1")
 		w := httptest.NewRecorder()
 		h.ListEvents(w, req)
-		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, http.StatusGatewayTimeout, w.Code) // mapped by HandledServiceError
 	})
 }
 
@@ -88,8 +91,8 @@ func TestEventsHandler_VerifyIntegrity(t *testing.T) {
 	repo := &mockReadRepo{
 		events: []models.AuditEvent{},
 	}
-	v := integrity.NewVerifier(repo, "secret")
-	h := handlers.NewEventsHandler(repo, v, logger)
+	svc := service.New(repo, "secret", logger, true)
+	h := handlers.NewEventsHandler(svc, logger)
 	
 	req := httptest.NewRequest("GET", "/audit/integrity", nil)
 	req.Header.Set("X-Org-ID", "org1")
@@ -98,7 +101,7 @@ func TestEventsHandler_VerifyIntegrity(t *testing.T) {
 	h.VerifyIntegrity(w, req)
 	
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp integrity.IntegrityResult
+	var resp service.IntegrityResult
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.True(t, resp.Ok)
@@ -117,8 +120,8 @@ func TestEventsHandler_GetEvent(t *testing.T) {
 		repo := &mockReadRepo{
 			events: []models.AuditEvent{{EventID: "123", OrgID: "org1"}},
 		}
-		v := integrity.NewVerifier(repo, "secret")
-		h := handlers.NewEventsHandler(repo, v, logger)
+		svc := service.New(repo, "secret", logger, true)
+		h := handlers.NewEventsHandler(svc, logger)
 		
 		req := httptest.NewRequest("GET", "/audit/events/123", nil)
 		req.Header.Set("X-Org-ID", "org1")
@@ -135,8 +138,8 @@ func TestEventsHandler_GetEvent(t *testing.T) {
 	
 	t.Run("not found", func(t *testing.T) {
 		repo := &mockReadRepo{events: []models.AuditEvent{}}
-		v := integrity.NewVerifier(repo, "secret")
-		h := handlers.NewEventsHandler(repo, v, logger)
+		svc := service.New(repo, "secret", logger, true)
+		h := handlers.NewEventsHandler(svc, logger)
 		
 		req := httptest.NewRequest("GET", "/audit/events/404", nil)
 		req.Header.Set("X-Org-ID", "org1")
@@ -152,8 +155,8 @@ func TestEventsHandler_GetEvent(t *testing.T) {
 	
 	t.Run("missing org id", func(t *testing.T) {
 		repo := &mockReadRepo{events: []models.AuditEvent{}}
-		v := integrity.NewVerifier(repo, "secret")
-		h := handlers.NewEventsHandler(repo, v, logger)
+		svc := service.New(repo, "secret", logger, true)
+		h := handlers.NewEventsHandler(svc, logger)
 		
 		req := httptest.NewRequest("GET", "/audit/events/123", nil)
 		w := httptest.NewRecorder()

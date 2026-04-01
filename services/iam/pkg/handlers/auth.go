@@ -18,7 +18,7 @@ func NewAuthHandler(iamService *service.Service) *AuthHandler {
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
-	var req service.RegisterRequest
+	var req service.RegisterInput
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body", r)
 		return
@@ -36,7 +36,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	var req service.LoginRequest
+	var req service.LoginInput
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body", r)
 		return

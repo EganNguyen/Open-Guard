@@ -34,14 +34,14 @@ func (s *Service) GetUser(ctx context.Context, orgID, id string) (*repository.Us
 	return s.repo.GetUserByID(ctx, tx, orgID, id)
 }
 
-type CreateUserRequest struct {
+type CreateUserInput struct {
 	OrgID       string `json:"org_id"`
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
 	Password    string `json:"password"` // optional initial password
 }
 
-func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*repository.User, error) {
+func (s *Service) CreateUser(ctx context.Context, req CreateUserInput) (*repository.User, error) {
 	if req.Email == "" { return nil, fmt.Errorf("email is required") }
 
 	tx, err := s.pool.Begin(ctx)
@@ -69,12 +69,12 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*repos
 	return user, nil
 }
 
-type UpdateUserRequest struct {
+type UpdateUserInput struct {
 	DisplayName string `json:"display_name"`
 	Status      string `json:"status"`
 }
 
-func (s *Service) UpdateUser(ctx context.Context, orgID, id string, req UpdateUserRequest) (*repository.User, error) {
+func (s *Service) UpdateUser(ctx context.Context, orgID, id string, req UpdateUserInput) (*repository.User, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil { return nil, err }
 	defer tx.Rollback(ctx)

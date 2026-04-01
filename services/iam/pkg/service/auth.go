@@ -22,7 +22,7 @@ import (
 
 // Methods are now part of the unified Service struct in service.go
 
-type RegisterRequest struct {
+type RegisterInput struct {
 	OrgName     string `json:"org_name"`
 	Email       string `json:"email"`
 	Password    string `json:"password"`
@@ -35,7 +35,7 @@ type RegisterResponse struct {
 	Token string           `json:"token"`
 }
 
-func (s *Service) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
+func (s *Service) Register(ctx context.Context, req RegisterInput) (*RegisterResponse, error) {
 	if req.OrgName == "" || req.Email == "" || len(req.Password) < 8 {
 		return nil, fmt.Errorf("invalid inputs")
 	}
@@ -87,7 +87,7 @@ func (s *Service) Register(ctx context.Context, req RegisterRequest) (*RegisterR
 	}, nil
 }
 
-type LoginRequest struct {
+type LoginInput struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
@@ -100,7 +100,7 @@ type LoginResponse struct {
 	Org          *repository.Org  `json:"org"`
 }
 
-func (s *Service) Login(ctx context.Context, req LoginRequest, ipAddress, userAgent *string) (*LoginResponse, error) {
+func (s *Service) Login(ctx context.Context, req LoginInput, ipAddress, userAgent *string) (*LoginResponse, error) {
 	if req.Email == "" || req.Password == "" {
 		return nil, fmt.Errorf("email and password required")
 	}

@@ -13,6 +13,7 @@ import (
 type lastEventReader interface {
 	GetLastChainState(ctx context.Context, orgID string) (int64, string, error)
 }
+
 type bulkAdder interface {
 	Add(ctx context.Context, doc models.AuditEvent) error
 }
@@ -92,7 +93,6 @@ func (c *Consumer) HandleMessage(ctx context.Context, m kafkago.Message) error {
 
 	return c.writer.Add(ctx, auditEv)
 }
-
 
 func (c *Consumer) Stop() error {
 	return c.reader.Close()

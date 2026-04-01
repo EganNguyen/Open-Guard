@@ -9,24 +9,24 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/models"
 	"github.com/openguard/shared/outbox"
-	"github.com/openguard/shared/crypto"
 )
 
-type ConnectorRepository struct {
+type Repository struct {
 	pool   *pgxpool.Pool
 	outbox *outbox.Writer
 }
 
-func NewConnectorRepository(pool *pgxpool.Pool, outboxWriter *outbox.Writer) *ConnectorRepository {
-	return &ConnectorRepository{pool: pool, outbox: outboxWriter}
+func New(pool *pgxpool.Pool, outboxWriter *outbox.Writer) *Repository {
+	return &Repository{pool: pool, outbox: outboxWriter}
 }
 
 // ValidateKey hashes the token and looks up the orgID and connectorID.
 // Implements shared/middleware/APIKeyValidator.
-func (r *ConnectorRepository) ValidateKey(ctx context.Context, token string) (string, string, error) {
+func (r *Repository) ValidateKey(ctx context.Context, token string) (string, string, error) {
 	hasher := &crypto.PBKDF2Hasher{}
 	hash := hasher.Hash(token)
 
@@ -37,7 +37,7 @@ func (r *ConnectorRepository) ValidateKey(ctx context.Context, token string) (st
 	return connector.OrgID, connector.ID, nil
 }
 
-func (r *ConnectorRepository) GetByHash(ctx context.Context, hash string) (*models.Connector, error) {
+func (r *Repository) GetByHash(ctx context.Context, hash string) (*models.Connector, error) {
 	query := `SELECT id, org_id, name, webhook_url, api_key, status, created_by, created_at, updated_at 
 	          FROM connectors WHERE api_key = $1 AND status = 'active'`
 	
@@ -51,7 +51,7 @@ func (r *ConnectorRepository) GetByHash(ctx context.Context, hash string) (*mode
 	return &c, nil
 }
 
-func (r *ConnectorRepository) List(ctx context.Context, orgID string) ([]*models.Connector, error) {
+func (r *Repository) List(ctx context.Context, orgID string) ([]*models.Connector, error) {
 	query := `SELECT id, org_id, name, webhook_url, status, created_by, created_at, updated_at 
 	          FROM connectors WHERE org_id = $1 ORDER BY created_at DESC`
 	
@@ -73,7 +73,13 @@ func (r *ConnectorRepository) List(ctx context.Context, orgID string) ([]*models
 	return connectors, nil
 }
 
-func (r *ConnectorRepository) Create(ctx context.Context, tx pgx.Tx, c *models.Connector) error {
+func (r *Repository) Create(ctx context.Context, c *models.Connector) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
 	query := `INSERT INTO connectors (id, org_id, name, webhook_url, api_key, status, created_by, created_at, updated_at)
 	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 	
@@ -81,15 +87,19 @@ func (r *ConnectorRepository) Create(ctx context.Context, tx pgx.Tx, c *models.C
 	if c.CreatedAt.IsZero() { c.CreatedAt = now }
 	if c.UpdatedAt.IsZero() { c.UpdatedAt = now }
 
-	_, err := tx.Exec(ctx, query, c.ID, c.OrgID, c.Name, c.WebhookURL, c.APIKey, c.Status, c.CreatedBy, c.CreatedAt, c.UpdatedAt)
+	_, err = tx.Exec(ctx, query, c.ID, c.OrgID, c.Name, c.WebhookURL, c.APIKey, c.Status, c.CreatedBy, c.CreatedAt, c.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("insert connector: %w", err)
 	}
 
-	return r.publishEvent(ctx, tx, kafka.TopicAuditTrail, "connector.create", c.OrgID, c.CreatedBy, c.ID)
+	if err := r.publishEvent(ctx, tx, kafka.TopicAuditTrail, "connector.create", c.OrgID, c.CreatedBy, c.ID); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
-func (r *ConnectorRepository) IngestEvents(ctx context.Context, orgID string, connectorID string, events []models.EventEnvelope) error {
+func (r *Repository) IngestEvents(ctx context.Context, orgID string, connectorID string, events []models.EventEnvelope) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -97,7 +107,6 @@ func (r *ConnectorRepository) IngestEvents(ctx context.Context, orgID string, co
 	defer tx.Rollback(ctx)
 
 	for _, event := range events {
-		// Ensure EventSource is set correctly
 		event.EventSource = "connector:" + connectorID
 		event.OrgID = orgID
 
@@ -109,12 +118,14 @@ func (r *ConnectorRepository) IngestEvents(ctx context.Context, orgID string, co
 	return tx.Commit(ctx)
 }
 
-func (r *ConnectorRepository) publishEvent(ctx context.Context, tx pgx.Tx, topic, eventType, orgID, actorID, resourceID string) error {
+func (r *Repository) publishEvent(ctx context.Context, tx pgx.Tx, topic, eventType, orgID, actorID, resourceID string) error {
 	if r.outbox == nil {
 		return nil
 	}
 
-	payload, _ := json.Marshal(map[string]string{})
+	payload, _ := json.Marshal(map[string]string{
+		"resource_id": resourceID,
+	})
 	envelope := models.EventEnvelope{
 		ID:         uuid.NewString(),
 		Type:       eventType,

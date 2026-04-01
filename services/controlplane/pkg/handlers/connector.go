@@ -6,32 +6,29 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/openguard/controlplane/pkg/repository"
+	"github.com/openguard/controlplane/pkg/service"
 	"github.com/openguard/shared/crypto"
-	"github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/models"
 )
 
 type ConnectorHandler struct {
-	repo *repository.ConnectorRepository
-	pool *pgxpool.Pool
+	svc *service.Service
 }
 
-func NewConnectorHandler(repo *repository.ConnectorRepository, pool *pgxpool.Pool) *ConnectorHandler {
-	return &ConnectorHandler{repo: repo, pool: pool}
+func NewConnectorHandler(svc *service.Service) *ConnectorHandler {
+	return &ConnectorHandler{svc: svc}
 }
 
 func (h *ConnectorHandler) List(w http.ResponseWriter, r *http.Request) {
-	orgID, ok := r.Context().Value(middleware.TenantIDKey).(string)
-	if !ok || orgID == "" {
-		http.Error(w, `{"error":{"code":"unauthorized","message":"missing org id in context"}}`, http.StatusUnauthorized)
+	orgID := orgIDFromCtx(r)
+	if orgID == "" {
+		models.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing organization context", r)
 		return
 	}
 
-	connectors, err := h.repo.List(r.Context(), orgID)
+	connectors, err := h.svc.ListConnectors(r.Context(), orgID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -42,25 +39,25 @@ func (h *ConnectorHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ConnectorHandler) Create(w http.ResponseWriter, r *http.Request) {
-	orgID, ok := r.Context().Value(middleware.TenantIDKey).(string)
-	if !ok || orgID == "" {
-		http.Error(w, `{"error":{"code":"unauthorized","message":"missing org id in context"}}`, http.StatusUnauthorized)
+	orgID := orgIDFromCtx(r)
+	if orgID == "" {
+		models.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing organization context", r)
 		return
 	}
-	userID := r.Header.Get("X-User-ID") // User ID can still be a header or derived from JWT if available
+	userID := userIDFromCtx(r)
 
 	var req struct {
 		Name       string `json:"name"`
 		WebhookURL string `json:"webhook_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body", r)
 		return
 	}
 
 	plaintextKey, err := crypto.GenerateRandomKey()
 	if err != nil {
-		http.Error(w, "failed to generate api key", http.StatusInternalServerError)
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -72,27 +69,15 @@ func (h *ConnectorHandler) Create(w http.ResponseWriter, r *http.Request) {
 		OrgID:      orgID,
 		Name:       req.Name,
 		WebhookURL: req.WebhookURL,
-		APIKey:     keyHash, // Store the hash
+		APIKey:     keyHash,
 		Status:     "active",
 		CreatedBy:  userID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
 
-	tx, err := h.pool.Begin(r.Context())
-	if err != nil {
-		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback(r.Context())
-
-	if err := h.repo.Create(r.Context(), tx, c); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, "failed to commit transaction", http.StatusInternalServerError)
+	if err := h.svc.CreateConnector(r.Context(), c); err != nil {
+		models.HandleServiceError(w, r, err)
 		return
 	}
 

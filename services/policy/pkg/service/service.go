@@ -15,11 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// ErrBadRequest is returned for invalid input validation.
-var ErrBadRequest = errors.New("bad request")
-
-// ErrNotFound is returned when a resource is not found.
-var ErrNotFound = errors.New("not found")
+// Methods are already part of the Service struct in service.go
 
 // PolicyRepository defines the persistence interface for policies.
 type PolicyRepository interface {
@@ -80,10 +76,10 @@ func New(
 
 func (s *Service) Create(ctx context.Context, p *models.Policy) error {
 	if p.Name == "" {
-		return fmt.Errorf("%w: policy name is required", ErrBadRequest)
+		return fmt.Errorf("%w: policy name is required", models.ErrBadRequest)
 	}
 	if p.OrgID == "" {
-		return fmt.Errorf("%w: org_id is required", ErrBadRequest)
+		return fmt.Errorf("%w: org_id is required", models.ErrBadRequest)
 	}
 	return s.repo.Create(ctx, p)
 }
@@ -98,7 +94,7 @@ func (s *Service) List(ctx context.Context, orgID string) ([]*models.Policy, err
 
 func (s *Service) Update(ctx context.Context, p *models.Policy) error {
 	if p.Name == "" {
-		return fmt.Errorf("%w: policy name is required", ErrBadRequest)
+		return fmt.Errorf("%w: policy name is required", models.ErrBadRequest)
 	}
 	return s.repo.Update(ctx, p)
 }

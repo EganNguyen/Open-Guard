@@ -5,17 +5,17 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/openguard/controlplane/pkg/repository"
+	"github.com/openguard/controlplane/pkg/service"
 	"github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/models"
 )
 
 type IngestHandler struct {
-	repo *repository.ConnectorRepository
+	svc *service.Service
 }
 
-func NewIngestHandler(repo *repository.ConnectorRepository) *IngestHandler {
-	return &IngestHandler{repo: repo}
+func NewIngestHandler(svc *service.Service) *IngestHandler {
+	return &IngestHandler{svc: svc}
 }
 
 type IngestRequest struct {
@@ -32,9 +32,9 @@ type IngestEvent struct {
 }
 
 func (h *IngestHandler) IngestEvents(w http.ResponseWriter, r *http.Request) {
-	orgID, ok := r.Context().Value(middleware.TenantIDKey).(string)
-	if !ok || orgID == "" {
-		http.Error(w, `{"error":{"code":"unauthorized","message":"missing org id in context"}}`, http.StatusUnauthorized)
+	orgID := orgIDFromCtx(r)
+	if orgID == "" {
+		models.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing organization context", r)
 		return
 	}
 
@@ -45,7 +45,7 @@ func (h *IngestHandler) IngestEvents(w http.ResponseWriter, r *http.Request) {
 
 	var req IngestRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":{"code":"invalid_json","message":"`+err.Error()+`"}}`, http.StatusBadRequest)
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -65,8 +65,8 @@ func (h *IngestHandler) IngestEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.repo.IngestEvents(r.Context(), orgID, connectorID, envelopes); err != nil {
-		http.Error(w, `{"error":{"code":"internal_error","message":"`+err.Error()+`"}}`, http.StatusInternalServerError)
+	if err := h.svc.IngestEvents(r.Context(), orgID, connectorID, envelopes); err != nil {
+		models.HandleServiceError(w, r, err)
 		return
 	}
 

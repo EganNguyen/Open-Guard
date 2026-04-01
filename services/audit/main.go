@@ -13,8 +13,8 @@ import (
 	"github.com/openguard/audit/pkg/config"
 	"github.com/openguard/audit/pkg/consumer"
 	"github.com/openguard/audit/pkg/handlers"
-	"github.com/openguard/audit/pkg/integrity"
 	"github.com/openguard/audit/pkg/repository"
+	"github.com/openguard/audit/pkg/service"
 	"github.com/openguard/shared/kafka"
 	"strings"
 	
@@ -35,7 +35,8 @@ func main() {
 	}
 
 	var handler slog.Handler
-	if cfg.AppEnv == "development" {
+	isDev := cfg.AppEnv == "development"
+	if isDev {
 		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
 	} else {
 		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
@@ -60,19 +61,20 @@ func main() {
 	}
 	defer secondaryClient.Disconnect(context.Background())
 
-	// Init Repos
-	writeRepo := repository.NewWriteRepository(primaryClient)
-	readRepo := repository.NewReadRepository(secondaryClient)
+	// Init Repo (Unified)
+	repo := repository.New(primaryClient)
+	readRepo := repository.New(secondaryClient) // We use the same struct for both connections
 	
 	// Ensure Indexes
-	if err := writeRepo.EnsureIndexes(ctx); err != nil {
+	if err := repo.EnsureIndexes(ctx); err != nil {
 		logger.Error("failed to ensure indexes", "error", err)
 	}
 
 	// Init Bulk Writer
-	bulkWriter := consumer.NewBulkWriter(writeRepo.GetCollection(), cfg.BulkInsertDocs, cfg.BulkInsertFlush, logger)
+	bulkWriter := consumer.NewBulkWriter(repo.GetCollection(), cfg.BulkInsertDocs, cfg.BulkInsertFlush, logger)
 	go bulkWriter.Start(ctx)
 
+	// Init Kafka Consumer
 	topicsToConsume := []string{
 		kafka.TopicAuthEvents,
 		kafka.TopicPolicyChanges,
@@ -81,20 +83,21 @@ func main() {
 		kafka.TopicAuditTrail,
 	}
 
-	// Init Kafka Consumer
 	auditConsumer := consumer.NewConsumer(
 		strings.Split(cfg.KafkaBrokers, ","),
 		topicsToConsume,
-		writeRepo,
+		repo,
 		bulkWriter,
 		logger,
 		cfg.HashChainSecret,
 	)
 	go auditConsumer.Start(ctx)
 
+	// Init Service (v2.0)
+	svc := service.New(readRepo, cfg.HashChainSecret, logger, isDev)
+
 	// API Handlers
-	verifier := integrity.NewVerifier(readRepo, cfg.HashChainSecret)
-	auditHandler := handlers.NewEventsHandler(readRepo, verifier, logger)
+	auditHandler := handlers.NewEventsHandler(svc, logger)
 
 	// Router
 	r := chi.NewRouter()

@@ -11,27 +11,27 @@ func TestSlugify(t *testing.T) {
 	// For now, test the RegisterRequest validation
 	tests := []struct {
 		name    string
-		req     service.RegisterRequest
+		req     service.RegisterInput
 		wantErr bool
 	}{
 		{
 			name:    "empty org name",
-			req:     service.RegisterRequest{OrgName: "", Email: "test@test.com", Password: "password123"},
+			req:     service.RegisterInput{OrgName: "", Email: "test@test.com", Password: "password123"},
 			wantErr: true,
 		},
 		{
 			name:    "empty email",
-			req:     service.RegisterRequest{OrgName: "Acme", Email: "", Password: "password123"},
+			req:     service.RegisterInput{OrgName: "Acme", Email: "", Password: "password123"},
 			wantErr: true,
 		},
 		{
 			name:    "empty password",
-			req:     service.RegisterRequest{OrgName: "Acme", Email: "test@test.com", Password: ""},
+			req:     service.RegisterInput{OrgName: "Acme", Email: "test@test.com", Password: ""},
 			wantErr: true,
 		},
 		{
 			name:    "short password",
-			req:     service.RegisterRequest{OrgName: "Acme", Email: "test@test.com", Password: "short"},
+			req:     service.RegisterInput{OrgName: "Acme", Email: "test@test.com", Password: "short"},
 			wantErr: true,
 		},
 	}
@@ -51,22 +51,22 @@ func TestSlugify(t *testing.T) {
 func TestLoginRequestValidation(t *testing.T) {
 	tests := []struct {
 		name    string
-		req     service.LoginRequest
+		req     service.LoginInput
 		wantErr bool
 	}{
 		{
 			name:    "empty email",
-			req:     service.LoginRequest{Email: "", Password: "password"},
+			req:     service.LoginInput{Email: "", Password: "password"},
 			wantErr: true,
 		},
 		{
 			name:    "empty password",
-			req:     service.LoginRequest{Email: "test@test.com", Password: ""},
+			req:     service.LoginInput{Email: "test@test.com", Password: ""},
 			wantErr: true,
 		},
 		{
 			name:    "valid request",
-			req:     service.LoginRequest{Email: "test@test.com", Password: "password123"},
+			req:     service.LoginInput{Email: "test@test.com", Password: "password123"},
 			wantErr: false,
 		},
 	}

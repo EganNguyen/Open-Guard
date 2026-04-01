@@ -10,17 +10,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-func TestNewRepositories(t *testing.T) {
+func TestNewRepository(t *testing.T) {
 	client, _ := mongo.Connect(context.TODO(), options.Client().ApplyURI("mongodb://localhost:27017"))
 	
-	t.Run("WriteRepository", func(t *testing.T) {
-		repo := repository.NewWriteRepository(client)
+	t.Run("Unified Repository", func(t *testing.T) {
+		repo := repository.New(client)
 		assert.NotNil(t, repo)
 		assert.NotNil(t, repo.GetCollection())
-	})
-	
-	t.Run("ReadRepository", func(t *testing.T) {
-		repo := repository.NewReadRepository(client)
-		assert.NotNil(t, repo)
 	})
 }

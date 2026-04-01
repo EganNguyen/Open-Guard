@@ -40,7 +40,7 @@ func TestPolicyService_Create(t *testing.T) {
 	t.Run("missing name", func(t *testing.T) {
 		p := &models.Policy{OrgID: "org1"}
 		err := svc.Create(ctx, p)
-		if !errors.Is(err, ErrBadRequest) {
+		if !errors.Is(err, models.ErrBadRequest) {
 			t.Errorf("expected ErrBadRequest, got %v", err)
 		}
 	})
@@ -48,7 +48,7 @@ func TestPolicyService_Create(t *testing.T) {
 	t.Run("missing orgID", func(t *testing.T) {
 		p := &models.Policy{Name: "Test"}
 		err := svc.Create(ctx, p)
-		if !errors.Is(err, ErrBadRequest) {
+		if !errors.Is(err, models.ErrBadRequest) {
 			t.Errorf("expected ErrBadRequest, got %v", err)
 		}
 	})
@@ -70,7 +70,7 @@ func TestPolicyService_Update(t *testing.T) {
 	t.Run("missing name", func(t *testing.T) {
 		p := &models.Policy{ID: "p1", OrgID: "org1"}
 		err := svc.Update(ctx, p)
-		if !errors.Is(err, ErrBadRequest) {
+		if !errors.Is(err, models.ErrBadRequest) {
 			t.Errorf("expected ErrBadRequest, got %v", err)
 		}
 	})

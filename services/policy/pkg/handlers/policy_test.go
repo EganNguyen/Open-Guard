@@ -13,7 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/openguard/policy/pkg/repository"
 	"github.com/openguard/policy/pkg/service"
-	"github.com/openguard/policy/pkg/tenant"
+	"github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/models"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
@@ -27,7 +27,7 @@ type fakeRepo struct {
 func (f *fakeRepo) Create(ctx context.Context, p *models.Policy) error { return nil }
 func (f *fakeRepo) GetByID(ctx context.Context, o, pId string) (*models.Policy, error) {
 	if pId == "not-found" {
-		return nil, ErrNotFound
+		return nil, models.ErrNotFound
 	}
 	return &models.Policy{ID: pId, OrgID: o}, nil
 }
@@ -39,13 +39,13 @@ func (f *fakeRepo) ListEnabledForOrg(ctx context.Context, o string) ([]*models.P
 }
 func (f *fakeRepo) Update(ctx context.Context, p *models.Policy) error {
 	if p.ID == "not-found" {
-		return ErrNotFound
+		return models.ErrNotFound
 	}
 	return nil
 }
 func (f *fakeRepo) Delete(ctx context.Context, o, pId string) error {
 	if pId == "not-found" {
-		return ErrNotFound
+		return models.ErrNotFound
 	}
 	return nil
 }
@@ -62,8 +62,8 @@ func setup(t *testing.T) (*PolicyHandler, *chi.Mux) {
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := context.WithValue(req.Context(), tenant.OrgIDKey, "org-1")
-			ctx = context.WithValue(ctx, tenant.UserIDKey, "user-1")
+			ctx := context.WithValue(req.Context(), middleware.TenantIDKey, "org-1")
+			ctx = context.WithValue(ctx, "user_id", "user-1")
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})
 	})
@@ -113,9 +113,9 @@ func TestPolicyHandler_Create_Invalid(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	r.ServeHTTP(rr, req)
-
-	// Since service returns an error, the handler will respond with 500 internally
-	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	
+	// Better error mapping now returns 400 for bad requests instead of 500
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
 func TestPolicyHandler_Get(t *testing.T) {

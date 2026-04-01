@@ -55,9 +55,13 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
+	if orgID == "" {
+		models.WriteError(w, http.StatusBadRequest, "MISSING_ORG", "Org ID is required", r)
+		return
+	}
 
-	var req service.CreateUserRequest
+	var req service.CreateUserInput
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body", r)
 		return
@@ -77,7 +81,11 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
+	if orgID == "" {
+		models.WriteError(w, http.StatusBadRequest, "MISSING_ORG", "Org ID is required", r)
+		return
+	}
 
 	user, err := h.iamService.GetUser(r.Context(), orgID, id)
 	if err != nil {
@@ -91,9 +99,13 @@ func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
+	if orgID == "" {
+		models.WriteError(w, http.StatusBadRequest, "MISSING_ORG", "Org ID is required", r)
+		return
+	}
 
-	var req service.UpdateUserRequest
+	var req service.UpdateUserInput
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body", r)
 		return

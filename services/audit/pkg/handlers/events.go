@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -10,33 +9,26 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/openguard/audit/pkg/integrity"
-	"github.com/openguard/audit/pkg/models"
+	"github.com/openguard/audit/pkg/service"
+	sharedmodels "github.com/openguard/shared/models"
 )
 
-type AuditReader interface {
-	FindEvents(ctx context.Context, filter bson.M, limit int64, skip int64) ([]models.AuditEvent, error)
-	GetIntegrityChain(ctx context.Context, orgID string) ([]models.AuditEvent, error)
-}
-
 type EventsHandler struct {
-	repo     AuditReader
-	verifier *integrity.Verifier
-	logger   *slog.Logger
+	svc    *service.Service
+	logger *slog.Logger
 }
 
-func NewEventsHandler(repo AuditReader, verifier *integrity.Verifier, logger *slog.Logger) *EventsHandler {
+func NewEventsHandler(svc *service.Service, logger *slog.Logger) *EventsHandler {
 	return &EventsHandler{
-		repo:     repo,
-		verifier: verifier,
-		logger:   logger,
+		svc:    svc,
+		logger: logger,
 	}
 }
 
 func (h *EventsHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
 	if orgID == "" {
-		http.Error(w, `{"error":"X-Org-ID header required"}`, http.StatusBadRequest)
+		sharedmodels.WriteError(w, http.StatusBadRequest, "MISSING_ORG", "Organization ID is required", r)
 		return
 	}
 
@@ -63,10 +55,9 @@ func (h *EventsHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	events, err := h.repo.FindEvents(r.Context(), filter, limit, skip)
+	events, err := h.svc.FindEvents(r.Context(), filter, limit, skip)
 	if err != nil {
-		h.logger.ErrorContext(r.Context(), "failed to fetch events", "error", err)
-		http.Error(w, `{"error":"failed to fetch events"}`, http.StatusInternalServerError)
+		sharedmodels.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -79,22 +70,21 @@ func (h *EventsHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *EventsHandler) GetEvent(w http.ResponseWriter, r *http.Request) {
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
 	if orgID == "" {
-		http.Error(w, `{"error":"X-Org-ID header required"}`, http.StatusBadRequest)
+		sharedmodels.WriteError(w, http.StatusBadRequest, "MISSING_ORG", "Organization ID is required", r)
 		return
 	}
 	
 	id := chi.URLParam(r, "id")
 	
-	events, err := h.repo.FindEvents(r.Context(), bson.M{"event_id": id, "org_id": orgID}, 1, 0)
+	events, err := h.svc.FindEvents(r.Context(), bson.M{"event_id": id, "org_id": orgID}, 1, 0)
 	if err != nil {
-		h.logger.ErrorContext(r.Context(), "failed to fetch event", "error", err, "event_id", id)
-		http.Error(w, `{"error":"failed to fetch event"}`, http.StatusInternalServerError)
+		sharedmodels.HandleServiceError(w, r, err)
 		return
 	}
 	if len(events) == 0 {
-		http.Error(w, `{"error":"event not found"}`, http.StatusNotFound)
+		sharedmodels.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Event not found", r)
 		return
 	}
 
@@ -103,20 +93,18 @@ func (h *EventsHandler) GetEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *EventsHandler) VerifyIntegrity(w http.ResponseWriter, r *http.Request) {
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
 	if orgID == "" {
-		http.Error(w, `{"error":"X-Org-ID header required"}`, http.StatusBadRequest)
+		sharedmodels.WriteError(w, http.StatusBadRequest, "MISSING_ORG", "Organization ID is required", r)
 		return
 	}
 
-	result, err := h.verifier.VerifyChain(r.Context(), orgID)
+	result, err := h.svc.VerifyIntegrity(r.Context(), orgID)
 	if err != nil {
-		h.logger.ErrorContext(r.Context(), "verification failed", "error", err, "org_id", orgID)
-		http.Error(w, `{"error":"verification failed"}`, http.StatusInternalServerError)
+		sharedmodels.HandleServiceError(w, r, err)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
 }
-

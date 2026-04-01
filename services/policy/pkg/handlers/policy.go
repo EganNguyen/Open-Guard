@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 
@@ -163,8 +162,6 @@ func (h *PolicyHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ErrNotFound is the sentinel for missing records.
-var ErrNotFound = errors.New("not found")
 
 func writeError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	models.WriteError(w, status, code, message, r)

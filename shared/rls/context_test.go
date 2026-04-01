@@ -21,11 +21,13 @@ func TestContext(t *testing.T) {
 type fakeTx struct {
 	pgx.Tx
 	execCalls []string
+	execArgs  [][]any
 	execErr   error
 }
 
 func (f *fakeTx) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 	f.execCalls = append(f.execCalls, sql)
+	f.execArgs = append(f.execArgs, arguments)
 	return pgconn.CommandTag{}, f.execErr
 }
 
@@ -43,7 +45,8 @@ func TestSetSessionVar(t *testing.T) {
 		err := SetSessionVar(context.Background(), tx, "org-123")
 		assert.NoError(t, err)
 		assert.Len(t, tx.execCalls, 1)
-		assert.Equal(t, "SELECT set_config('app.org_id', 'org-123', false)", tx.execCalls[0])
+		assert.Equal(t, "SELECT set_config('app.org_id', $1, false)", tx.execCalls[0])
+		assert.Equal(t, "org-123", tx.execArgs[0][0])
 	})
 
 	t.Run("exec error", func(t *testing.T) {

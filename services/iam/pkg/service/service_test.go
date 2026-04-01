@@ -47,25 +47,25 @@ func TestAuthService_Coverage(t *testing.T) {
 	repo := repository.New()
 	svcBadDB := New(&mockedPool{beginErr: errors.New("db unreachable")}, repo, nil, logger, nil, nil, 900*time.Second, 3600*time.Second, true)
 	
-	_, err := svcBadDB.Register(context.Background(), RegisterRequest{OrgName:"O", Email:"e@e.c", Password:"password123"})
+	_, err := svcBadDB.Register(context.Background(), RegisterInput{OrgName:"O", Email:"e@e.c", Password:"password123"})
 	assert.ErrorContains(t, err, "begin tx")
 
 	// Test inner query failures (covers much more of the functions)
 	svc := New(&mockedPool{beginErr: nil}, repo, nil, logger, nil, nil, 900*time.Second, 3600*time.Second, true)
 
 	t.Run("invalid inputs", func(t *testing.T) {
-		_, err := svc.Register(context.Background(), RegisterRequest{})
+		_, err := svc.Register(context.Background(), RegisterInput{})
 		assert.ErrorContains(t, err, "invalid inputs")
 	})
 
 	t.Run("register query fail", func(t *testing.T) {
-		_, err := svc.Register(context.Background(), RegisterRequest{OrgName:"Acme",Email:"t@t.c",Password:"12345678"})
+		_, err := svc.Register(context.Background(), RegisterInput{OrgName:"Acme",Email:"t@t.c",Password:"12345678"})
 		assert.ErrorContains(t, err, "create org") // fails at org create query
 	})
 
 	t.Run("login fail", func(t *testing.T) {
 		ip, ua := "1.1.1.1", "curl"
-		_, err := svc.Login(context.Background(), LoginRequest{Email:"t@t.c",Password:"pass"}, &ip, &ua)
+		_, err := svc.Login(context.Background(), LoginInput{Email:"t@t.c",Password:"pass"}, &ip, &ua)
 		assert.ErrorContains(t, err, "invalid credentials") // user get fails, mapped to invalid creds
 	})
 
@@ -91,12 +91,12 @@ func TestUserService_Coverage(t *testing.T) {
 	})
 
 	t.Run("create user", func(t *testing.T) {
-		_, err := svc.CreateUser(context.Background(), CreateUserRequest{Email:"t@t.c"})
+		_, err := svc.CreateUser(context.Background(), CreateUserInput{Email:"t@t.c"})
 		assert.ErrorContains(t, err, "query failed")
 	})
 
 	t.Run("update user", func(t *testing.T) {
-		_, err := svc.UpdateUser(context.Background(), "o", "u", UpdateUserRequest{})
+		_, err := svc.UpdateUser(context.Background(), "o", "u", UpdateUserInput{})
 		assert.ErrorContains(t, err, "query failed")
 	})
 
@@ -206,7 +206,7 @@ func TestAuthService_Success(t *testing.T) {
 
 	t.Run("login success", func(t *testing.T) {
 		ip, ua := "1.1.1.1", "curl"
-		resp, err := svc.Login(context.Background(), LoginRequest{Email:"t@t.c",Password:"password"}, &ip, &ua)
+		resp, err := svc.Login(context.Background(), LoginInput{Email:"t@t.c",Password:"password"}, &ip, &ua)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -215,7 +215,7 @@ func TestAuthService_Success(t *testing.T) {
 	})
 
 	t.Run("register success", func(t *testing.T) {
-		resp, err := svc.Register(context.Background(), RegisterRequest{OrgName:"Acme", Email:"t@t.c", Password:"password"})
+		resp, err := svc.Register(context.Background(), RegisterInput{OrgName:"Acme", Email:"t@t.c", Password:"password"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -234,11 +234,11 @@ func TestUserService_Success(t *testing.T) {
 		assert.NoError(t, err)
 	})
 	t.Run("create user success", func(t *testing.T) {
-		_, err := svc.CreateUser(context.Background(), CreateUserRequest{Email:"a@a.c"})
+		_, err := svc.CreateUser(context.Background(), CreateUserInput{Email:"a@a.c"})
 		assert.NoError(t, err)
 	})
 	t.Run("update user success", func(t *testing.T) {
-		_, err := svc.UpdateUser(context.Background(), "o", "u", UpdateUserRequest{})
+		_, err := svc.UpdateUser(context.Background(), "o", "u", UpdateUserInput{})
 		assert.NoError(t, err)
 	})
 	t.Run("delete user success", func(t *testing.T) {

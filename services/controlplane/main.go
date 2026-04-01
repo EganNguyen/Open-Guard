@@ -17,19 +17,13 @@ import (
 	"github.com/openguard/controlplane/pkg/handlers"
 	"github.com/openguard/controlplane/pkg/repository"
 	"github.com/openguard/controlplane/pkg/router"
+	"github.com/openguard/controlplane/pkg/service"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/outbox"
 	sharedcfg "github.com/openguard/shared/config"
 	"github.com/openguard/shared/crypto"
 	"github.com/redis/go-redis/v9"
 )
-
-type dummyValidator struct{}
-
-func (d *dummyValidator) ValidateKey(ctx context.Context, token string) (string, string, error) {
-	// TODO: Replace with actual database lookup in repository
-	return "org-dummy", "conn-dummy", nil
-}
 
 func main() {
 	// Config
@@ -49,7 +43,8 @@ func main() {
 	}
 
 	var handler slog.Handler
-	if cfg.AppEnv == "development" {
+	isDev := cfg.AppEnv == "development"
+	if isDev {
 		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
 	} else {
 		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
@@ -86,7 +81,7 @@ func main() {
 
 	// Load mTLS for backend services
 	var tlsConfig *tls.Config
-	if cfg.AppEnv == "development" {
+	if isDev {
 		tlsConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -114,7 +109,6 @@ func main() {
 		}
 	}
 
-
 	// Outbox
 	brokers := strings.Split(sharedcfg.Default("KAFKA_BROKERS", "localhost:9092"), ",")
 	producer := kafka.NewProducer(brokers, []string{kafka.TopicAuditTrail}, logger)
@@ -127,17 +121,20 @@ func main() {
 	outboxRelay.TableName = "outbox_records"
 	go outboxRelay.Start(ctx)
 
-	// Repositories
-	connectorRepo := repository.NewConnectorRepository(pgPool, outboxWriter)
+	// Repositories (v2.0)
+	repo := repository.New(pgPool, outboxWriter)
+
+	// Service (v2.0)
+	svc := service.New(repo, logger, isDev)
 
 	// Handlers
-	connectorHandler := handlers.NewConnectorHandler(connectorRepo, pgPool)
-	ingestHandler := handlers.NewIngestHandler(connectorRepo)
+	connectorHandler := handlers.NewConnectorHandler(svc)
+	ingestHandler := handlers.NewIngestHandler(svc)
 
 	// Build router
 	r, err := router.New(router.Config{
 		JWTKeyring:       keyring,
-		APIKeyValidator:  connectorRepo, // Use the real repo
+		APIKeyValidator:  repo, // Repository implements middleware.APIKeyValidator
 		Redis:            rdb,
 		ConnectorHandler: connectorHandler,
 		IngestHandler:    ingestHandler,
