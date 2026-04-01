@@ -221,7 +221,7 @@ func TestApplyRBAC(t *testing.T) {
 }
 
 func TestEvaluateLogic(t *testing.T) {
-	svc := &EvaluatorService{}
+	svc := &Service{}
 
 	ipRules, _ := json.Marshal(map[string]interface{}{
 		"allowed_ips": []interface{}{"1.1.1.1"},
@@ -320,7 +320,7 @@ func TestEvaluatorService_Evaluate(t *testing.T) {
 
 	t.Run("db error fails closed", func(t *testing.T) {
 		repo := &evalMockRepo{listErr: errors.New("db error")}
-		svc := NewEvaluatorService(repo, rdb, 30, logger)
+		svc := New(repo, rdb, 30, logger)
 
 		req := EvalRequest{OrgID: "org-1", Action: "read"}
 		resp, err := svc.Evaluate(context.Background(), req)
@@ -331,7 +331,7 @@ func TestEvaluatorService_Evaluate(t *testing.T) {
 
 	t.Run("no policies configured allows all", func(t *testing.T) {
 		repo := &evalMockRepo{p: []*models.Policy{}}
-		svc := NewEvaluatorService(repo, rdb, 30, logger)
+		svc := New(repo, rdb, 30, logger)
 
 		req := EvalRequest{OrgID: "org-1", Action: "read"}
 		resp, err := svc.Evaluate(context.Background(), req)
@@ -343,7 +343,7 @@ func TestEvaluatorService_Evaluate(t *testing.T) {
 		repo := &evalMockRepo{p: []*models.Policy{
 			{ID: "p1", Enabled: true, Type: "ip_allowlist", Rules: []byte(`{"allowed_ips":["10.0.0.1"]}`)},
 		}}
-		svc := NewEvaluatorService(repo, rdb, 30, logger)
+		svc := New(repo, rdb, 30, logger)
 
 		req := EvalRequest{OrgID: "org-1", IPAddress: "192.168.1.1"}
 		resp, err := svc.Evaluate(context.Background(), req)
@@ -358,9 +358,9 @@ func TestEvaluatorService_Evaluate(t *testing.T) {
 func TestEvaluatorService_InvalidateCache(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:65535", DialTimeout: 10 * time.Millisecond})
-	svc := NewEvaluatorService(&evalMockRepo{}, rdb, 30, logger)
+	svc := New(&evalMockRepo{}, rdb, 30, logger)
 
 	err := svc.InvalidateCacheForOrg(context.Background(), "org-1")
-	// Since Redis is offline, SCAN returns an error
-	assert.ErrorContains(t, err, "redis scan")
+	// Since Redis is offline, SMEMBERS returns an error
+	assert.ErrorContains(t, err, "redis smembers")
 }

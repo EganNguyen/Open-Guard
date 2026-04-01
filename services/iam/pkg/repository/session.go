@@ -23,13 +23,7 @@ type Session struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-type SessionRepository struct{}
-
-func NewSessionRepository() *SessionRepository {
-	return &SessionRepository{}
-}
-
-func (r *SessionRepository) Create(ctx context.Context, tx pgx.Tx, userID, orgID, refreshHash string, ipAddress, userAgent, countryCode *string, expiresAt time.Time) (*Session, error) {
+func (r *Repository) CreateSession(ctx context.Context, tx pgx.Tx, userID, orgID, refreshHash string, ipAddress, userAgent, countryCode *string, expiresAt time.Time) (*Session, error) {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
@@ -47,7 +41,7 @@ func (r *SessionRepository) Create(ctx context.Context, tx pgx.Tx, userID, orgID
 	return s, nil
 }
 
-func (r *SessionRepository) GetByID(ctx context.Context, tx pgx.Tx, orgID, id string) (*Session, error) {
+func (r *Repository) GetSessionByID(ctx context.Context, tx pgx.Tx, orgID, id string) (*Session, error) {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
@@ -64,7 +58,7 @@ func (r *SessionRepository) GetByID(ctx context.Context, tx pgx.Tx, orgID, id st
 	return s, nil
 }
 
-func (r *SessionRepository) GetActiveSession(ctx context.Context, tx pgx.Tx, orgID, id string) (*Session, error) {
+func (r *Repository) GetActiveSession(ctx context.Context, tx pgx.Tx, orgID, id string) (*Session, error) {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
@@ -84,7 +78,7 @@ func (r *SessionRepository) GetActiveSession(ctx context.Context, tx pgx.Tx, org
 	return s, nil
 }
 
-func (r *SessionRepository) GetActiveSessionByHashGlobal(ctx context.Context, tx pgx.Tx, refreshHash string) (*Session, error) {
+func (r *Repository) GetActiveSessionByHashGlobal(ctx context.Context, tx pgx.Tx, refreshHash string) (*Session, error) {
 	if err := rls.SetSessionVar(ctx, tx, ""); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
@@ -110,7 +104,7 @@ func (r *SessionRepository) GetActiveSessionByHashGlobal(ctx context.Context, tx
 	return s, nil
 }
 
-func (r *SessionRepository) UpdateSessionCredentials(ctx context.Context, tx pgx.Tx, orgID, id, newRefreshHash string, ipAddress, userAgent *string, newExpiresAt time.Time) error {
+func (r *Repository) UpdateSessionCredentials(ctx context.Context, tx pgx.Tx, orgID, id, newRefreshHash string, ipAddress, userAgent *string, newExpiresAt time.Time) error {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return fmt.Errorf("rls config: %w", err)
 	}
@@ -120,7 +114,7 @@ func (r *SessionRepository) UpdateSessionCredentials(ctx context.Context, tx pgx
 	return err
 }
 
-func (r *SessionRepository) ExtendExpiry(ctx context.Context, tx pgx.Tx, orgID, id string, newExpiresAt time.Time) error {
+func (r *Repository) ExtendSessionExpiry(ctx context.Context, tx pgx.Tx, orgID, id string, newExpiresAt time.Time) error {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return fmt.Errorf("rls config: %w", err)
 	}
@@ -128,7 +122,7 @@ func (r *SessionRepository) ExtendExpiry(ctx context.Context, tx pgx.Tx, orgID, 
 	return err
 }
 
-func (r *SessionRepository) Revoke(ctx context.Context, tx pgx.Tx, orgID, id string) error {
+func (r *Repository) RevokeSession(ctx context.Context, tx pgx.Tx, orgID, id string) error {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return fmt.Errorf("rls config: %w", err)
 	}
@@ -136,7 +130,7 @@ func (r *SessionRepository) Revoke(ctx context.Context, tx pgx.Tx, orgID, id str
 	return err
 }
 
-func (r *SessionRepository) ListByUser(ctx context.Context, tx pgx.Tx, orgID, userID string) ([]*Session, error) {
+func (r *Repository) ListSessionsByUser(ctx context.Context, tx pgx.Tx, orgID, userID string) ([]*Session, error) {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}

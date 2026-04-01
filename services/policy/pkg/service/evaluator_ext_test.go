@@ -34,7 +34,7 @@ func TestEvaluatorService_Evaluate_AsyncSettle(t *testing.T) {
 	repo := &evalMockRepo{p: []*models.Policy{
 		{ID: "p2", Enabled: true, Type: "ip_allowlist", Rules: []byte(`{"allowed_ips":["10.0.0.1"]}`)},
 	}}
-	svc := NewEvaluatorService(repo, rdb, 30, logger)
+	svc := New(repo, rdb, 30, logger)
 
 	req := EvalRequest{OrgID: "org-1", IPAddress: "10.0.0.1"}
 	resp, err := svc.Evaluate(context.Background(), req)

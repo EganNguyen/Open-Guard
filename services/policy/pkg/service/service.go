@@ -15,6 +15,23 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// ErrBadRequest is returned for invalid input validation.
+var ErrBadRequest = errors.New("bad request")
+
+// ErrNotFound is returned when a resource is not found.
+var ErrNotFound = errors.New("not found")
+
+// PolicyRepository defines the persistence interface for policies.
+type PolicyRepository interface {
+	Create(ctx context.Context, p *models.Policy) error
+	GetByID(ctx context.Context, orgID, policyID string) (*models.Policy, error)
+	ListByOrg(ctx context.Context, orgID string) ([]*models.Policy, error)
+	ListEnabledForOrg(ctx context.Context, orgID string) ([]*models.Policy, error)
+	Update(ctx context.Context, p *models.Policy) error
+	Delete(ctx context.Context, orgID, policyID string) error
+	LogEvaluation(ctx context.Context, log *repository.EvalLog) error
+}
+
 // EvalRequest is the input to the policy evaluator.
 type EvalRequest struct {
 	OrgID       string   `json:"org_id"`
@@ -33,25 +50,25 @@ type EvalResponse struct {
 	Cached         bool     `json:"cached"`
 }
 
-// EvaluatorService handles real-time RBAC policy evaluation with Redis caching.
+// Service handles real-time RBAC policy evaluation with Redis caching.
 // Fail closed: if evaluation fails due to DB error, access is denied.
-type EvaluatorService struct {
+type Service struct {
 	repo         PolicyRepository
 	redis        *redis.Client
 	cacheTTL     time.Duration
 	logger       *slog.Logger
 }
 
-func NewEvaluatorService(
+func New(
 	repo PolicyRepository,
 	rdb *redis.Client,
 	cacheTTLSeconds int,
 	logger *slog.Logger,
-) *EvaluatorService {
+) *Service {
 	if logger == nil {
 		logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
 	}
-	return &EvaluatorService{
+	return &Service{
 		repo:     repo,
 		redis:    rdb,
 		cacheTTL: time.Duration(cacheTTLSeconds) * time.Second,
@@ -59,10 +76,43 @@ func NewEvaluatorService(
 	}
 }
 
+// ── CRUD Methods ─────────────────────────────────────────────────────────────
+
+func (s *Service) Create(ctx context.Context, p *models.Policy) error {
+	if p.Name == "" {
+		return fmt.Errorf("%w: policy name is required", ErrBadRequest)
+	}
+	if p.OrgID == "" {
+		return fmt.Errorf("%w: org_id is required", ErrBadRequest)
+	}
+	return s.repo.Create(ctx, p)
+}
+
+func (s *Service) Get(ctx context.Context, orgID, policyID string) (*models.Policy, error) {
+	return s.repo.GetByID(ctx, orgID, policyID)
+}
+
+func (s *Service) List(ctx context.Context, orgID string) ([]*models.Policy, error) {
+	return s.repo.ListByOrg(ctx, orgID)
+}
+
+func (s *Service) Update(ctx context.Context, p *models.Policy) error {
+	if p.Name == "" {
+		return fmt.Errorf("%w: policy name is required", ErrBadRequest)
+	}
+	return s.repo.Update(ctx, p)
+}
+
+func (s *Service) Delete(ctx context.Context, orgID, policyID string) error {
+	return s.repo.Delete(ctx, orgID, policyID)
+}
+
+// ── Evaluation Methods ───────────────────────────────────────────────────────
+
 // Evaluate checks whether the requested action is permitted for the user.
 // Results are cached in Redis with the TTL from POLICY_CACHE_TTL_SECONDS.
 // Fails closed: if DB or policy evaluation errors, returns denied.
-func (s *EvaluatorService) Evaluate(ctx context.Context, req EvalRequest) (*EvalResponse, error) {
+func (s *Service) Evaluate(ctx context.Context, req EvalRequest) (*EvalResponse, error) {
 	start := time.Now()
 
 	cacheKey := evalCacheKey(req)
@@ -108,7 +158,14 @@ func (s *EvaluatorService) Evaluate(ctx context.Context, req EvalRequest) (*Eval
 
 	// Write to cache — suppress errors (stale cache OK, fail closed on next miss)
 	if data, marshalErr := json.Marshal(resp); marshalErr == nil {
-		if cacheErr := s.redis.Set(ctx, cacheKey, data, s.cacheTTL).Err(); cacheErr != nil {
+		pipe := s.redis.Pipeline()
+		pipe.Set(ctx, cacheKey, data, s.cacheTTL)
+		// Maintain a set of keys per org for O(M) invalidation per spec §0.14
+		orgKeysSet := fmt.Sprintf("policy:org_keys:%s", req.OrgID)
+		pipe.SAdd(ctx, orgKeysSet, cacheKey)
+		pipe.Expire(ctx, orgKeysSet, s.cacheTTL+1*time.Hour) // Set TTL slightly longer than entries
+
+		if _, cacheErr := pipe.Exec(ctx); cacheErr != nil {
 			s.logger.Warn("redis cache write error", "error", cacheErr)
 		}
 	}
@@ -133,7 +190,7 @@ func (s *EvaluatorService) Evaluate(ctx context.Context, req EvalRequest) (*Eval
 
 // evaluate applies all policies and returns the combined result.
 // Default is DENY if no policy explicitly permits.
-func (s *EvaluatorService) evaluate(req EvalRequest, policies []*models.Policy) *EvalResponse {
+func (s *Service) evaluate(req EvalRequest, policies []*models.Policy) *EvalResponse {
 	if len(policies) == 0 {
 		// No policies means implicit allow (no restrictions configured)
 		return &EvalResponse{Permitted: true, Reason: "no policies configured"}
@@ -271,31 +328,25 @@ func applyRBAC(req EvalRequest, rules map[string]interface{}) (bool, bool, strin
 	return true, true, fmt.Sprintf("rbac: user %q has no permitted role (required one of: %v)", req.UserID, allowedRoles)
 }
 
-// InvalidateCacheForOrg deletes all cached eval results for an org using SCAN + DEL.
+// InvalidateCacheForOrg deletes all cached eval results for an org using the org-key index (O(M)).
 // Called by the Kafka consumer when a policy.changes event is received.
-func (s *EvaluatorService) InvalidateCacheForOrg(ctx context.Context, orgID string) error {
-	// Use SCAN not KEYS (per spec) to avoid blocking Redis
-	pattern := fmt.Sprintf("policy:eval:%s:*", orgID)
-	var cursor uint64
-	var keysToDelete []string
+func (s *Service) InvalidateCacheForOrg(ctx context.Context, orgID string) error {
+	orgKeysSet := fmt.Sprintf("policy:org_keys:%s", orgID)
 
-	for {
-		keys, nextCursor, err := s.redis.Scan(ctx, cursor, pattern, 100).Result()
-		if err != nil {
-			return fmt.Errorf("redis scan: %w", err)
-		}
-		keysToDelete = append(keysToDelete, keys...)
-		cursor = nextCursor
-		if cursor == 0 {
-			break
-		}
+	// Fetch all keys associated with this org (O(M))
+	keys, err := s.redis.SMembers(ctx, orgKeysSet).Result()
+	if err != nil {
+		return fmt.Errorf("redis smembers: %w", err)
 	}
 
-	if len(keysToDelete) > 0 {
-		if err := s.redis.Del(ctx, keysToDelete...).Err(); err != nil {
-			return fmt.Errorf("redis del: %w", err)
+	if len(keys) > 0 {
+		pipe := s.redis.Pipeline()
+		pipe.Del(ctx, keys...)
+		pipe.Del(ctx, orgKeysSet)
+		if _, err := pipe.Exec(ctx); err != nil {
+			return fmt.Errorf("redis pipeline del: %w", err)
 		}
-		s.logger.Info("invalidated policy cache", "org_id", orgID, "keys_deleted", len(keysToDelete))
+		s.logger.Info("invalidated policy cache", "org_id", orgID, "keys_deleted", len(keys))
 	}
 
 	return nil

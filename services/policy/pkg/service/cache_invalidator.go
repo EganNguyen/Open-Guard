@@ -11,14 +11,14 @@ import (
 
 // CacheInvalidator subscribes to policy.changes events and clears the Redis cache per org.
 type CacheInvalidator struct {
-	evaluator *EvaluatorService
+	evaluator *Service
 	reader    *kafkago.Reader
 	logger    *slog.Logger
 }
 
 // NewCacheInvalidator creates a Kafka consumer that listens on policy.changes
 // and calls InvalidateCacheForOrg whenever a policy is created, updated, or deleted.
-func NewCacheInvalidator(evaluator *EvaluatorService, brokers []string, logger *slog.Logger) *CacheInvalidator {
+func NewCacheInvalidator(evaluator *Service, brokers []string, logger *slog.Logger) *CacheInvalidator {
 	reader := kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:  brokers,
 		Topic:    "policy.changes",

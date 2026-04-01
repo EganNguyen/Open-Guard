@@ -9,7 +9,7 @@ import (
 )
 
 func TestPolicyService_Get(t *testing.T) {
-	svc := NewPolicyService(&mockRepo{})
+	svc := New(&mockRepo{}, nil, 0, nil)
 	_, err := svc.Get(context.Background(), "o1", "p1")
 	if !errors.Is(err, repository.ErrNotFound) {
 		t.Errorf("expected repository.ErrNotFound, got %v", err)
@@ -17,7 +17,7 @@ func TestPolicyService_Get(t *testing.T) {
 }
 
 func TestPolicyService_List(t *testing.T) {
-	svc := NewPolicyService(&mockRepo{})
+	svc := New(&mockRepo{}, nil, 0, nil)
 	policies, err := svc.List(context.Background(), "o1")
 	if err != nil {
 		t.Errorf("unexpected err: %v", err)
@@ -28,7 +28,7 @@ func TestPolicyService_List(t *testing.T) {
 }
 
 func TestPolicyService_Delete(t *testing.T) {
-	svc := NewPolicyService(&mockRepo{})
+	svc := New(&mockRepo{}, nil, 0, nil)
 	err := svc.Delete(context.Background(), "o1", "p1")
 	if err != nil {
 		t.Errorf("unexpected err: %v", err)

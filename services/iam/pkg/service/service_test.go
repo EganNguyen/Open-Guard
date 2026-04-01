@@ -44,13 +44,14 @@ func TestAuthService_Coverage(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	
 	// Test early begin failure
-	svcBadDB := NewAuthService(&mockedPool{beginErr: errors.New("db unreachable")}, &repository.UserRepository{}, &repository.OrgRepository{}, &repository.SessionRepository{}, &repository.MFARepository{}, nil, logger, nil, nil, 900, 3600)
+	repo := repository.New()
+	svcBadDB := New(&mockedPool{beginErr: errors.New("db unreachable")}, repo, nil, logger, nil, nil, 900*time.Second, 3600*time.Second, true)
 	
 	_, err := svcBadDB.Register(context.Background(), RegisterRequest{OrgName:"O", Email:"e@e.c", Password:"password123"})
 	assert.ErrorContains(t, err, "begin tx")
 
 	// Test inner query failures (covers much more of the functions)
-	svc := NewAuthService(&mockedPool{beginErr: nil}, &repository.UserRepository{}, &repository.OrgRepository{}, &repository.SessionRepository{}, &repository.MFARepository{}, nil, logger, nil, nil, 900, 3600)
+	svc := New(&mockedPool{beginErr: nil}, repo, nil, logger, nil, nil, 900*time.Second, 3600*time.Second, true)
 
 	t.Run("invalid inputs", func(t *testing.T) {
 		_, err := svc.Register(context.Background(), RegisterRequest{})
@@ -76,7 +77,8 @@ func TestAuthService_Coverage(t *testing.T) {
 
 func TestUserService_Coverage(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	svc := NewUserService(&mockedPool{beginErr: nil}, &repository.UserRepository{}, &repository.SessionRepository{}, &repository.APITokenRepository{}, nil, logger)
+	repo := repository.New()
+	svc := New(&mockedPool{beginErr: nil}, repo, nil, logger, nil, nil, 900*time.Second, 3600*time.Second, true)
 
 	t.Run("list users", func(t *testing.T) {
 		_, _, err := svc.ListUsers(context.Background(), "org1", 0, 0)
@@ -199,7 +201,8 @@ func TestAuthService_Success(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	keyring := crypto.NewJWTKeyring([]crypto.JWTKey{{Kid: "k1", Secret: "12345678901234567890123456789012", Algorithm: "HS256", Status: "active"}})
 
-	svc := NewAuthService(&goodPool{}, &repository.UserRepository{}, &repository.OrgRepository{}, &repository.SessionRepository{}, &repository.MFARepository{}, nil, logger, keyring, nil, 900, 3600)
+	repo := repository.New()
+	svc := New(&goodPool{}, repo, nil, logger, keyring, nil, 900*time.Second, 3600*time.Second, true)
 
 	t.Run("login success", func(t *testing.T) {
 		ip, ua := "1.1.1.1", "curl"
@@ -223,7 +226,8 @@ func TestAuthService_Success(t *testing.T) {
 
 func TestUserService_Success(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	svc := NewUserService(&goodPool{}, &repository.UserRepository{}, &repository.SessionRepository{}, &repository.APITokenRepository{}, nil, logger)
+	repo := repository.New()
+	svc := New(&goodPool{}, repo, nil, logger, nil, nil, 900*time.Second, 3600*time.Second, true)
 
 	t.Run("get user success", func(t *testing.T) {
 		_, err := svc.GetUser(context.Background(), "o", "u")

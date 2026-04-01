@@ -26,7 +26,7 @@ func (m *mockRepo) LogEvaluation(ctx context.Context, l *repository.EvalLog) err
 
 func TestPolicyService_Create(t *testing.T) {
 	repo := &mockRepo{}
-	svc := NewPolicyService(repo)
+	svc := New(repo, nil, 0, nil)
 	ctx := context.Background()
 
 	t.Run("valid creation", func(t *testing.T) {
@@ -56,7 +56,7 @@ func TestPolicyService_Create(t *testing.T) {
 
 func TestPolicyService_Update(t *testing.T) {
 	repo := &mockRepo{}
-	svc := NewPolicyService(repo)
+	svc := New(repo, nil, 0, nil)
 	ctx := context.Background()
 
 	t.Run("valid update", func(t *testing.T) {

@@ -52,18 +52,16 @@ func (m *mockedPool) Begin(ctx context.Context) (pgx.Tx, error) {
 func setupAuthHandler(beginErr error) (*AuthHandler, *chi.Mux) {
 	pool := &mockedPool{beginErr: beginErr}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	authSvc := service.NewAuthService(
+	repo := repository.New()
+	iamSvc := service.New(
 		pool,
-		&repository.UserRepository{},
-		&repository.OrgRepository{},
-		&repository.SessionRepository{},
-		&repository.MFARepository{},
+		repo,
 		nil,
 		logger,
-		nil, nil, 900, 3600,
+		nil, nil, 900*time.Second, 3600*time.Second, true,
 	)
 
-	h := NewAuthHandler(authSvc)
+	h := NewAuthHandler(iamSvc)
 	r := chi.NewRouter()
 	r.Post("/auth/register", h.Register)
 	r.Post("/auth/login", h.Login)
@@ -86,8 +84,8 @@ func TestAuthHandler_Register_DBError(t *testing.T) {
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 	
-	// Registration fails because DB begin fails, mapped to 400 Bad Request handling in handler
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	// Registration fails because DB begin fails, mapped to 500 Internal Server Error
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
 func TestAuthHandler_Login_DBError(t *testing.T) {
@@ -97,8 +95,8 @@ func TestAuthHandler_Login_DBError(t *testing.T) {
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
-	// Since row scan fails, it's invalid credentials
-	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	// Since row scan fails (DB error), it's a 500 with HandleServiceError
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
 func TestAuthHandler_Logout_DBError(t *testing.T) {
@@ -123,8 +121,9 @@ func TestUserHandler_List_BadHeaders(t *testing.T) {
 func TestUserHandler_MoreErrors(t *testing.T) {
 	pool := &mockedPool{beginErr: errors.New("db")}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	userSvc := service.NewUserService(pool, &repository.UserRepository{}, &repository.SessionRepository{}, &repository.APITokenRepository{}, nil, logger)
-	h := NewUserHandler(userSvc)
+	repo := repository.New()
+	iamSvc := service.New(pool, repo, nil, logger, nil, nil, 900*time.Second, 3600*time.Second, true)
+	h := NewUserHandler(iamSvc)
 
 	tests := []struct {
 		method string
@@ -135,8 +134,8 @@ func TestUserHandler_MoreErrors(t *testing.T) {
 		org    bool
 	}{
 		{"POST", "/users", "{bad", h.Create, 400, true},
-		{"POST", "/users", `{"email":"t@t.c"}`, h.Create, 400, true}, // DB fails
-		{"GET", "/users/1", "", h.Get, 404, true},
+		{"POST", "/users", `{"email":"t@t.c"}`, h.Create, 500, true}, // Generic DB error -> 500
+		{"GET", "/users/1", "", h.Get, 500, true},                  // Generic DB error -> 500
 		{"PATCH", "/users/1", "{bad", h.Update, 400, true},
 		{"PATCH", "/users/1", `{"status":"active"}`, h.Update, 500, true},
 		{"DELETE", "/users/1", "", h.Delete, 500, true},
@@ -204,8 +203,9 @@ func (m *goodPool) Begin(ctx context.Context) (pgx.Tx, error) {
 func TestUserHandler_Success(t *testing.T) {
 	pool := &goodPool{}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	userSvc := service.NewUserService(pool, &repository.UserRepository{}, &repository.SessionRepository{}, &repository.APITokenRepository{}, nil, logger)
-	h := NewUserHandler(userSvc)
+	repo := repository.New()
+	iamSvc := service.New(pool, repo, nil, logger, nil, nil, 900*time.Second, 3600*time.Second, true)
+	h := NewUserHandler(iamSvc)
 
 	tests := []struct {
 		method string
@@ -236,8 +236,9 @@ func TestUserHandler_Success(t *testing.T) {
 func TestAuthHandler_Success(t *testing.T) {
 	keyring := crypto.NewJWTKeyring([]crypto.JWTKey{{Kid: "k1", Secret: "12345678901234567890123456789012", Algorithm: "HS256", Status: "active"}})
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	authSvc := service.NewAuthService(&goodPool{}, &repository.UserRepository{}, &repository.OrgRepository{}, &repository.SessionRepository{}, &repository.MFARepository{}, nil, logger, keyring, nil, 900, 3600)
-	h := NewAuthHandler(authSvc)
+	repo := repository.New()
+	iamSvc := service.New(&goodPool{}, repo, nil, logger, keyring, nil, 900*time.Second, 3600*time.Second, true)
+	h := NewAuthHandler(iamSvc)
 
 	r := chi.NewRouter()
 	r.Post("/auth/register", h.Register)

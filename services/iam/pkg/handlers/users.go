@@ -11,15 +11,15 @@ import (
 )
 
 type UserHandler struct {
-	userService *service.UserService
+	iamService *service.Service
 }
 
-func NewUserHandler(userService *service.UserService) *UserHandler {
-	return &UserHandler{userService: userService}
+func NewUserHandler(iamService *service.Service) *UserHandler {
+	return &UserHandler{iamService: iamService}
 }
 
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
 	if orgID == "" {
 		models.WriteError(w, http.StatusBadRequest, "MISSING_ORG", "Org ID is required", r)
 		return
@@ -30,9 +30,9 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	if page < 1 { page = 1 }
 	if perPage < 1 || perPage > 100 { perPage = 50 }
 
-	users, total, err := h.userService.ListUsers(r.Context(), orgID, page, perPage)
+	users, total, err := h.iamService.ListUsers(r.Context(), orgID, page, perPage)
 	if err != nil {
-		models.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), r)
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -64,9 +64,9 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	req.OrgID = orgID
 
-	user, err := h.userService.CreateUser(r.Context(), req)
+	user, err := h.iamService.CreateUser(r.Context(), req)
 	if err != nil {
-		models.WriteError(w, http.StatusBadRequest, "CREATE_USER_FAILED", err.Error(), r)
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -79,9 +79,9 @@ func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	orgID := r.Header.Get("X-Org-ID")
 
-	user, err := h.userService.GetUser(r.Context(), orgID, id)
+	user, err := h.iamService.GetUser(r.Context(), orgID, id)
 	if err != nil {
-		models.WriteError(w, http.StatusNotFound, "RESOURCE_NOT_FOUND", "User not found", r)
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -99,9 +99,9 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.userService.UpdateUser(r.Context(), orgID, id, req)
+	user, err := h.iamService.UpdateUser(r.Context(), orgID, id, req)
 	if err != nil {
-		models.WriteError(w, http.StatusInternalServerError, "UPDATE_FAILED", err.Error(), r)
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -111,10 +111,10 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
 
-	if err := h.userService.DeleteUser(r.Context(), orgID, id); err != nil {
-		models.WriteError(w, http.StatusInternalServerError, "DELETE_FAILED", err.Error(), r)
+	if err := h.iamService.DeleteUser(r.Context(), orgID, id); err != nil {
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -123,11 +123,11 @@ func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 func (h *UserHandler) Suspend(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
 
-	user, err := h.userService.SuspendUser(r.Context(), orgID, id)
+	user, err := h.iamService.SuspendUser(r.Context(), orgID, id)
 	if err != nil {
-		models.WriteError(w, http.StatusInternalServerError, "SUSPEND_FAILED", err.Error(), r)
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -137,11 +137,11 @@ func (h *UserHandler) Suspend(w http.ResponseWriter, r *http.Request) {
 
 func (h *UserHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
 
-	user, err := h.userService.ActivateUser(r.Context(), orgID, id)
+	user, err := h.iamService.ActivateUser(r.Context(), orgID, id)
 	if err != nil {
-		models.WriteError(w, http.StatusInternalServerError, "ACTIVATE_FAILED", err.Error(), r)
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -151,11 +151,11 @@ func (h *UserHandler) Activate(w http.ResponseWriter, r *http.Request) {
 
 func (h *UserHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
 
-	sessions, err := h.userService.ListSessions(r.Context(), orgID, id)
+	sessions, err := h.iamService.ListSessions(r.Context(), orgID, id)
 	if err != nil {
-		models.WriteError(w, http.StatusInternalServerError, "LIST_SESSIONS_FAILED", err.Error(), r)
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -165,10 +165,10 @@ func (h *UserHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 
 func (h *UserHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	sid := chi.URLParam(r, "sid")
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
 
-	if err := h.userService.RevokeSession(r.Context(), orgID, sid); err != nil {
-		models.WriteError(w, http.StatusInternalServerError, "REVOKE_SESSION_FAILED", err.Error(), r)
+	if err := h.iamService.RevokeSession(r.Context(), orgID, sid); err != nil {
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -177,11 +177,11 @@ func (h *UserHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 
 func (h *UserHandler) ListTokens(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
 
-	tokens, err := h.userService.ListAPITokens(r.Context(), orgID, id)
+	tokens, err := h.iamService.ListAPITokens(r.Context(), orgID, id)
 	if err != nil {
-		models.WriteError(w, http.StatusInternalServerError, "LIST_TOKENS_FAILED", err.Error(), r)
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -191,10 +191,10 @@ func (h *UserHandler) ListTokens(w http.ResponseWriter, r *http.Request) {
 
 func (h *UserHandler) RevokeToken(w http.ResponseWriter, r *http.Request) {
 	tid := chi.URLParam(r, "tid")
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
 
-	if err := h.userService.RevokeAPIToken(r.Context(), orgID, tid); err != nil {
-		models.WriteError(w, http.StatusInternalServerError, "REVOKE_TOKEN_FAILED", err.Error(), r)
+	if err := h.iamService.RevokeAPIToken(r.Context(), orgID, tid); err != nil {
+		models.HandleServiceError(w, r, err)
 		return
 	}
 

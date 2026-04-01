@@ -18,13 +18,7 @@ type Org struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-type OrgRepository struct{}
-
-func NewOrgRepository() *OrgRepository {
-	return &OrgRepository{}
-}
-
-func (r *OrgRepository) Create(ctx context.Context, tx pgx.Tx, name, slug string) (*Org, error) {
+func (r *Repository) CreateOrg(ctx context.Context, tx pgx.Tx, name, slug string) (*Org, error) {
 	if err := rls.SetSessionVar(ctx, tx, ""); err != nil { // system operation
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
@@ -41,7 +35,7 @@ func (r *OrgRepository) Create(ctx context.Context, tx pgx.Tx, name, slug string
 	return org, nil
 }
 
-func (r *OrgRepository) GetByID(ctx context.Context, tx pgx.Tx, id string) (*Org, error) {
+func (r *Repository) GetOrgByID(ctx context.Context, tx pgx.Tx, id string) (*Org, error) {
 	if err := rls.SetSessionVar(ctx, tx, ""); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
@@ -57,7 +51,7 @@ func (r *OrgRepository) GetByID(ctx context.Context, tx pgx.Tx, id string) (*Org
 	return org, nil
 }
 
-func (r *OrgRepository) GetBySlug(ctx context.Context, tx pgx.Tx, slug string) (*Org, error) {
+func (r *Repository) GetOrgBySlug(ctx context.Context, tx pgx.Tx, slug string) (*Org, error) {
 	if err := rls.SetSessionVar(ctx, tx, ""); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}

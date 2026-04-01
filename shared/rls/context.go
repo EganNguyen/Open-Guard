@@ -2,7 +2,6 @@ package rls
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -28,6 +27,6 @@ func SetSessionVar(ctx context.Context, tx pgx.Tx, orgID string) error {
 		_, err := tx.Exec(ctx, "SELECT set_config('app.org_id', '', false)")
 		return err
 	}
-	_, err := tx.Exec(ctx, fmt.Sprintf("SELECT set_config('app.org_id', '%s', false)", orgID))
+	_, err := tx.Exec(ctx, "SELECT set_config('app.org_id', $1, false)", orgID)
 	return err
 }

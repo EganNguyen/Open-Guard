@@ -53,13 +53,11 @@ func (f *fakeRepo) LogEvaluation(ctx context.Context, l *repository.EvalLog) err
 
 func setup(t *testing.T) (*PolicyHandler, *chi.Mux) {
 	repo := &fakeRepo{p: []*models.Policy{}}
-	svc := service.NewPolicyService(repo)
-	
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:65535"})
-	evalSvc := service.NewEvaluatorService(repo, rdb, 30, logger)
+	svc := service.New(repo, rdb, 30, logger)
 
-	h := NewPolicyHandler(svc, evalSvc, logger)
+	h := NewPolicyHandler(svc, logger)
 
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
