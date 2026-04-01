@@ -2682,6 +2682,9 @@ CREATE TABLE sessions (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Note: refresh_hash is rotated on every /auth/refresh call. 
+-- Sliding expiration implements "forever login" while session activity persists and risk score remains low.
+
 CREATE INDEX idx_sessions_user_id ON sessions(user_id) WHERE revoked = FALSE;
 CREATE INDEX idx_sessions_org_id  ON sessions(org_id)  WHERE revoked = FALSE;
 
@@ -2785,7 +2788,7 @@ IAM now serves two distinct roles: the internal user management API (called by t
 |--------|------|-------------|-----------|
 | `POST` | `/auth/register` | Create org + admin user | — |
 | `POST` | `/auth/login` | Password login → JWT + session cookie | — |
-| `POST` | `/auth/refresh` | Use session cookie to issue new JWT + reset idle clock | Yes |
+| `POST` | `/auth/refresh` | Use session cookie to issue new JWT, rotate refresh token, and reset idle clock with risk-based scoring | Yes |
 | `POST` | `/auth/logout` | Revoke session + clear cookie | — |
 | `POST` | `/auth/mfa/enroll` | Begin TOTP/WebAuthn enrollment | WebAuthn |
 | `POST` | `/auth/mfa/verify` | Complete enrollment | — |
@@ -2839,6 +2842,23 @@ All events written to `outbox_records` table, relay publishes to Kafka. Payload 
 | `user.scim.provisioned` | `audit.trail` + `saga.orchestration` | SCIM payload |
 | `user.scim.deprovisioned` | `audit.trail` + `saga.orchestration` | `user_id`, `scim_id` |
 
+#### 9.4.5 Risk-Based Session Protection
+
+The IAM service implements a risk-scoring system during the `/auth/refresh` flow to detect suspicious activity without immediate revocation for minor changes.
+
+**Risk Factors:**
+- **IP Change (Subnet)**: 40 points (different /16 subnet).
+- **IP Change (Host)**: 15 points (different host within same /16).
+- **User Agent Family Change**: 60 points (e.g., Chrome to Firefox).
+- **User Agent Exact Match Change**: 20 points (e.g., Chrome update, same family).
+
+**Action Thresholds:**
+- **Score >= 80**: Critical risk. The session is immediately revoked, and the refresh request returns `401`.
+- **Score < 80**: Acceptable risk. The session is extended, the refresh token is rotated, and the session record is updated with the new IP/UA.
+
+**Refresh Token Rotation:**
+On every successful refresh, a new UUID refresh token is generated and its hash replaces the current `refresh_hash` in the database. This prevents replay attacks.
+
 ### 9.5 Phase 1 Acceptance Criteria
 
 - [ ] `POST /auth/register` creates org + admin user. Both writes are in one DB transaction with an outbox record.
@@ -2847,6 +2867,8 @@ All events written to `outbox_records` table, relay publishes to Kafka. Payload 
 - [ ] New key added alongside old → old tokens still verify. Old key removed → old tokens return 401.
 - [ ] `POST /v1/admin/connectors` registers a connected app and returns a one-time plaintext API key. The key is not retrievable after the response.
 - [ ] `Authorization: Bearer <key>` on any `/v1/` connector route authenticates and sets `org_id` via the connector registry lookup.
+- [ ] `POST /auth/refresh` returns a rotated refresh token and extends `expires_at`. Re-using the previous refresh token hash fails.
+- [ ] Major IP/UA changes (risk score >= 80) on `/auth/refresh` result in session revocation and 401 response.
 - [ ] Suspended connector (`PATCH /v1/admin/connectors/:id {status:"suspended"}`) → subsequent requests with that API key return `401 CONNECTOR_SUSPENDED`.
 - [ ] `POST /v1/events/ingest` with 10 events → all 10 appear as outbox records in a single transaction; relay publishes within 200ms.
 - [ ] Connector with scope `audit:write` calling `POST /v1/policy/evaluate` returns `403 INSUFFICIENT_SCOPE`.

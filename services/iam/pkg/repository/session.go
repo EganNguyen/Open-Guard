@@ -84,6 +84,42 @@ func (r *SessionRepository) GetActiveSession(ctx context.Context, tx pgx.Tx, org
 	return s, nil
 }
 
+func (r *SessionRepository) GetActiveSessionByHashGlobal(ctx context.Context, tx pgx.Tx, refreshHash string) (*Session, error) {
+	if err := rls.SetSessionVar(ctx, tx, ""); err != nil {
+		return nil, fmt.Errorf("rls config: %w", err)
+	}
+
+	s := &Session{}
+	err := tx.QueryRow(ctx,
+		`SELECT id, user_id, org_id, refresh_hash, ip_address::TEXT, user_agent, country_code, expires_at, revoked, created_at
+		 FROM sessions WHERE refresh_hash = $1 AND revoked = FALSE AND expires_at > $2`,
+		refreshHash, time.Now(),
+	).Scan(&s.ID, &s.UserID, &s.OrgID, &s.RefreshHash, &s.IPAddress, &s.UserAgent, &s.CountryCode, &s.ExpiresAt, &s.Revoked, &s.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("session not found or expired")
+		}
+		return nil, fmt.Errorf("get active session by hash: %w", err)
+	}
+
+	// Restore RLS setting for this transaction
+	if err := rls.SetSessionVar(ctx, tx, s.OrgID); err != nil {
+		return nil, fmt.Errorf("rls config restore: %w", err)
+	}
+
+	return s, nil
+}
+
+func (r *SessionRepository) UpdateSessionCredentials(ctx context.Context, tx pgx.Tx, orgID, id, newRefreshHash string, ipAddress, userAgent *string, newExpiresAt time.Time) error {
+	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		return fmt.Errorf("rls config: %w", err)
+	}
+	_, err := tx.Exec(ctx,
+		`UPDATE sessions SET refresh_hash = $1, ip_address = $2, user_agent = $3, expires_at = $4 WHERE id = $5`,
+		newRefreshHash, ipAddress, userAgent, newExpiresAt, id)
+	return err
+}
+
 func (r *SessionRepository) ExtendExpiry(ctx context.Context, tx pgx.Tx, orgID, id string, newExpiresAt time.Time) error {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return fmt.Errorf("rls config: %w", err)

@@ -201,19 +201,39 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ipAddress, us
 	}, nil
 }
 
-func (s *AuthService) Refresh(ctx context.Context, sessionID, orgID string) (*LoginResponse, error) {
+func (s *AuthService) Refresh(ctx context.Context, refreshToken, orgID string, currentIP, currentUA *string) (*LoginResponse, error) {
+	hashSum := sha256.Sum256([]byte(refreshToken))
+	refreshHash := hex.EncodeToString(hashSum[:])
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	session, err := s.sessions.GetActiveSession(ctx, tx, orgID, sessionID)
+	session, err := s.sessions.GetActiveSessionByHashGlobal(ctx, tx, refreshHash)
 	if err != nil {
 		return nil, fmt.Errorf("invalid or expired session: %w", err)
 	}
 
-	user, err := s.users.GetByID(ctx, tx, orgID, session.UserID)
+	if orgID != "" && session.OrgID != orgID {
+		return nil, fmt.Errorf("invalid session for org")
+	}
+	activeOrgID := session.OrgID
+
+	riskScore := s.calculateRiskScore(session, currentIP, currentUA)
+	if riskScore >= 80 {
+		s.logger.Warn("suspicious session refresh attempt, revoking", "session_id", session.ID, "risk_score", riskScore, "ip", currentIP, "ua", currentUA)
+		if err := s.sessions.Revoke(ctx, tx, activeOrgID, session.ID); err != nil {
+			return nil, fmt.Errorf("revoke suspicious session: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit tx: %w", err)
+		}
+		return nil, fmt.Errorf("session revoked due to suspicious activity")
+	}
+
+	user, err := s.users.GetByID(ctx, tx, activeOrgID, session.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
@@ -223,27 +243,95 @@ func (s *AuthService) Refresh(ctx context.Context, sessionID, orgID string) (*Lo
 		return nil, fmt.Errorf("generate jwt: %w", err)
 	}
 
-	// Reset idle clock (extend session)
+	// Rotate Refresh Token
+	newRefreshToken := uuid.New().String()
+	newHashSum := sha256.Sum256([]byte(newRefreshToken))
+	newRefreshHash := hex.EncodeToString(newHashSum[:])
+
+	// Reset idle clock (extend session) and update credentials
 	newExpiresAt := time.Now().Add(s.sessionIdleTimeout)
-	if err := s.sessions.ExtendExpiry(ctx, tx, orgID, sessionID, newExpiresAt); err != nil {
-		return nil, fmt.Errorf("extend session: %w", err)
+	if err := s.sessions.UpdateSessionCredentials(ctx, tx, activeOrgID, session.ID, newRefreshHash, currentIP, currentUA, newExpiresAt); err != nil {
+		return nil, fmt.Errorf("update session credentials: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	org, err := s.orgs.GetByID(ctx, tx, orgID)
+	org, err := s.orgs.GetByID(ctx, tx, activeOrgID)
 	if err != nil {
 		return nil, fmt.Errorf("get org: %w", err)
 	}
 
 	return &LoginResponse{
-		Token:     token,
-		ExpiresIn: int(s.jwtExpiry.Seconds()),
-		User:      user,
-		Org:       org,
+		Token:        token,
+		RefreshToken: newRefreshToken,
+		ExpiresIn:    int(s.jwtExpiry.Seconds()),
+		User:         user,
+		Org:          org,
 	}, nil
+}
+
+func (s *AuthService) calculateRiskScore(session *repository.Session, currentIP, currentUA *string) int {
+	score := 0
+
+	getStr := func(sp *string) string {
+		if sp == nil {
+			return ""
+		}
+		return *sp
+	}
+
+	oldIP := getStr(session.IPAddress)
+	newIP := getStr(currentIP)
+	oldUA := getStr(session.UserAgent)
+	newUA := getStr(currentUA)
+
+	if oldIP != "" && newIP != "" && oldIP != newIP {
+		oldParts := strings.Split(oldIP, ".")
+		newParts := strings.Split(newIP, ".")
+		if len(oldParts) == 4 && len(newParts) == 4 {
+			if oldParts[0] != newParts[0] || oldParts[1] != newParts[1] {
+				score += 40
+			} else if oldParts[2] != newParts[2] {
+				score += 15
+			}
+		} else {
+			score += 40
+		}
+	} else if oldIP != "" && newIP == "" {
+		score += 10
+	} else if oldIP == "" && newIP != "" {
+		score += 10
+	}
+
+	if oldUA != "" && newUA != "" && oldUA != newUA {
+		families := []string{"Firefox", "Chrome", "Safari", "Edge", "PostmanRuntime", "curl"}
+
+		oldFamily := "Unknown"
+		for _, f := range families {
+			if strings.Contains(oldUA, f) {
+				oldFamily = f
+				break 
+			}
+		}
+
+		newFamily := "Unknown"
+		for _, f := range families {
+			if strings.Contains(newUA, f) {
+				newFamily = f
+				break
+			}
+		}
+
+		if oldFamily != newFamily {
+			score += 60
+		} else {
+			score += 20
+		}
+	}
+
+	return score
 }
 
 func (s *AuthService) Logout(ctx context.Context, sessionID, orgID, userID string) error {

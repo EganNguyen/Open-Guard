@@ -114,23 +114,23 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	orgID := r.Header.Get("X-Org-ID")
-	if orgID == "" {
-		// If orgID is not in header (e.g. direct call), we might need another way to get it,
-		// but standard OpenGuard flow has it injected by gateway or provided in header.
-		// For session refresh, we might need to store org_id in the cookie or look it up.
-		// Let's assume for now it's provided or we adjust the service to find it.
-	}
 
-	resp, err := h.authService.Refresh(r.Context(), cookie.Value, orgID)
+	ip := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	ua := r.UserAgent()
+
+	resp, err := h.authService.Refresh(r.Context(), cookie.Value, orgID, &ip, &ua)
 	if err != nil {
 		models.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Session expired or invalid", r)
 		return
 	}
 
-	// Session extended, refresh the cookie too if needed (optional)
+	// Session extended and rotated, update the cookie with the new refresh token
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_session",
-		Value:    cookie.Value,
+		Value:    resp.RefreshToken,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
