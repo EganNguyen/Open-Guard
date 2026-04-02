@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -14,55 +13,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/openguard/iam/pkg/repository"
-	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/models"
-	"github.com/openguard/shared/outbox"
+	"github.com/openguard/shared/telemetry"
 	"golang.org/x/crypto/bcrypt"
 )
 
-type AuthService struct {
-	pool       *pgxpool.Pool
-	users      *repository.UserRepository
-	orgs       *repository.OrgRepository
-	sessions   *repository.SessionRepository
-	mfa        *repository.MFARepository
-	outbox     *outbox.Writer
-	logger     *slog.Logger
-	jwtKeyring *crypto.JWTKeyring
-	aesKeyring *crypto.AESKeyring
-	jwtExpiry  time.Duration
-}
+// Methods are now part of the unified Service struct in service.go
 
-func NewAuthService(
-	pool *pgxpool.Pool,
-	users *repository.UserRepository,
-	orgs *repository.OrgRepository,
-	sessions *repository.SessionRepository,
-	mfa *repository.MFARepository,
-	outboxWriter *outbox.Writer,
-	logger *slog.Logger,
-	jwtKeyring *crypto.JWTKeyring,
-	aesKeyring *crypto.AESKeyring,
-	jwtExpiry int,
-) *AuthService {
-	return &AuthService{
-		pool:       pool,
-		users:      users,
-		orgs:       orgs,
-		sessions:   sessions,
-		mfa:        mfa,
-		outbox:     outboxWriter,
-		logger:     logger,
-		jwtKeyring: jwtKeyring,
-		aesKeyring: aesKeyring,
-		jwtExpiry:  time.Duration(jwtExpiry) * time.Second,
-	}
-}
-
-type RegisterRequest struct {
+type RegisterInput struct {
 	OrgName     string `json:"org_name"`
 	Email       string `json:"email"`
 	Password    string `json:"password"`
@@ -75,7 +35,7 @@ type RegisterResponse struct {
 	Token string           `json:"token"`
 }
 
-func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
+func (s *Service) Register(ctx context.Context, req RegisterInput) (*RegisterResponse, error) {
 	if req.OrgName == "" || req.Email == "" || len(req.Password) < 8 {
 		return nil, fmt.Errorf("invalid inputs")
 	}
@@ -88,12 +48,12 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*Regis
 	}
 	defer tx.Rollback(ctx)
 
-	org, err := s.orgs.Create(ctx, tx, req.OrgName, slug)
+	org, err := s.repo.CreateOrg(ctx, tx, req.OrgName, slug)
 	if err != nil {
 		return nil, fmt.Errorf("create org: %w", err)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 4) // bcrypt.MinCost
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
@@ -104,7 +64,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*Regis
 		displayName = req.Email
 	}
 
-	user, err := s.users.Create(ctx, tx, org.ID, req.Email, displayName, &hashStr)
+	user, err := s.repo.CreateUser(ctx, tx, org.ID, req.Email, displayName, &hashStr)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
@@ -127,7 +87,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*Regis
 	}, nil
 }
 
-type LoginRequest struct {
+type LoginInput struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
@@ -137,9 +97,10 @@ type LoginResponse struct {
 	RefreshToken string           `json:"refresh_token"`
 	ExpiresIn    int              `json:"expires_in"`
 	User         *repository.User `json:"user"`
+	Org          *repository.Org  `json:"org"`
 }
 
-func (s *AuthService) Login(ctx context.Context, req LoginRequest, ipAddress, userAgent *string) (*LoginResponse, error) {
+func (s *Service) Login(ctx context.Context, req LoginInput, ipAddress, userAgent *string) (*LoginResponse, error) {
 	if req.Email == "" || req.Password == "" {
 		return nil, fmt.Errorf("email and password required")
 	}
@@ -150,7 +111,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ipAddress, us
 	}
 	defer tx.Rollback(ctx)
 
-	user, err := s.users.GetByEmailGlobal(ctx, tx, req.Email)
+	user, err := s.repo.GetUserByEmailGlobal(ctx, tx, req.Email)
 	if err != nil || user.PasswordHash == nil {
 		return nil, fmt.Errorf("invalid credentials")
 	}
@@ -172,13 +133,18 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ipAddress, us
 	hashSum := sha256.Sum256([]byte(refreshToken))
 	refreshHash := hex.EncodeToString(hashSum[:])
 
-	expiresAt := time.Now().Add(s.jwtExpiry)
-	_, err = s.sessions.Create(ctx, tx, user.ID, user.OrgID, refreshHash, ipAddress, userAgent, nil, expiresAt)
+	expiresAt := time.Now().Add(s.sessionIdleTimeout)
+	_, err = s.repo.CreateSession(ctx, tx, user.ID, user.OrgID, refreshHash, ipAddress, userAgent, nil, expiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
 	}
 
 	s.publishEvent(ctx, tx, kafka.TopicAuthEvents, "auth.login.success", user.OrgID, user.ID)
+
+	org, err := s.repo.GetOrgByID(ctx, tx, user.OrgID)
+	if err != nil {
+		return nil, fmt.Errorf("get org: %w", err)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
@@ -189,17 +155,156 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, ipAddress, us
 		RefreshToken: refreshToken,
 		ExpiresIn:    int(s.jwtExpiry.Seconds()),
 		User:         user,
+		Org:          org,
 	}, nil
 }
 
-func (s *AuthService) Logout(ctx context.Context, sessionID, orgID, userID string) error {
+func (s *Service) Refresh(ctx context.Context, refreshToken, orgID string, currentIP, currentUA *string) (*LoginResponse, error) {
+	hashSum := sha256.Sum256([]byte(refreshToken))
+	refreshHash := hex.EncodeToString(hashSum[:])
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	session, err := s.repo.GetActiveSessionByHashGlobal(ctx, tx, refreshHash)
+	if err != nil {
+		return nil, fmt.Errorf("invalid or expired session: %w", err)
+	}
+
+	if orgID != "" && session.OrgID != orgID {
+		return nil, fmt.Errorf("invalid session for org")
+	}
+	activeOrgID := session.OrgID
+
+	riskScore := s.calculateRiskScore(session, currentIP, currentUA)
+	if riskScore >= 80 {
+		s.logger.Warn("suspicious session refresh attempt, revoking",
+			"session_id", session.ID,
+			"risk_score", riskScore,
+			telemetry.SafeAttr("ip", *currentIP, s.isDev),
+			telemetry.SafeAttr("ua", *currentUA, s.isDev),
+		)
+		if err := s.repo.RevokeSession(ctx, tx, activeOrgID, session.ID); err != nil {
+			return nil, fmt.Errorf("revoke suspicious session: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit tx: %w", err)
+		}
+		return nil, fmt.Errorf("session revoked due to suspicious activity")
+	}
+
+	user, err := s.repo.GetUserByID(ctx, tx, activeOrgID, session.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+
+	token, err := s.generateJWT(user)
+	if err != nil {
+		return nil, fmt.Errorf("generate jwt: %w", err)
+	}
+
+	// Rotate Refresh Token
+	newRefreshToken := uuid.New().String()
+	newHashSum := sha256.Sum256([]byte(newRefreshToken))
+	newRefreshHash := hex.EncodeToString(newHashSum[:])
+
+	// Reset idle clock (extend session) and update credentials
+	newExpiresAt := time.Now().Add(s.sessionIdleTimeout)
+	if err := s.repo.UpdateSessionCredentials(ctx, tx, activeOrgID, session.ID, newRefreshHash, currentIP, currentUA, newExpiresAt); err != nil {
+		return nil, fmt.Errorf("update session credentials: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	org, err := s.repo.GetOrgByID(ctx, tx, activeOrgID)
+	if err != nil {
+		return nil, fmt.Errorf("get org: %w", err)
+	}
+
+	return &LoginResponse{
+		Token:        token,
+		RefreshToken: newRefreshToken,
+		ExpiresIn:    int(s.jwtExpiry.Seconds()),
+		User:         user,
+		Org:          org,
+	}, nil
+}
+
+func (s *Service) calculateRiskScore(session *repository.Session, currentIP, currentUA *string) int {
+	score := 0
+
+	getStr := func(sp *string) string {
+		if sp == nil {
+			return ""
+		}
+		return *sp
+	}
+
+	oldIP := getStr(session.IPAddress)
+	newIP := getStr(currentIP)
+	oldUA := getStr(session.UserAgent)
+	newUA := getStr(currentUA)
+
+	if oldIP != "" && newIP != "" && oldIP != newIP {
+		oldParts := strings.Split(oldIP, ".")
+		newParts := strings.Split(newIP, ".")
+		if len(oldParts) == 4 && len(newParts) == 4 {
+			if oldParts[0] != newParts[0] || oldParts[1] != newParts[1] {
+				score += 40
+			} else if oldParts[2] != newParts[2] {
+				score += 15
+			}
+		} else {
+			score += 40
+		}
+	} else if oldIP != "" && newIP == "" {
+		score += 10
+	} else if oldIP == "" && newIP != "" {
+		score += 10
+	}
+
+	if oldUA != "" && newUA != "" && oldUA != newUA {
+		families := []string{"Firefox", "Chrome", "Safari", "Edge", "PostmanRuntime", "curl"}
+
+		oldFamily := "Unknown"
+		for _, f := range families {
+			if strings.Contains(oldUA, f) {
+				oldFamily = f
+				break 
+			}
+		}
+
+		newFamily := "Unknown"
+		for _, f := range families {
+			if strings.Contains(newUA, f) {
+				newFamily = f
+				break
+			}
+		}
+
+		if oldFamily != newFamily {
+			score += 60
+		} else {
+			score += 20
+		}
+	}
+
+	return score
+}
+
+func (s *Service) Logout(ctx context.Context, sessionID, orgID, userID string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	if err := s.sessions.Revoke(ctx, tx, orgID, sessionID); err != nil {
+	if err := s.repo.RevokeSession(ctx, tx, orgID, sessionID); err != nil {
 		return fmt.Errorf("revoke session: %w", err)
 	}
 
@@ -208,7 +313,7 @@ func (s *AuthService) Logout(ctx context.Context, sessionID, orgID, userID strin
 	return tx.Commit(ctx)
 }
 
-func (s *AuthService) generateJWT(user *repository.User) (string, error) {
+func (s *Service) generateJWT(user *repository.User) (string, error) {
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub":    user.ID,
@@ -222,7 +327,7 @@ func (s *AuthService) generateJWT(user *repository.User) (string, error) {
 	return s.jwtKeyring.Sign(claims)
 }
 
-func (s *AuthService) publishEvent(ctx context.Context, tx pgx.Tx, topic, eventType, orgID, actorID string) {
+func (s *Service) publishEvent(ctx context.Context, tx pgx.Tx, topic, eventType, orgID, actorID string) {
 	if s.outbox == nil {
 		return
 	}

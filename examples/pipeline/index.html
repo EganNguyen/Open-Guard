@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenGuard Showcase</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="glass-header">
+            <div class="logo">
+                <span class="shield">🛡️</span> OpenGuard
+            </div>
+            <h1>Interactive Pipeline Showcase</h1>
+            <p>Centralized Governance via Control Plane SDK</p>
+        </header>
+
+        <main class="dashboard">
+            <aside class="controls glass-panel">
+                <h2>Use Cases</h2>
+                <p>Simulate requests hitting your Application.</p>
+                <div class="button-group">
+                    <button id="btn-success" class="btn btn-primary" onclick="window.app.simulate('success')">
+                        <span class="icon">✅</span> Valid Request
+                    </button>
+                    <button id="btn-unauthenticated" class="btn btn-danger" onclick="window.app.simulate('unauth')">
+                        <span class="icon">❌</span> Unauthenticated
+                    </button>
+                    <button id="btn-unauthorized" class="btn btn-warning" onclick="window.app.simulate('unauthz')">
+                        <span class="icon">🔒</span> Unauthorized (Policy)
+                    </button>
+                    <button id="btn-ratelimit" class="btn btn-warning" onclick="window.app.simulate('ratelimit')">
+                        <span class="icon">⏳</span> Rate Limited
+                    </button>
+                    <button id="btn-threat" class="btn btn-danger" onclick="window.app.simulate('threat')">
+                        <span class="icon">☠️</span> Malicious Payload
+                    </button>
+                </div>
+            </aside>
+
+            <section class="visualization glass-panel">
+                <div class="pipeline">
+                    <div class="node-container" id="node-user" style="top: 50%; left: 10%;">
+                        <div class="node client">🧑‍💻</div>
+                        <div class="label">User Client</div>
+                    </div>
+                    
+                    <div class="path path-horizontal" id="path-user-app" style="top: 50%; left: 22%; width: 16%;">
+                        <div class="packet" id="packet-1"></div>
+                    </div>
+                    
+                    <!-- Main Product sits up front now -->
+                    <div class="node-container" id="node-app" style="top: 50%; left: 40%;">
+                        <div class="node product">📦</div>
+                        <div class="label">Connected<br>App</div>
+                    </div>
+
+                    <!-- Path from App to Control Plane -->
+                    <div class="path path-horizontal" id="path-app-cp" style="top: 50%; left: 51%; width: 23%;">
+                        <div class="packet" id="packet-2"></div>
+                    </div>
+                    
+                    <div class="node-container" id="node-cp" style="top: 50%; left: 78%;">
+                        <div class="node gateway">🛡️</div>
+                        <div class="label">Control Plane<br>(API)</div>
+                    </div>
+
+                    <!-- Path to Policy Engine (Down from CP) -->
+                    <div class="path path-vertical" id="path-cp-policy" style="top: 62%; left: 78%; height: 16%;">
+                        <div class="packet" id="packet-policy"></div>
+                    </div>
+                    <div class="node-container" id="node-policy" style="top: 80%; left: 78%;">
+                        <div class="node policy">📄</div>
+                        <div class="label">Policy Engine</div>
+                    </div>
+                    
+                    <!-- Path to Audit Log (Up from CP) -->
+                    <div class="path path-vertical" id="path-cp-audit" style="top: 25%; left: 78%; height: 23%;">
+                        <div class="packet" id="packet-audit"></div>
+                    </div>
+                    
+                    <div class="node-container" id="node-audit" style="top: 15%; left: 78%;">
+                        <div class="node audit">📋</div>
+                        <div class="label">Audit / Outbox</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="logs glass-panel">
+            <div class="log-header">
+                <h3>Terminal Log</h3>
+                <button class="btn-small" onclick="window.app.clearLogs()">Clear</button>
+            </div>
+            <div id="log-window" class="log-window">
+                <div class="log-line system">[SYSTEM] OpenGuard Showcase Initialized. SDK ready. Awaiting requests...</div>
+            </div>
+        </footer>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

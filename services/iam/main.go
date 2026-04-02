@@ -74,23 +74,29 @@ func main() {
 	jwtKeyring := crypto.NewJWTKeyring(cfg.JWTKeys)
 	aesKeyring := crypto.NewAESKeyring(cfg.MFAKeys)
 
-	// Repositories
-	orgRepo := repository.NewOrgRepository()
-	userRepo := repository.NewUserRepository()
-	sessionRepo := repository.NewSessionRepository()
-	tokenRepo := repository.NewAPITokenRepository()
-	mfaRepo := repository.NewMFARepository()
+	// Repository
+	repo := repository.New()
 
-	// Services
-	authService := service.NewAuthService(pool, userRepo, orgRepo, sessionRepo, mfaRepo, outboxWriter, logger, jwtKeyring, aesKeyring, cfg.JWTExpiry)
-	userService := service.NewUserService(pool, userRepo, sessionRepo, tokenRepo, outboxWriter, logger)
+	// Service
+	isDev := cfg.AppEnv == "development"
+	iamService := service.New(
+		pool, 
+		repo, 
+		outboxWriter, 
+		logger, 
+		jwtKeyring, 
+		aesKeyring, 
+		time.Duration(cfg.JWTExpiry)*time.Second, 
+		time.Duration(cfg.SessionIdleTimeout)*time.Second,
+		isDev,
+	)
 
 	// Handlers
-	authHandler := handlers.NewAuthHandler(authService)
-	userHandler := handlers.NewUserHandler(userService)
+	authHandler := handlers.NewAuthHandler(iamService)
+	userHandler := handlers.NewUserHandler(iamService)
 	mfaHandler := handlers.NewMFAHandler()
 	scimHandler := handlers.NewSCIMHandler()
-	tokenHandler := handlers.NewTokenHandler(userService, logger)
+	tokenHandler := handlers.NewTokenHandler(iamService, logger)
 
 	// Router
 	r := router.New(router.Config{
@@ -113,7 +119,7 @@ func main() {
 
 	tlsConfig := &tls.Config{
 		ClientCAs:  caCertPool,
-		ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientAuth: tls.VerifyClientCertIfGiven,
 		MinVersion: tls.VersionTLS12,
 	}
 

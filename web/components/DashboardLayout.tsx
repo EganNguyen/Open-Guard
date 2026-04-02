@@ -1,5 +1,6 @@
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
+import AuthGuard from "./AuthGuard";
 import styles from "./DashboardLayout.module.css";
 
 interface DashboardLayoutProps {
@@ -9,14 +10,16 @@ interface DashboardLayoutProps {
 
 export default function DashboardLayout({ title, children }: DashboardLayoutProps) {
   return (
-    <div style={{ display: "flex" }}>
-      <Sidebar />
-      <main className={styles.main}>
-        <Topbar title={title} />
-        <div className={styles.content}>
-          {children}
-        </div>
-      </main>
-    </div>
+    <AuthGuard>
+      <div style={{ display: "flex" }}>
+        <Sidebar />
+        <main className={styles.main}>
+          <Topbar title={title} />
+          <div className={styles.content}>
+            {children}
+          </div>
+        </main>
+      </div>
+    </AuthGuard>
   );
 }

@@ -1,0 +1,1506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenGuard — Enterprise Security Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #05080f;
+    --surface: #0c1220;
+    --surface2: #111827;
+    --border: rgba(255,255,255,0.07);
+    --accent: #3b82f6;
+    --accent2: #06b6d4;
+    --accent-glow: rgba(59,130,246,0.25);
+    --text: #f1f5f9;
+    --muted: #64748b;
+    --muted2: #94a3b8;
+    --red: #ef4444;
+    --green: #22c55e;
+    --yellow: #f59e0b;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 400;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* ── NOISE TEXTURE OVERLAY ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0.4;
+  }
+
+  /* ── GRID BACKGROUND ── */
+  .grid-bg {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 0%, transparent 70%);
+  }
+
+  /* ── NAV ── */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    padding: 0 5%;
+    height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(5,8,15,0.8);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.2rem;
+    letter-spacing: -0.02em;
+    text-decoration: none;
+    color: var(--text);
+  }
+
+  .logo-icon {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 32px;
+    list-style: none;
+  }
+
+  .nav-links a {
+    color: var(--muted2);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 400;
+    transition: color 0.2s;
+  }
+
+  .nav-links a:hover { color: var(--text); }
+
+  .nav-cta {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted2);
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+
+  .btn-ghost:hover {
+    border-color: rgba(255,255,255,0.2);
+    color: var(--text);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 8px 20px;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.2s;
+    text-decoration: none;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-primary::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+  }
+
+  .btn-primary:hover {
+    background: #2563eb;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(59,130,246,0.4);
+  }
+
+  /* ── HERO ── */
+  .hero {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 120px 5% 80px;
+    overflow: hidden;
+  }
+
+  .hero-glow {
+    position: absolute;
+    top: -200px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 800px;
+    height: 600px;
+    background: radial-gradient(ellipse, rgba(59,130,246,0.15) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .hero-glow-2 {
+    position: absolute;
+    top: 30%;
+    left: 10%;
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(ellipse, rgba(6,182,212,0.06) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(59,130,246,0.1);
+    border: 1px solid rgba(59,130,246,0.25);
+    border-radius: 100px;
+    padding: 6px 16px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #93c5fd;
+    margin-bottom: 32px;
+    animation: fadeInUp 0.6s ease forwards;
+  }
+
+  .badge-dot {
+    width: 6px; height: 6px;
+    background: var(--accent2);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.5); }
+  }
+
+  .hero-title {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(2.8rem, 6vw, 5.5rem);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin-bottom: 24px;
+    animation: fadeInUp 0.6s 0.1s ease both;
+  }
+
+  .hero-title .line2 {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero-sub {
+    font-size: 1.15rem;
+    color: var(--muted2);
+    max-width: 520px;
+    margin: 0 auto 40px;
+    font-weight: 300;
+    line-height: 1.7;
+    animation: fadeInUp 0.6s 0.2s ease both;
+  }
+
+  .hero-actions {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    flex-wrap: wrap;
+    animation: fadeInUp 0.6s 0.3s ease both;
+    margin-bottom: 64px;
+  }
+
+  .btn-hero {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 14px 32px;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.2s;
+    text-decoration: none;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 0 32px rgba(59,130,246,0.3);
+  }
+
+  .btn-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.12), transparent);
+  }
+
+  .btn-hero:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 40px rgba(59,130,246,0.5);
+  }
+
+  .btn-hero-outline {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.12);
+    color: var(--muted2);
+    padding: 14px 32px;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 400;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+
+  .btn-hero-outline:hover {
+    border-color: rgba(255,255,255,0.25);
+    color: var(--text);
+  }
+
+  .hero-stats {
+    display: flex;
+    gap: 48px;
+    justify-content: center;
+    flex-wrap: wrap;
+    animation: fadeInUp 0.6s 0.4s ease both;
+  }
+
+  .stat {
+    text-align: center;
+  }
+
+  .stat-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+
+  .stat-label {
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-weight: 400;
+    margin-top: 2px;
+  }
+
+  .stat-divider {
+    width: 1px;
+    background: var(--border);
+    align-self: stretch;
+  }
+
+  /* ── TERMINAL CARD ── */
+  .hero-visual {
+    position: relative;
+    max-width: 820px;
+    margin: 80px auto 0;
+    animation: fadeInUp 0.8s 0.5s ease both;
+  }
+
+  .terminal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 40px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04);
+  }
+
+  .terminal-bar {
+    background: var(--surface2);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .terminal-dots {
+    display: flex;
+    gap: 7px;
+  }
+
+  .dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+  }
+  .dot-r { background: #ef4444; }
+  .dot-y { background: #f59e0b; }
+  .dot-g { background: #22c55e; }
+
+  .terminal-title {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-left: auto;
+    font-family: 'DM Sans', monospace;
+  }
+
+  .terminal-body {
+    padding: 28px 28px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  .event-stream {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .stream-label {
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+
+  .event-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-family: 'DM Mono', monospace;
+    animation: slideIn 0.3s ease;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(-8px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .event-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .ev-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .ev-red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .ev-yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+  .ev-blue { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+  .event-content { flex: 1; }
+
+  .event-type { color: var(--muted2); }
+  .event-detail { color: var(--muted); font-size: 0.7rem; margin-top: 1px; }
+
+  .event-time { color: var(--muted); font-size: 0.68rem; white-space: nowrap; }
+
+  .policy-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .policy-eval {
+    padding: 14px;
+    background: rgba(59,130,246,0.05);
+    border: 1px solid rgba(59,130,246,0.15);
+    border-radius: 8px;
+  }
+
+  .policy-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .policy-title { font-size: 0.72rem; color: var(--muted2); }
+
+  .policy-badge {
+    font-size: 0.65rem;
+    padding: 2px 8px;
+    border-radius: 100px;
+    font-weight: 500;
+  }
+
+  .badge-allow {
+    background: rgba(34,197,94,0.15);
+    color: #4ade80;
+    border: 1px solid rgba(34,197,94,0.2);
+  }
+
+  .badge-deny {
+    background: rgba(239,68,68,0.15);
+    color: #f87171;
+    border: 1px solid rgba(239,68,68,0.2);
+  }
+
+  .policy-rows { display: flex; flex-direction: column; gap: 6px; }
+
+  .policy-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+  }
+
+  .policy-key { color: var(--muted); }
+  .policy-val { color: var(--text); font-family: monospace; }
+
+  .latency-bar {
+    margin-top: 10px;
+    height: 3px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .latency-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    animation: grow 1.5s ease forwards;
+    width: 0;
+  }
+
+  @keyframes grow { to { width: 18%; } }
+
+  .latency-label {
+    font-size: 0.65rem;
+    color: var(--muted);
+    margin-top: 4px;
+    text-align: right;
+  }
+
+  .threat-card {
+    padding: 14px;
+    background: rgba(239,68,68,0.04);
+    border: 1px solid rgba(239,68,68,0.12);
+    border-radius: 8px;
+  }
+
+  .threat-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .threat-icon {
+    font-size: 14px;
+  }
+
+  .threat-title { font-size: 0.78rem; color: #f87171; font-weight: 500; }
+
+  .threat-detail { font-size: 0.72rem; color: var(--muted); line-height: 1.5; }
+
+  .threat-score {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .score-label { font-size: 0.7rem; color: var(--muted); }
+
+  .score-bar {
+    flex: 1;
+    height: 4px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .score-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #f59e0b, #ef4444);
+    border-radius: 2px;
+    width: 82%;
+  }
+
+  .score-val { font-size: 0.7rem; color: #f87171; font-weight: 600; }
+
+  /* ── SECTION STYLES ── */
+  section {
+    padding: 100px 5%;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .section-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    font-weight: 500;
+    margin-bottom: 16px;
+  }
+
+  .section-title {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.025em;
+    margin-bottom: 16px;
+  }
+
+  .section-sub {
+    color: var(--muted2);
+    font-size: 1rem;
+    max-width: 480px;
+    line-height: 1.7;
+  }
+
+  /* ── FEATURES ── */
+  .features-section {
+    padding: 100px 5%;
+  }
+
+  .features-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .features-header {
+    text-align: center;
+    margin-bottom: 64px;
+  }
+
+  .features-header .section-sub {
+    margin: 0 auto;
+  }
+
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    overflow: hidden;
+  }
+
+  .feature-card {
+    background: var(--surface);
+    padding: 36px;
+    position: relative;
+    transition: background 0.3s;
+  }
+
+  .feature-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(59,130,246,0.4), transparent);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .feature-card:hover {
+    background: var(--surface2);
+  }
+
+  .feature-card:hover::before {
+    opacity: 1;
+  }
+
+  .feature-icon {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    margin-bottom: 20px;
+  }
+
+  .icon-blue { background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.2); }
+  .icon-cyan { background: rgba(6,182,212,0.12); border: 1px solid rgba(6,182,212,0.2); }
+  .icon-purple { background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.2); }
+  .icon-green { background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.2); }
+  .icon-orange { background: rgba(249,115,22,0.12); border: 1px solid rgba(249,115,22,0.2); }
+  .icon-rose { background: rgba(244,63,94,0.12); border: 1px solid rgba(244,63,94,0.2); }
+
+  .feature-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+    letter-spacing: -0.01em;
+  }
+
+  .feature-desc {
+    color: var(--muted2);
+    font-size: 0.875rem;
+    line-height: 1.65;
+  }
+
+  /* ── SLO TABLE ── */
+  .slo-section {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 100px 5%;
+  }
+
+  .slo-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .slo-layout {
+    display: grid;
+    grid-template-columns: 1fr 1.5fr;
+    gap: 80px;
+    align-items: center;
+  }
+
+  .slo-table-wrap {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .slo-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .slo-table th {
+    padding: 14px 20px;
+    background: rgba(255,255,255,0.02);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+  }
+
+  .slo-table td {
+    padding: 14px 20px;
+    font-size: 0.85rem;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    vertical-align: middle;
+  }
+
+  .slo-table tr:last-child td { border-bottom: none; }
+
+  .slo-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .slo-op { color: var(--text); font-weight: 400; }
+  .slo-num { font-family: 'DM Mono', monospace; color: #4ade80; font-size: 0.82rem; }
+  .slo-num-warn { font-family: 'DM Mono', monospace; color: #fb923c; font-size: 0.82rem; }
+  .slo-through { color: var(--muted2); font-size: 0.8rem; }
+
+  /* ── SECURITY SECTION ── */
+  .security-section {
+    padding: 100px 5%;
+  }
+
+  .security-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .security-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    margin-top: 56px;
+  }
+
+  .security-card {
+    padding: 32px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .security-card::after {
+    content: '';
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 120px; height: 120px;
+    background: radial-gradient(circle, var(--card-glow, rgba(59,130,246,0.06)) 0%, transparent 70%);
+  }
+
+  .sc-blue { --card-glow: rgba(59,130,246,0.08); }
+  .sc-cyan { --card-glow: rgba(6,182,212,0.08); }
+  .sc-purple { --card-glow: rgba(139,92,246,0.08); }
+  .sc-green { --card-glow: rgba(34,197,94,0.08); }
+
+  .security-card-icon {
+    font-size: 28px;
+    margin-bottom: 20px;
+  }
+
+  .security-card-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 10px;
+  }
+
+  .security-card-desc {
+    color: var(--muted2);
+    font-size: 0.875rem;
+    line-height: 1.65;
+    margin-bottom: 20px;
+  }
+
+  .tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .tag {
+    font-size: 0.72rem;
+    padding: 4px 12px;
+    border-radius: 100px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    color: var(--muted2);
+  }
+
+  /* ── TESTIMONIAL / COMPLIANCE ── */
+  .compliance-section {
+    padding: 60px 5%;
+    text-align: center;
+  }
+
+  .compliance-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .compliance-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 48px;
+    flex-wrap: wrap;
+    margin-top: 40px;
+  }
+
+  .compliance-badge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 24px 32px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    min-width: 140px;
+    transition: transform 0.2s;
+  }
+
+  .compliance-badge:hover { transform: translateY(-4px); }
+
+  .compliance-icon { font-size: 28px; }
+  .compliance-name { font-size: 0.85rem; font-weight: 500; color: var(--text); }
+  .compliance-note { font-size: 0.72rem; color: var(--muted); }
+
+  /* ── CTA ── */
+  .cta-section {
+    padding: 80px 5%;
+  }
+
+  .cta-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .cta-box {
+    position: relative;
+    background: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(6,182,212,0.06));
+    border: 1px solid rgba(59,130,246,0.2);
+    border-radius: 24px;
+    padding: 72px 64px;
+    text-align: center;
+    overflow: hidden;
+  }
+
+  .cta-box::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 300px;
+    background: radial-gradient(ellipse, rgba(59,130,246,0.12), transparent 70%);
+    pointer-events: none;
+  }
+
+  .cta-title {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(1.8rem, 3vw, 2.8rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 16px;
+    position: relative;
+  }
+
+  .cta-sub {
+    color: var(--muted2);
+    font-size: 1rem;
+    margin-bottom: 40px;
+    position: relative;
+    max-width: 440px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .cta-actions {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    flex-wrap: wrap;
+    position: relative;
+  }
+
+  .btn-cta {
+    background: white;
+    color: #0c1220;
+    padding: 14px 36px;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.2s;
+    text-decoration: none;
+    border: none;
+  }
+
+  .btn-cta:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px rgba(255,255,255,0.15);
+  }
+
+  .btn-cta-outline {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.2);
+    color: var(--muted2);
+    padding: 14px 36px;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 400;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+
+  .btn-cta-outline:hover { color: var(--text); border-color: rgba(255,255,255,0.35); }
+
+  /* ── FOOTER ── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 40px 5%;
+  }
+
+  .footer-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 24px;
+  }
+
+  .footer-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .footer-links {
+    display: flex;
+    gap: 32px;
+    list-style: none;
+  }
+
+  .footer-links a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.85rem;
+    transition: color 0.2s;
+  }
+
+  .footer-links a:hover { color: var(--text); }
+
+  .footer-copy {
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 768px) {
+    .nav-links { display: none; }
+    .features-grid { grid-template-columns: 1fr; }
+    .slo-layout { grid-template-columns: 1fr; }
+    .security-grid { grid-template-columns: 1fr; }
+    .terminal-body { grid-template-columns: 1fr; }
+    .cta-box { padding: 48px 32px; }
+    .hero-stats { gap: 32px; }
+    .stat-divider { display: none; }
+    .footer-inner { flex-direction: column; text-align: center; }
+    .footer-links { justify-content: center; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="logo-icon">🛡</div>
+    OpenGuard
+  </a>
+  <ul class="nav-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#performance">Performance</a></li>
+    <li><a href="#security">Security</a></li>
+    <li><a href="https://github.com" target="_blank">Docs</a></li>
+  </ul>
+  <div class="nav-cta">
+    <a href="#" class="btn-ghost">Sign in</a>
+    <a href="#" class="btn-primary">Deploy free →</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="grid-bg"></div>
+  <div class="hero-glow"></div>
+  <div class="hero-glow-2"></div>
+
+  <div style="position:relative; width:100%;">
+    <div class="hero-badge">
+      <span class="badge-dot"></span>
+      Open source · Self-hostable · Fortune-500 scale
+    </div>
+
+    <h1 class="hero-title">
+      Enterprise security<br><span class="line2">without the vendor lock-in</span>
+    </h1>
+
+    <p class="hero-sub">
+      Identity management, real-time threat detection, and cryptographic audit trails — all in one open-source platform built for 100k+ users.
+    </p>
+
+    <div class="hero-actions">
+      <a href="#" class="btn-hero">Start for free</a>
+      <a href="#" class="btn-hero-outline">View on GitHub →</a>
+    </div>
+
+    <div class="hero-stats">
+      <div class="stat">
+        <div class="stat-value">5ms</div>
+        <div class="stat-label">Policy eval p99</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <div class="stat-value">50k/s</div>
+        <div class="stat-label">Audit events throughput</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <div class="stat-value">100k+</div>
+        <div class="stat-label">Users per instance</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <div class="stat-value">0</div>
+        <div class="stat-label">Cross-tenant data leaks</div>
+      </div>
+    </div>
+
+    <!-- TERMINAL MOCKUP -->
+    <div class="hero-visual">
+      <div class="terminal">
+        <div class="terminal-bar">
+          <div class="terminal-dots">
+            <div class="dot dot-r"></div>
+            <div class="dot dot-y"></div>
+            <div class="dot dot-g"></div>
+          </div>
+          <span class="terminal-title">openguard — live audit stream</span>
+        </div>
+        <div class="terminal-body">
+          <div class="event-stream">
+            <div class="stream-label">Event stream</div>
+            <div class="event-item">
+              <div class="event-dot ev-green"></div>
+              <div class="event-content">
+                <div class="event-type">auth.login.success</div>
+                <div class="event-detail">user@acme.com · New York, US</div>
+              </div>
+              <div class="event-time">just now</div>
+            </div>
+            <div class="event-item">
+              <div class="event-dot ev-red"></div>
+              <div class="event-content">
+                <div class="event-type">auth.login.failure</div>
+                <div class="event-detail">8 attempts · 192.168.4.22</div>
+              </div>
+              <div class="event-time">2s ago</div>
+            </div>
+            <div class="event-item">
+              <div class="event-dot ev-yellow"></div>
+              <div class="event-content">
+                <div class="event-type">threat.impossible_travel</div>
+                <div class="event-detail">NY → London · 2.3h gap</div>
+              </div>
+              <div class="event-time">14s ago</div>
+            </div>
+            <div class="event-item">
+              <div class="event-dot ev-blue"></div>
+              <div class="event-content">
+                <div class="event-type">policy.evaluate</div>
+                <div class="event-detail">action:export · DENIED · 7ms</div>
+              </div>
+              <div class="event-time">31s ago</div>
+            </div>
+          </div>
+          <div class="policy-panel">
+            <div class="policy-eval">
+              <div class="policy-header">
+                <span class="policy-title">Policy Evaluate — Latest</span>
+                <span class="policy-badge badge-deny">DENIED</span>
+              </div>
+              <div class="policy-rows">
+                <div class="policy-row">
+                  <span class="policy-key">actor</span>
+                  <span class="policy-val">user:a4f2b1</span>
+                </div>
+                <div class="policy-row">
+                  <span class="policy-key">action</span>
+                  <span class="policy-val">data:export</span>
+                </div>
+                <div class="policy-row">
+                  <span class="policy-key">ip_allowed</span>
+                  <span class="policy-val" style="color:#f87171">false</span>
+                </div>
+                <div class="policy-row">
+                  <span class="policy-key">matched_policy</span>
+                  <span class="policy-val">ip-allowlist-01</span>
+                </div>
+              </div>
+              <div class="latency-bar"><div class="latency-fill"></div></div>
+              <div class="latency-label">p99: 7ms</div>
+            </div>
+            <div class="threat-card">
+              <div class="threat-header">
+                <span class="threat-icon">⚠️</span>
+                <span class="threat-title">HIGH — Brute Force Detected</span>
+              </div>
+              <div class="threat-detail">11 failed logins in 3 min from 192.168.4.22. Account locked, alert triggered.</div>
+              <div class="threat-score">
+                <span class="score-label">Risk</span>
+                <div class="score-bar"><div class="score-fill"></div></div>
+                <span class="score-val">0.82</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features-section" id="features">
+  <div class="features-inner">
+    <div class="features-header reveal">
+      <div class="section-label">Platform capabilities</div>
+      <h2 class="section-title">Everything security teams need</h2>
+      <p class="section-sub">A complete enterprise security platform. One deployment, zero compromises.</p>
+    </div>
+
+    <div class="features-grid reveal">
+      <div class="feature-card">
+        <div class="feature-icon icon-blue">🪪</div>
+        <div class="feature-name">Identity & Access Management</div>
+        <p class="feature-desc">SAML 2.0, OIDC SSO, SCIM 2.0 provisioning, TOTP & WebAuthn MFA, API token lifecycle, and full session management with geo-tracking.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon icon-cyan">⚡</div>
+        <div class="feature-name">Real-Time Policy Engine</div>
+        <p class="feature-desc">RBAC evaluation at p99 &lt;30ms. IP allowlists, session limits, data security rules. Redis-cached. Fails closed — never grants access when unavailable.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon icon-rose">🔍</div>
+        <div class="feature-name">Threat Detection</div>
+        <p class="feature-desc">Streaming anomaly scoring for brute force, impossible travel, off-hours access, data exfiltration, account takeover, and privilege escalation.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon icon-purple">📜</div>
+        <div class="feature-name">Cryptographic Audit Log</div>
+        <p class="feature-desc">Append-only, HMAC hash-chained event trail. Tamper detection built in. 50,000 events/sec throughput with configurable multi-year retention.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon icon-orange">🔔</div>
+        <div class="feature-name">Alerting & SIEM Export</div>
+        <p class="feature-desc">Rule-based and ML-scored alerts. Slack, email, and SIEM webhook delivery. HMAC-signed payloads with replay protection.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon icon-green">📊</div>
+        <div class="feature-name">Compliance Reporting</div>
+        <p class="feature-desc">GDPR, SOC 2, HIPAA report generation. PDF output with digital timestamps. ClickHouse-backed analytics with sub-100ms dashboard queries.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SLO / PERFORMANCE -->
+<div class="slo-section" id="performance">
+  <div class="slo-inner">
+    <div class="slo-layout">
+      <div class="reveal">
+        <div class="section-label">Performance SLOs</div>
+        <h2 class="section-title">Built for<br>Fortune-500 scale</h2>
+        <p class="section-sub" style="margin-top:16px;">Every SLO is a hard target enforced by automated k6 load tests on every release. No phase ships until numbers pass.</p>
+
+        <div style="margin-top:36px; display:flex; flex-direction:column; gap:16px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0;"></div>
+            <span style="font-size:0.875rem;color:var(--muted2);">Transactional Outbox — zero audit gaps guaranteed</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0;"></div>
+            <span style="font-size:0.875rem;color:var(--muted2);">PostgreSQL RLS — zero cross-tenant data leakage</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0;"></div>
+            <span style="font-size:0.875rem;color:var(--muted2);">Circuit breakers on every inter-service call</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="slo-table-wrap reveal">
+        <table class="slo-table">
+          <thead>
+            <tr>
+              <th>Operation</th>
+              <th>p99</th>
+              <th>Throughput</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="slo-op">Login</td>
+              <td class="slo-num">150ms</td>
+              <td class="slo-through">2,000 req/s</td>
+            </tr>
+            <tr>
+              <td class="slo-op">Policy evaluate</td>
+              <td class="slo-num">30ms</td>
+              <td class="slo-through">10,000 req/s</td>
+            </tr>
+            <tr>
+              <td class="slo-op">JWT validation</td>
+              <td class="slo-num">5ms</td>
+              <td class="slo-through">50,000 req/s</td>
+            </tr>
+            <tr>
+              <td class="slo-op">Audit log query</td>
+              <td class="slo-num">100ms</td>
+              <td class="slo-through">1,000 req/s</td>
+            </tr>
+            <tr>
+              <td class="slo-op">Event → audit DB</td>
+              <td class="slo-num">2s</td>
+              <td class="slo-through">50,000 events/s</td>
+            </tr>
+            <tr>
+              <td class="slo-op">Compliance report</td>
+              <td class="slo-num-warn">30s</td>
+              <td class="slo-through">10 concurrent</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SECURITY -->
+<section class="security-section" id="security">
+  <div class="security-inner">
+    <div class="reveal">
+      <div class="section-label">Security by design</div>
+      <h2 class="section-title">Zero-trust architecture,<br>zero configuration required</h2>
+    </div>
+
+    <div class="security-grid">
+      <div class="security-card sc-blue reveal">
+        <div class="security-card-icon">🔐</div>
+        <div class="security-card-title">Multi-Tenancy Isolation</div>
+        <p class="security-card-desc">PostgreSQL Row-Level Security enforced at the database layer. A bug in application code cannot expose another org's data. Three isolation tiers: shared RLS, dedicated schema, or dedicated shard.</p>
+        <div class="tag-list">
+          <span class="tag">PostgreSQL RLS</span>
+          <span class="tag">FORCE ROW LEVEL</span>
+          <span class="tag">10k+ orgs</span>
+        </div>
+      </div>
+
+      <div class="security-card sc-cyan reveal">
+        <div class="security-card-icon">🔗</div>
+        <div class="security-card-title">mTLS Between Services</div>
+        <p class="security-card-desc">Every inter-service call uses mutual TLS. A compromised service cannot impersonate another. Per-service certificate rotation with zero downtime.</p>
+        <div class="tag-list">
+          <span class="tag">mTLS</span>
+          <span class="tag">Per-service certs</span>
+          <span class="tag">CA rotation</span>
+        </div>
+      </div>
+
+      <div class="security-card sc-purple reveal">
+        <div class="security-card-icon">🔄</div>
+        <div class="security-card-title">Zero-Downtime Secret Rotation</div>
+        <p class="security-card-desc">JWT signing uses key IDs. Multiple valid keys coexist during rotation windows. MFA secrets encrypted with AES-256-GCM with key versioning. One script to rotate everything.</p>
+        <div class="tag-list">
+          <span class="tag">JWT kid rotation</span>
+          <span class="tag">AES-256-GCM</span>
+          <span class="tag">Key versioning</span>
+        </div>
+      </div>
+
+      <div class="security-card sc-green reveal">
+        <div class="security-card-icon">📝</div>
+        <div class="security-card-title">Tamper-Proof Audit Trail</div>
+        <p class="security-card-desc">Every event is HMAC hash-chained to the previous event per org. Deleting or modifying any event is immediately detectable. Chain integrity verified on demand.</p>
+        <div class="tag-list">
+          <span class="tag">HMAC-SHA256 chains</span>
+          <span class="tag">Append-only</span>
+          <span class="tag">Integrity API</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPLIANCE BADGES -->
+<div class="compliance-section">
+  <div class="compliance-inner">
+    <div class="reveal">
+      <div class="section-label">Compliance ready</div>
+      <h3 style="font-family:'Syne',sans-serif;font-size:1.6rem;font-weight:700;letter-spacing:-0.02em;">Built-in reports for every framework</h3>
+    </div>
+    <div class="compliance-row reveal">
+      <div class="compliance-badge">
+        <span class="compliance-icon">🇪🇺</span>
+        <span class="compliance-name">GDPR</span>
+        <span class="compliance-note">Full PDF report</span>
+      </div>
+      <div class="compliance-badge">
+        <span class="compliance-icon">🔒</span>
+        <span class="compliance-name">SOC 2</span>
+        <span class="compliance-note">Type II ready</span>
+      </div>
+      <div class="compliance-badge">
+        <span class="compliance-icon">🏥</span>
+        <span class="compliance-name">HIPAA</span>
+        <span class="compliance-note">Audit trail</span>
+      </div>
+      <div class="compliance-badge">
+        <span class="compliance-icon">🛡️</span>
+        <span class="compliance-name">ISO 27001</span>
+        <span class="compliance-note">Evidence export</span>
+      </div>
+      <div class="compliance-badge">
+        <span class="compliance-icon">💳</span>
+        <span class="compliance-name">PCI DSS</span>
+        <span class="compliance-note">Access logs</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="cta-inner">
+    <div class="cta-box reveal">
+      <h2 class="cta-title">Ready to own your security stack?</h2>
+      <p class="cta-sub">Self-host in minutes. No vendor lock-in. Full source code access. Fortune-500 grade security for every team size.</p>
+      <div class="cta-actions">
+        <a href="#" class="btn-cta">Deploy OpenGuard free</a>
+        <a href="#" class="btn-cta-outline">Read the docs →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-inner">
+    <a href="#" class="footer-logo">
+      <div class="logo-icon" style="width:28px;height:28px;font-size:14px;">🛡</div>
+      OpenGuard
+    </a>
+    <ul class="footer-links">
+      <li><a href="#">Docs</a></li>
+      <li><a href="#">GitHub</a></li>
+      <li><a href="#">Changelog</a></li>
+      <li><a href="#">Security</a></li>
+      <li><a href="#">License</a></li>
+    </ul>
+    <span class="footer-copy">MIT License · Built for engineers, by engineers</span>
+  </div>
+</footer>
+
+<script>
+  // Scroll reveal
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry, i) => {
+      if (entry.isIntersecting) {
+        setTimeout(() => {
+          entry.target.classList.add('visible');
+        }, 80);
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  // Stagger feature cards
+  document.querySelectorAll('.feature-card').forEach((card, i) => {
+    card.style.transitionDelay = `${i * 60}ms`;
+  });
+
+  // Animate event stream items cycling
+  const events = [
+    { type: 'auth.login.success', detail: 'user@corp.io · Singapore, SG', color: 'ev-green', time: 'just now' },
+    { type: 'user.created', detail: 'new_hire@corp.io · SCIM provisioned', color: 'ev-blue', time: '3s ago' },
+    { type: 'auth.mfa.enrolled', detail: 'user@corp.io · WebAuthn', color: 'ev-green', time: '8s ago' },
+    { type: 'threat.brute_force', detail: '11 attempts · 203.0.113.5', color: 'ev-red', time: '12s ago' },
+    { type: 'policy.evaluate', detail: 'action:read · ALLOWED · 4ms', color: 'ev-blue', time: '18s ago' },
+  ];
+
+  let idx = 0;
+  const stream = document.querySelector('.event-stream');
+  if (stream) {
+    setInterval(() => {
+      const items = stream.querySelectorAll('.event-item');
+      if (items.length > 0) {
+        const last = items[items.length - 1];
+        const ev = events[idx % events.length];
+        idx++;
+
+        const newItem = document.createElement('div');
+        newItem.className = 'event-item';
+        newItem.innerHTML = `
+          <div class="event-dot ${ev.color}"></div>
+          <div class="event-content">
+            <div class="event-type">${ev.type}</div>
+            <div class="event-detail">${ev.detail}</div>
+          </div>
+          <div class="event-time">${ev.time}</div>
+        `;
+
+        // Update all times
+        items.forEach(item => {
+          const t = item.querySelector('.event-time');
+          const cur = t.textContent;
+          if (cur === 'just now') t.textContent = '3s ago';
+          else if (cur.endsWith('s ago')) {
+            const n = parseInt(cur) + 3;
+            t.textContent = n > 59 ? '1m ago' : `${n}s ago`;
+          }
+        });
+
+        stream.insertBefore(newItem, stream.children[1]);
+        if (stream.querySelectorAll('.event-item').length > 4) {
+          stream.removeChild(stream.lastElementChild);
+        }
+      }
+    }, 3000);
+  }
+</script>
+</body>
+</html>

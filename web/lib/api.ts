@@ -7,11 +7,39 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface User {
+  id: string;
+  org_id: string;
+  email: string;
+  display_name: string;
+  status: string;
+  mfa_enabled: boolean;
+  tier_isolation: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateUserRequest {
+  email: string;
+  display_name?: string;
+  password?: string;
+}
+
 export interface LoginResponse {
-  access_token: string;
+  token: string;
   refresh_token: string;
   expires_in: number;
-  token_type: string;
+  user: User;
+  org: Organization;
 }
 
 export interface RegisterRequest {
@@ -21,10 +49,39 @@ export interface RegisterRequest {
 }
 
 export interface RegisterResponse {
+  user: User;
+  org: Organization;
+  token: string;
+}
+
+export interface Policy {
+  id: string;
+  name: string;
+  effect: string;
+  actions: string[];
+  resources: string[];
+  subjects: string[];
+}
+
+export interface Connector {
+  id: string;
   org_id: string;
-  user_id: string;
-  access_token: string;
-  refresh_token: string;
+  name: string;
+  webhook_url: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListResponse<T> {
+  data: T[];
+  meta: {
+    total_items?: number;
+    total_pages?: number;
+    page?: number;
+    per_page?: number;
+    total?: number;
+  };
 }
 
 export interface ApiError {
@@ -62,6 +119,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw err;
   }
 
+  // Handle No Content
+  if (res.status === 204) {
+    return {} as T;
+  }
+
   return res.json() as Promise<T>;
 }
 
@@ -94,3 +156,173 @@ export async function logout(token: string): Promise<void> {
     headers: { Authorization: `Bearer ${token}` },
   });
 }
+
+/* ── Management API ── */
+
+export async function getUsers(token: string): Promise<ListResponse<User>> {
+  return request<ListResponse<User>>("/api/v1/users", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function createUser(token: string, data: CreateUserRequest): Promise<User> {
+  return request<User>("/api/v1/users", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getUserById(token: string, id: string): Promise<User> {
+  return request<User>(`/api/v1/users/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function updateUser(
+  token: string,
+  id: string,
+  data: { display_name?: string; status?: string }
+): Promise<User> {
+  return request<User>(`/api/v1/users/${id}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function suspendUser(token: string, id: string): Promise<User> {
+  return request<User>(`/api/v1/users/${id}/suspend`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function activateUser(token: string, id: string): Promise<User> {
+  return request<User>(`/api/v1/users/${id}/activate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function deleteUser(token: string, id: string): Promise<void> {
+  await request<void>(`/api/v1/users/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function getPolicies(token: string): Promise<ListResponse<Policy>> {
+  return request<ListResponse<Policy>>("/api/v1/policies", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function getThreats(token: string): Promise<ListResponse<any>> {
+  return request<ListResponse<any>>("/api/v1/threats", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function getAuditEvents(token: string): Promise<ListResponse<any>> {
+  return request<ListResponse<any>>("/api/v1/audit", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function getAlerts(token: string): Promise<ListResponse<any>> {
+  return request<ListResponse<any>>("/api/v1/alerts", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+/* ── Connector API ── */
+
+export async function getConnectors(token: string): Promise<ListResponse<Connector>> {
+  return request<ListResponse<Connector>>("/api/v1/admin/connectors", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function createConnector(token: string, data: { name: string; webhook_url: string }): Promise<Connector> {
+  return request<Connector>("/api/v1/admin/connectors", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateConnector(
+  token: string,
+  id: string,
+  data: Partial<{ name: string; webhook_url: string; scopes: string[] }>
+): Promise<Connector> {
+  return request<Connector>(`/api/v1/admin/connectors/${id}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function suspendConnector(token: string, id: string): Promise<void> {
+  await request<void>(`/api/v1/admin/connectors/${id}/suspend`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function activateConnector(token: string, id: string): Promise<void> {
+  await request<void>(`/api/v1/admin/connectors/${id}/activate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function deleteConnector(token: string, id: string): Promise<void> {
+  await request<void>(`/api/v1/admin/connectors/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+/* ── Policy CRUD API ── */
+
+export async function createPolicy(
+  token: string,
+  data: { name: string; description?: string; type: string; rules: object; enabled?: boolean }
+): Promise<Policy> {
+  return request<Policy>("/api/v1/policies", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updatePolicy(token: string, id: string, data: Partial<Policy>): Promise<Policy> {
+  return request<Policy>(`/api/v1/policies/${id}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deletePolicy(token: string, id: string): Promise<void> {
+  await request<void>(`/api/v1/policies/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function getPolicyEvalLogs(token: string): Promise<ListResponse<any>> {
+  return request<ListResponse<any>>("/api/v1/policy/eval-logs", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+/* ── Compliance API ── */
+
+export async function getComplianceReports(token: string): Promise<ListResponse<any>> {
+  return request<ListResponse<any>>("/api/v1/compliance", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+

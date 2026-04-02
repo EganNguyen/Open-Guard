@@ -3,34 +3,38 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/openguard/policy/pkg/service"
-	"github.com/openguard/policy/pkg/tenant"
+	"github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/models"
 )
 
 // orgIDFromCtx reads the org ID set by the router's injectOrgContext middleware.
 func orgIDFromCtx(ctx context.Context) string {
-	return tenant.OrgIDFromContext(ctx)
+	if v, ok := ctx.Value(middleware.TenantIDKey).(string); ok {
+		return v
+	}
+	return ""
 }
 
 func userIDFromCtx(ctx context.Context) string {
-	return tenant.UserIDFromContext(ctx)
+	if v, ok := ctx.Value("user_id").(string); ok {
+		return v
+	}
+	return ""
 }
 
 // PolicyHandler handles CRUD and evaluation of policies.
 type PolicyHandler struct {
-	policySvc    *service.PolicyService
-	evaluatorSvc *service.EvaluatorService
-	logger       *slog.Logger
+	svc    *service.Service
+	logger *slog.Logger
 }
 
-func NewPolicyHandler(policySvc *service.PolicyService, evaluatorSvc *service.EvaluatorService, logger *slog.Logger) *PolicyHandler {
-	return &PolicyHandler{policySvc: policySvc, evaluatorSvc: evaluatorSvc, logger: logger}
+func NewPolicyHandler(svc *service.Service, logger *slog.Logger) *PolicyHandler {
+	return &PolicyHandler{svc: svc, logger: logger}
 }
 
 // Evaluate handles POST /policies/evaluate
@@ -42,7 +46,7 @@ func (h *PolicyHandler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fall back to org from gateway context if not provided in body
+	// Fall back to org from control plane context if not provided in body
 	if req.OrgID == "" {
 		req.OrgID = orgIDFromCtx(r.Context())
 	}
@@ -51,11 +55,10 @@ func (h *PolicyHandler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.evaluatorSvc.Evaluate(r.Context(), req)
+	resp, err := h.svc.Evaluate(r.Context(), req)
 	if err != nil {
-		h.logger.Error("evaluate error", "error", err)
-		// Fail closed: deny on errors
-		resp = &service.EvalResponse{Permitted: false, Reason: "evaluation error — fail closed"}
+		models.HandleServiceError(w, r, err)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -82,9 +85,8 @@ func (h *PolicyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	p.OrgID = orgID
 	p.CreatedBy = userID
 
-	if err := h.policySvc.Create(r.Context(), &p); err != nil {
-		h.logger.Error("create policy error", "error", err)
-		writeError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create policy")
+	if err := h.svc.Create(r.Context(), &p); err != nil {
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -98,13 +100,9 @@ func (h *PolicyHandler) Get(w http.ResponseWriter, r *http.Request) {
 	orgID := orgIDFromCtx(r.Context())
 	policyID := chi.URLParam(r, "id")
 
-	p, err := h.policySvc.Get(r.Context(), orgID, policyID)
-	if errors.Is(err, errNotFound) {
-		writeError(w, r, http.StatusNotFound, "RESOURCE_NOT_FOUND", "policy not found")
-		return
-	}
+	p, err := h.svc.Get(r.Context(), orgID, policyID)
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fetch policy")
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -116,10 +114,9 @@ func (h *PolicyHandler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *PolicyHandler) List(w http.ResponseWriter, r *http.Request) {
 	orgID := orgIDFromCtx(r.Context())
 
-	policies, err := h.policySvc.List(r.Context(), orgID)
+	policies, err := h.svc.List(r.Context(), orgID)
 	if err != nil {
-		h.logger.Error("list policies error", "error", err)
-		writeError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list policies")
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -143,13 +140,8 @@ func (h *PolicyHandler) Update(w http.ResponseWriter, r *http.Request) {
 	p.ID = policyID
 	p.OrgID = orgID
 
-	if err := h.policySvc.Update(r.Context(), &p); err != nil {
-		if errors.Is(err, errNotFound) {
-			writeError(w, r, http.StatusNotFound, "RESOURCE_NOT_FOUND", "policy not found")
-			return
-		}
-		h.logger.Error("update policy error", "error", err)
-		writeError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update policy")
+	if err := h.svc.Update(r.Context(), &p); err != nil {
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
@@ -162,21 +154,14 @@ func (h *PolicyHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	orgID := orgIDFromCtx(r.Context())
 	policyID := chi.URLParam(r, "id")
 
-	if err := h.policySvc.Delete(r.Context(), orgID, policyID); err != nil {
-		if errors.Is(err, errNotFound) {
-			writeError(w, r, http.StatusNotFound, "RESOURCE_NOT_FOUND", "policy not found")
-			return
-		}
-		h.logger.Error("delete policy error", "error", err)
-		writeError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete policy")
+	if err := h.svc.Delete(r.Context(), orgID, policyID); err != nil {
+		models.HandleServiceError(w, r, err)
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// errNotFound is the sentinel for missing records.
-var errNotFound = errors.New("not found")
 
 func writeError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	models.WriteError(w, status, code, message, r)

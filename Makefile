@@ -5,30 +5,28 @@
 
 # Start all infrastructure, backend and frontend services for local development
 dev:
-	docker compose --env-file .env -f services/docker-compose.yml -f infra/docker/docker-compose.yml up -d
+	docker compose --env-file .env -f services/docker-compose.yml -f infra/docker/docker-compose.yml up -d --build
 	@echo "All infrastructure and services started."
 
 # Run all tests across the workspace
 test-unit:
-	go test ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
+	go test -cover ./services/controlplane/... ./services/iam/... ./services/policy/... ./services/audit/... ./shared/...
 
 # Run tests with race detector
 test-race:
-	go test -race ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
+	go test -cover -race ./services/controlplane/... ./services/iam/... ./services/policy/... ./services/audit/... ./shared/...
 
 # Run integration tests
 test-integration:
-	go test -tags=integration ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
+	go test -tags=integration ./services/controlplane/... ./services/iam/... ./services/policy/... ./services/audit/... ./shared/...
+
+# Run frontend E2E tests
+test-e2e:
+	cd web && npx playwright test
 
 # Lint all Go code
 lint:
-	golangci-lint run ./services/gateway/... ./services/iam/... ./services/policy/... ./shared/...
-
-# Build all services
-build:
-	go build -o bin/gateway ./services/gateway
-	go build -o bin/iam ./services/iam
-	go build -o bin/policy ./services/policy
+	golangci-lint run ./services/controlplane/... ./services/iam/... ./services/policy/... ./shared/...
 
 # Run database migrations
 migrate:

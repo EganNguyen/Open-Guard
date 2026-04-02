@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import styles from "./login.module.css";
+import { login } from "@/lib/api";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectUri = searchParams.get("redirect_uri");
+  
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,11 +22,22 @@ export default function LoginPage() {
     setError("");
 
     try {
-      // TODO: Replace with real API call when backend is ready
-      // const res = await login({ email, password });
-      // localStorage.setItem("access_token", res.access_token);
-      await new Promise((r) => setTimeout(r, 800));
-      router.push("/dashboard");
+      const res = await login({ email, password });
+      localStorage.setItem("access_token", res.token);
+      localStorage.setItem("refresh_token", res.refresh_token);
+      localStorage.setItem("user", JSON.stringify(res.user));
+      localStorage.setItem("org", JSON.stringify(res.org));
+      
+      if (redirectUri) {
+        // Append token and user info to redirect URI for the example app
+        const url = new URL(redirectUri);
+        url.searchParams.set("access_token", res.token);
+        url.searchParams.set("refresh_token", res.refresh_token);
+        url.searchParams.set("user_id", res.user.id);
+        window.location.href = url.toString();
+      } else {
+        router.push("/dashboard");
+      }
     } catch {
       setError("Invalid email or password");
     } finally {
@@ -103,5 +118,13 @@ export default function LoginPage() {
       {/* Decorative glow */}
       <div className={styles.glow} />
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div>Loading login...</div>}>
+      <LoginContent />
+    </Suspense>
   );
 }

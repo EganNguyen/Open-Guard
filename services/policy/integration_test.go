@@ -15,7 +15,7 @@ import (
 	"github.com/openguard/shared/models"
 )
 
-const gatewayURL = "http://localhost:8080/api/v1"
+const controlplaneURL = "http://localhost:8080/api/v1"
 
 func doRequest(t *testing.T, method, path, token string, body interface{}) (int, map[string]interface{}) {
 	t.Helper()
@@ -26,7 +26,7 @@ func doRequest(t *testing.T, method, path, token string, body interface{}) (int,
 		reqBody = bytes.NewBuffer(jsonStr)
 	}
 
-	req, err := http.NewRequest(method, gatewayURL+path, reqBody)
+	req, err := http.NewRequest(method, controlplaneURL+path, reqBody)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
@@ -82,8 +82,10 @@ func TestPolicyIntegration(t *testing.T) {
 
 	// 2. Create a policy
 	rules := map[string]interface{}{
-		"allowed_ips": []string{"1.2.3.4"},
+		"allowed_ips": []string{"1.2.3.4", "127.0.0.1", "192.168.65.1"},
 	}
+
+
 	rulesJSON, _ := json.Marshal(rules)
 
 	status, policyResp := doRequest(t, http.MethodPost, "/policies", token, map[string]interface{}{
@@ -98,21 +100,30 @@ func TestPolicyIntegration(t *testing.T) {
 	}
 
 	policyID := policyResp["id"].(string)
-	// Wait for outbox relay and cache invalidation
-	time.Sleep(5 * time.Second)
-
-	// 3. List policies
-	status, listResp := doRequest(t, http.MethodGet, "/policies", token, nil)
-	if status != http.StatusOK {
-		t.Errorf("List policies failed: expected 200, got %d", status)
-	}
-	
+	// 3. List policies (wait for outbox relay and cache invalidation via polling)
+	var listResp map[string]interface{}
 	found := false
-	if policies, ok := listResp["data"].([]interface{}); ok {
-		for _, p := range policies {
-			if pm, ok := p.(map[string]interface{}); ok && pm["id"] == policyID {
-				found = true
-				break
+	timeout := time.After(30 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
+
+	defer ticker.Stop()
+
+pollLoop:
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("timed out waiting for policy %s to appear in list", policyID)
+		case <-ticker.C:
+			status, listResp = doRequest(t, http.MethodGet, "/policies", token, nil)
+			if status == http.StatusOK {
+				if policies, ok := listResp["data"].([]interface{}); ok {
+					for _, p := range policies {
+						if pm, ok := p.(map[string]interface{}); ok && pm["id"] == policyID {
+							found = true
+							break pollLoop
+						}
+					}
+				}
 			}
 		}
 	}

@@ -13,13 +13,13 @@ import (
 )
 
 type TokenHandler struct {
-	userService *service.UserService
+	iamService *service.Service
 	logger      *slog.Logger
 }
 
-func NewTokenHandler(userService *service.UserService, logger *slog.Logger) *TokenHandler {
+func NewTokenHandler(iamService *service.Service, logger *slog.Logger) *TokenHandler {
 	return &TokenHandler{
-		userService: userService,
+		iamService: iamService,
 		logger:      logger,
 	}
 }
@@ -36,9 +36,6 @@ type CreateTokenResponse struct {
 }
 
 func (h *TokenHandler) Create(w http.ResponseWriter, r *http.Request) {
-	_ = chi.URLParam(r, "id")
-	_ = r.Header.Get("X-Org-ID")
-
 	var req CreateTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		models.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body", r)
@@ -58,12 +55,15 @@ func (h *TokenHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := chi.URLParam(r, "id")
-	orgID := r.Header.Get("X-Org-ID")
+	orgID := orgIDFromCtx(r)
+	if orgID == "" {
+		models.WriteError(w, http.StatusBadRequest, "MISSING_ORG", "Org ID is required", r)
+		return
+	}
 
-	token, rawToken, err := h.userService.CreateAPIToken(r.Context(), orgID, userID, req.Name, req.Scopes, expiresAt)
+	token, rawToken, err := h.iamService.CreateAPIToken(r.Context(), orgID, userID, req.Name, req.Scopes, expiresAt)
 	if err != nil {
-		h.logger.Error("failed to create api token", "error", err, "user_id", userID, "org_id", orgID)
-		models.WriteError(w, http.StatusInternalServerError, "CREATE_FAILED", err.Error(), r)
+		models.HandleServiceError(w, r, err)
 		return
 	}
 

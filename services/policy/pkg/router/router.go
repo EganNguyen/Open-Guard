@@ -20,7 +20,7 @@ type Config struct {
 }
 
 // New constructs the chi router for the policy service.
-// JWT authentication is done by the gateway; it injects X-Org-ID and X-User-ID headers.
+// JWT authentication is done by the control plane; it injects X-Org-ID and X-User-ID headers.
 func New(cfg Config) *chi.Mux {
 	r := chi.NewRouter()
 
@@ -32,7 +32,7 @@ func New(cfg Config) *chi.Mux {
 	r.Get("/health/live", healthHandler)
 	r.Get("/health/ready", healthHandler)
 
-	// All policy routes require a tenant context from the gateway-injected X-Org-ID header.
+	// All policy routes require a tenant context from the control plane-injected X-Org-ID header.
 	r.Group(func(r chi.Router) {
 		r.Use(injectOrgContext)
 
@@ -48,7 +48,7 @@ func New(cfg Config) *chi.Mux {
 	return r
 }
 
-// injectOrgContext reads X-Org-ID and X-User-ID gateway headers and puts them in context.
+// injectOrgContext reads X-Org-ID and X-User-ID control plane headers and puts them in context.
 func injectOrgContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		orgID := r.Header.Get("X-Org-ID")

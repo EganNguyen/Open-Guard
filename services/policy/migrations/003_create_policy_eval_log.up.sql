@@ -14,9 +14,22 @@ CREATE TABLE IF NOT EXISTS policy_eval_log (
     evaluated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_policy_eval_org_user ON policy_eval_log(org_id, user_id, evaluated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_policy_eval_org_user ON policy_eval_log(org_id, user_id, evaluated_at DESC);
 
 ALTER TABLE policy_eval_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE policy_eval_log FORCE ROW LEVEL SECURITY;
-CREATE POLICY policy_eval_org_isolation ON policy_eval_log
-    USING (org_id = current_setting('app.org_id', true)::UUID);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'policy_eval_log'
+          AND policyname = 'policy_eval_org_isolation'
+    ) THEN
+        CREATE POLICY policy_eval_org_isolation
+            ON policy_eval_log
+            USING (org_id = current_setting('app.org_id', true)::UUID);
+    END IF;
+END
+$$;

@@ -23,13 +23,7 @@ type APIToken struct {
 	CreatedAt  time.Time  `json:"created_at"`
 }
 
-type APITokenRepository struct{}
-
-func NewAPITokenRepository() *APITokenRepository {
-	return &APITokenRepository{}
-}
-
-func (r *APITokenRepository) Create(ctx context.Context, tx pgx.Tx, userID, orgID, name, tokenHash, prefix string, scopes []string, expiresAt *time.Time) (*APIToken, error) {
+func (r *Repository) CreateAPIToken(ctx context.Context, tx pgx.Tx, userID, orgID, name, tokenHash, prefix string, scopes []string, expiresAt *time.Time) (*APIToken, error) {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
@@ -47,7 +41,7 @@ func (r *APITokenRepository) Create(ctx context.Context, tx pgx.Tx, userID, orgI
 	return t, nil
 }
 
-func (r *APITokenRepository) ListByUser(ctx context.Context, tx pgx.Tx, orgID, userID string) ([]*APIToken, error) {
+func (r *Repository) ListAPITokensByUser(ctx context.Context, tx pgx.Tx, orgID, userID string) ([]*APIToken, error) {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
@@ -73,7 +67,7 @@ func (r *APITokenRepository) ListByUser(ctx context.Context, tx pgx.Tx, orgID, u
 	return tokens, nil
 }
 
-func (r *APITokenRepository) Revoke(ctx context.Context, tx pgx.Tx, orgID, id string) error {
+func (r *Repository) RevokeAPIToken(ctx context.Context, tx pgx.Tx, orgID, id string) error {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return fmt.Errorf("rls config: %w", err)
 	}

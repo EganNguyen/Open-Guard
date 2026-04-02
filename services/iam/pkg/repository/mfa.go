@@ -20,13 +20,7 @@ type MFAConfig struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-type MFARepository struct{}
-
-func NewMFARepository() *MFARepository {
-	return &MFARepository{}
-}
-
-func (r *MFARepository) Create(ctx context.Context, tx pgx.Tx, orgID, userID, mfaType, secret string) (*MFAConfig, error) {
+func (r *Repository) CreateMFAConfig(ctx context.Context, tx pgx.Tx, orgID, userID, mfaType, secret string) (*MFAConfig, error) {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
@@ -45,7 +39,7 @@ func (r *MFARepository) Create(ctx context.Context, tx pgx.Tx, orgID, userID, mf
 	return m, nil
 }
 
-func (r *MFARepository) Verify(ctx context.Context, tx pgx.Tx, orgID, userID string) error {
+func (r *Repository) VerifyMFA(ctx context.Context, tx pgx.Tx, orgID, userID string) error {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return fmt.Errorf("rls config: %w", err)
 	}
@@ -54,7 +48,7 @@ func (r *MFARepository) Verify(ctx context.Context, tx pgx.Tx, orgID, userID str
 	return err
 }
 
-func (r *MFARepository) GetByUserID(ctx context.Context, tx pgx.Tx, orgID, userID string) (*MFAConfig, error) {
+func (r *Repository) GetMFAByUserID(ctx context.Context, tx pgx.Tx, orgID, userID string) (*MFAConfig, error) {
 	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}

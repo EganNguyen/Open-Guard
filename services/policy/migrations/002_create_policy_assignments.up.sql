@@ -10,13 +10,26 @@ CREATE TABLE IF NOT EXISTS policy_assignments (
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_policy_assignments_org ON policy_assignments(org_id);
-CREATE INDEX idx_policy_assignments_policy ON policy_assignments(policy_id);
-CREATE INDEX idx_policy_assignments_principal ON policy_assignments(org_id, principal_id, principal_type);
-CREATE UNIQUE INDEX idx_policy_assignments_unique ON policy_assignments(policy_id, principal_id, principal_type);
+CREATE INDEX IF NOT EXISTS idx_policy_assignments_org ON policy_assignments(org_id);
+CREATE INDEX IF NOT EXISTS idx_policy_assignments_policy ON policy_assignments(policy_id);
+CREATE INDEX IF NOT EXISTS idx_policy_assignments_principal ON policy_assignments(org_id, principal_id, principal_type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_policy_assignments_unique ON policy_assignments(policy_id, principal_id, principal_type);
 
 ALTER TABLE policy_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE policy_assignments FORCE ROW LEVEL SECURITY;
-CREATE POLICY policy_assignments_org_isolation ON policy_assignments
-    USING (org_id = current_setting('app.org_id', true)::UUID)
-    WITH CHECK (org_id = current_setting('app.org_id', true)::UUID);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'policy_assignments'
+          AND policyname = 'policy_assignments_org_isolation'
+    ) THEN
+        CREATE POLICY policy_assignments_org_isolation
+            ON policy_assignments
+            USING (org_id = current_setting('app.org_id', true)::UUID)
+            WITH CHECK (org_id = current_setting('app.org_id', true)::UUID);
+    END IF;
+END
+$$;

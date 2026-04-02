@@ -1,7 +1,9 @@
-go 1.24.0
+go 1.25.0
 
 use (
-	./services/gateway
+	./examples/todoapp
+	./services/audit
+	./services/controlplane
 	./services/iam
 	./services/policy
 	./shared

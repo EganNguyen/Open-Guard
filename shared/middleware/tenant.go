@@ -8,6 +8,7 @@ import (
 type tenantContextKey string
 
 const TenantIDKey tenantContextKey = "tenant_id"
+const ConnectorIDKey tenantContextKey = "connector_id"
 
 // RequireTenant ensures the request is targeting a specific organization (tenant).
 func RequireTenant(next http.Handler) http.Handler {

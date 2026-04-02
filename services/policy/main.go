@@ -88,15 +88,14 @@ func main() {
 	policyRepo := repository.NewPolicyRepository(pool, outboxWriter)
 
 	// ── Services ────────────────────────────────────────
-	policySvc := service.NewPolicyService(policyRepo)
-	evaluatorSvc := service.NewEvaluatorService(policyRepo, rdb, cfg.CacheTTLSeconds, logger)
+	policySvc := service.New(policyRepo, rdb, cfg.CacheTTLSeconds, logger)
 
 	// ── Cache Invalidation Consumer ─────────────────────
-	cacheInvalidator := service.NewCacheInvalidator(evaluatorSvc, brokers, logger)
+	cacheInvalidator := service.NewCacheInvalidator(policySvc, brokers, logger)
 	go cacheInvalidator.Start(ctx)
 
 	// ── Handlers + Router ───────────────────────────────
-	policyHandler := handlers.NewPolicyHandler(policySvc, evaluatorSvc, logger)
+	policyHandler := handlers.NewPolicyHandler(policySvc, logger)
 	r := router.New(router.Config{
 		PolicyHandler: policyHandler,
 		Logger:        logger,

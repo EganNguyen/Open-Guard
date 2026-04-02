@@ -11,14 +11,14 @@ import (
 
 // CacheInvalidator subscribes to policy.changes events and clears the Redis cache per org.
 type CacheInvalidator struct {
-	evaluator *EvaluatorService
+	evaluator *Service
 	reader    *kafkago.Reader
 	logger    *slog.Logger
 }
 
 // NewCacheInvalidator creates a Kafka consumer that listens on policy.changes
 // and calls InvalidateCacheForOrg whenever a policy is created, updated, or deleted.
-func NewCacheInvalidator(evaluator *EvaluatorService, brokers []string, logger *slog.Logger) *CacheInvalidator {
+func NewCacheInvalidator(evaluator *Service, brokers []string, logger *slog.Logger) *CacheInvalidator {
 	reader := kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:  brokers,
 		Topic:    "policy.changes",
@@ -52,7 +52,9 @@ func (c *CacheInvalidator) Start(ctx context.Context) {
 		var envelope models.EventEnvelope
 		if err := json.Unmarshal(msg.Value, &envelope); err != nil {
 			c.logger.Error("failed to unmarshal policy change event", "error", err)
-			_ = c.reader.CommitMessages(ctx, msg)
+			if commitErr := c.reader.CommitMessages(ctx, msg); commitErr != nil {
+				c.logger.Error("failed to commit message after unmarshal error", "error", commitErr)
+			}
 			continue
 		}
 
@@ -62,7 +64,9 @@ func (c *CacheInvalidator) Start(ctx context.Context) {
 			}
 		}
 
-		_ = c.reader.CommitMessages(ctx, msg)
+		if err := c.reader.CommitMessages(ctx, msg); err != nil {
+			c.logger.Error("failed to commit message", "error", err)
+		}
 	}
 }
 

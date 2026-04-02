@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5"
 	"github.com/openguard/shared/models"
 )
 
@@ -19,11 +19,6 @@ func NewWriter() *Writer {
 	return &Writer{TableName: "outbox_records"}
 }
 
-// Execer interface handles *pgxpool.Conn and pgx.Tx
-type Execer interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-}
-
 func (w *Writer) getTableName() string {
 	if w.TableName == "" {
 		return "outbox_records"
@@ -31,7 +26,7 @@ func (w *Writer) getTableName() string {
 	return w.TableName
 }
 
-func (w *Writer) Write(ctx context.Context, tx Execer, topic string, partitionKey string, envelope models.EventEnvelope) error {
+func (w *Writer) Write(ctx context.Context, tx pgx.Tx, topic string, partitionKey string, envelope models.EventEnvelope) error {
 	payloadBytes, err := json.Marshal(envelope)
 	if err != nil {
 		return err

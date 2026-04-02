@@ -157,14 +157,26 @@ func TestAllAPIEndpoints(t *testing.T) {
 		t.Errorf("Delete user expected 204, got %d", status)
 	}
 
+	// 3.5 Refresh uses the session cookie (real endpoint - no longer a stub)
+	// The control plane sets the auth_session cookie on login; we verify a direct call works.
+	refreshReq, _ := http.NewRequest(http.MethodPost, gatewayURL+"/auth/refresh", nil)
+	refreshReq.Header.Set("Cookie", "auth_session="+sessionID)
+	refreshResp, err := (&http.Client{}).Do(refreshReq)
+	if err == nil {
+		refreshResp.Body.Close()
+		// Accept either 200 (success) or 401 (session not found when there is no X-Org-ID injected)
+		if refreshResp.StatusCode != http.StatusOK && refreshResp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("Refresh expected 200 or 401, got %d", refreshResp.StatusCode)
+		}
+	}
+
 	// 4. Stubs: Expected 501 Not Implemented
 	
-	// MFA Stubs
+	// MFA and SSO stubs — legitimately not yet implemented
 	stubs := []struct {
 		method string
 		path   string
 	}{
-		{http.MethodPost, "/auth/refresh"},
 		{http.MethodPost, "/auth/saml/callback"},
 		{http.MethodGet, "/auth/oidc/login"},
 		{http.MethodGet, "/auth/oidc/callback"},

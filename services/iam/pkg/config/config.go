@@ -9,11 +9,12 @@ import (
 
 type IAMConfig struct {
 	Port      string
-	JWTKeys   []crypto.JWTKey
-	MFAKeys   []crypto.AESKey
-	JWTExpiry int
-	AppEnv    string
-	LogLevel  string
+	JWTKeys            []crypto.JWTKey
+	MFAKeys            []crypto.AESKey
+	JWTExpiry          int
+	SessionIdleTimeout int
+	AppEnv             string
+	LogLevel           string
 
 	// mTLS
 	TLSCertPath string
@@ -40,11 +41,12 @@ func Load() *IAMConfig {
 	sharedcfg.MustJSON("IAM_MFA_ENCRYPTION_KEYS_JSON", &mfaKeys)
 
 	return &IAMConfig{
-		Port:      sharedcfg.Default("IAM_PORT", "8081"),
-		JWTKeys:   jwtKeys,
-		MFAKeys:   mfaKeys,
-		JWTExpiry: sharedcfg.DefaultInt("GATEWAY_JWT_EXPIRY", 3600),
-		AppEnv:    sharedcfg.Default("APP_ENV", "development"),
+		Port:               sharedcfg.Default("IAM_PORT", "8081"),
+		JWTKeys:            jwtKeys,
+		MFAKeys:            mfaKeys,
+		JWTExpiry:          sharedcfg.DefaultInt("IAM_JWT_EXPIRY", 900),
+		SessionIdleTimeout: sharedcfg.DefaultInt("IAM_SESSION_IDLE_TIMEOUT", 3600),
+		AppEnv:             sharedcfg.Default("APP_ENV", "development"),
 		LogLevel:  sharedcfg.Default("LOG_LEVEL", "info"),
 
 		TLSCertPath: sharedcfg.Must("TLS_CERT_PATH"),

@@ -17,7 +17,8 @@ type EventEnvelope struct {
 	Source     string          `json:"source"`      // originating service: "iam", "policy", etc.
 	TraceID    string          `json:"trace_id"`    // OpenTelemetry W3C trace ID
 	SpanID     string          `json:"span_id"`     // OpenTelemetry span ID
-	SchemaVer  string          `json:"schema_ver"`  // "1.0" — increment on breaking changes
-	Idempotent string          `json:"idempotent"`  // dedup key for consumers
-	Payload    json.RawMessage `json:"payload"`     // event-specific struct, JSON encoded
+	SchemaVer   string          `json:"schema_ver"`  // "1.0" — increment on breaking changes
+	Idempotent  string          `json:"idempotent"`  // dedup key for consumers
+	EventSource string          `json:"event_source"` // connector ID or service name
+	Payload     json.RawMessage `json:"payload"`      // event-specific struct, JSON encoded
 }
