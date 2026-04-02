@@ -10,52 +10,42 @@ OpenGuard provides a unified security control plane built on 10 core Go microser
 
 | Service | Category | Capabilities | Security Guarantee | Status |
 |:--- |:--- |:--- |:--- | :--- |
-| **`iam`** | **Identity** | SSO (SAML/OIDC), SCIM 2.0, MFA (WebAuthn), API Tokens | Zero-downtime key rotation & PBKDF2 | **Implemented** |
-| **`policy`** | **Authorization** | Sub-30ms RBAC/ABAC evaluation, IP Allowlisting | Fail-Closed on service unavailability | **Implemented** |
-| **`audit`** | **Assurance** | Hash-Chained, append-only event trail | Cryptographically verifiable integrity | **Implemented** |
+| **`iam`** | **Identity** | OIDC/SAML IdP, SSO, SCIM 2.0, TOTP/WebAuthn, Session Revocation | Zero-downtime key rotation & PBKDF2 | **Implemented** |
+| **`policy`** | **Authorization** | Real-time RBAC/ABAC SDK evaluation, Local 60s caching | Fail-Closed on service unavailability | **Implemented** |
+| **`audit`** | **Assurance** | HMAC Hash-Chained, append-only event trail | Cryptographically verifiable integrity | **Implemented** |
 | **`control-plane`** | **Management** | Centralized API, Ingestion Gateway, Dashboard Backend | Standardized mTLS service mesh | **Implemented** |
+| **`connector-registry`** | **Management** | App registration, Org-scoped API credentials | Fast-hash prefix Redis lookup | **Implemented** |
 | **`alerting`** | **Alerting** | SIEM (Splunk/CrowdStrike), Slack, and Email delivery | HMAC-signed webhook export | **Roadmap (Phase 4)** |
-| **`threat`** | **Detection** | Streaming anomaly scoring (ATO, Geo-velocity) | Detection latency < 5s | **Roadmap (Phase 4)** |
+| **`threat`** | **Detection** | Streaming anomaly scoring (ATO, Geo-velocity, Privilege escalation) | Detection latency < 5s | **Roadmap (Phase 4)** |
 | **`webhook-delivery`** | **Automation** | Outbound webhooks to Connected Apps | Exactly-once delivery via Outbox | **Roadmap (Phase 4)** |
-| **`compliance`**| **Analytics** | ClickHouse reports (GDPR, SOC 2, HIPAA) | Real-time dashboards for 100M+ events | **Roadmap (Phase 5)** |
+| **`compliance`**| **Analytics** | ClickHouse reports (GDPR, SOC 2, HIPAA), PDF output | Real-time dashboards for 100M+ events | **Roadmap (Phase 5)** |
 | **`dlp`** | **Data Protection** | Real-time PII, Credential, and Financial data scanning | Inline blocking & Audit log masking | **Roadmap (Phase 10)** |
-
-## 📊 Canonical SLOs (Performance Targets)
-
-OpenGuard is engineered for hard performance targets. These SLOs are verified via `k6` load tests in Phase 8.
-
-| Operation | p50 | p99 | Throughput |
-|-----------|-----|-----|------------|
-| `POST /oauth/token` (IAM OIDC) | 40ms | 150ms | 2,000 req/s |
-| `POST /v1/policy/evaluate` (uncached) | 5ms | 30ms | 10,000 req/s |
-| `POST /v1/policy/evaluate` (Redis cached) | 1ms | 5ms | 10,000 req/s |
-| `POST /v1/events/ingest` (connector push) | 10ms | 50ms | 20,000 req/s |
-| `GET /audit/events` (paginated) | 20ms | 100ms | 1,000 req/s |
-| Kafka event → audit DB insert | — | 2s | 50,000 events/s |
-| Compliance report generation | — | 30s | 10 concurrent |
 
 ### 🚀 Organization Security Capability Analysis
 
 | Domain | Capability in OpenGuard | Status |
 | :--- | :--- | :--- |
-| **Security & Privacy** | Multi-tenancy isolation via PostgreSQL RLS, zero cross-tenant leakage, and cryptographically verifiable audit trails. | **Core Architecture** |
-| **IAM** | SSO (SAML/OIDC), SCIM 2.0 provisioning, and MFA (WebAuthn/TOTP) via the `iam` service. | **Implemented** |
-| **Secrets Management** | Secrets (keys, tokens) are loaded via **Environment Variables**. Support for local `.env` and production-grade managers like Vault/AWS SM. | **Flexible (Env Vars)** |
-| **Threat Detection** | Streaming anomaly scoring for Account Takeover (ATO), Geo-velocity, and Brute-force. | **Roadmap (Phase 4)** |
-| **Network Security** | Zero-trust service mesh using mTLS and short-lived certificates (SPIFFE). *Note: Not a WAF or network firewall.* | **Core Architecture** |
-| **Data Security** | Data Loss Prevention (DLP) for PII/financial scanning and row-level security (RLS). | **Roadmap (Phase 10)** |
-| **Application Security** | Real-time RBAC/ABAC policy evaluation via the `policy` engine and integration SDK. | **Implemented** |
-| **Fraud Prevention** | Detection of anomalous patterns like impossible travel and brute force in the `threat` service. | **Roadmap (Phase 4)** |
+| **Identity (IAM)** | SSO (SAML/OIDC), SCIM 2.0 provisioning, and Phishing-resistant MFA (WebAuthn). | **Implemented** |
+| **Authorization** | Real-time RBAC/ABAC evaluation with SDK-side caching and fail-closed security. | **Implemented** |
+| **Audit & Compliance**| HMAC Hash-chained, cryptographically verifiable logs. GDPR/SOC2/HIPAA reporting. | **Implemented** |
+| **Infrastructure** | Multi-tenant isolation via PG RLS, exactly-once delivery via Outbox, and mTLS mesh. | **Core Architecture** |
+| **Threat Detection** | Streaming anomaly scoring for ATO, geo-velocity, and privilege escalation. | **Roadmap (Phase 4)** |
+| **Automation** | Outbound webhooks to connected apps with signed payloads and exactly-once delivery. | **Roadmap (Phase 4)** |
+| **Data Security** | Real-time Content Scanning & DLP for PII, credentials, and financial data detection. | **Roadmap (Phase 10)** |
+| **Management** | Centralized Connector Registry for app onboarding and SDK credential lifecycle. | **Implemented** |
 
 ## 🏗️ Enterprise Architecture
 
-OpenGuard is built for high-scale, zero-trust environments (100k+ users, millions of events/day):
+OpenGuard is built for high-scale, zero-trust environments (100k+ users, millions of events/day) using a defense-in-depth approach:
 
-- **Row-Level Security (RLS):** All multi-tenancy isolation is enforced at the database layer (PostgreSQL).
-- **Transactional Outbox:** Every Kafka publish is buffered via a transactional outbox to ensure exactly-once audit trails.
-- **Resilience & Circuit Breakers:** Every inter-service call wraps a circuit breaker with fail-closed security decisions.
-- **CQRS & Saga Pattern:** Clean separation of read/write paths and atomic distributed transactions (Sagas) for provisioning.
-- **Zero-Trust internals:** All internal service-to-service communication is secured via mTLS.
+- **Fail-Closed Security:** Policy evaluation fails to "Deny" if the control plane is unreachable and local cache has expired.
+- **Transactional Outbox:** Prevents the "Dual-Write" problem. Business logic and audit events are committed atomically in PostgreSQL.
+- **Row-Level Security (RLS):** Native PostgreSQL RLS ensures zero cross-tenant data leakage at the database layer.
+- **Immutable Audit Trail:** Append-only MongoDB logs with per-organization HMAC hash-chaining for cryptographically verifiable integrity.
+- **Choreography-Based Sagas:** All distributed provisioning (e.g., SCIM user creation) uses Kafka-based sagas with automated compensation.
+- **Access Token Revocation:** Real-time JWT `jti` revocation via Redis blocklist for immediate session termination.
+- **Zero-Trust Internals:** Mandatory mTLS with short-lived certificates for all inter-service communication.
+- **Resilience Engineering:** Every external call or inter-service request is wrapped in a circuit breaker with a defined fallback.
 
 ## 🔐 System Architecture & Security Ecosystem
 
@@ -135,23 +125,26 @@ graph TD
 
 ## 💻 Tech Stack
 
-- **Backend:** Go 1.22 (Microservices: `controlplane`, `iam`, `policy`, `audit`, `threat`, `alerting`, `compliance`, `dlp`, `webhook-delivery`)
-- **Frontend:** Next.js 14
-- **Databases:** PostgreSQL 16 (Primary data & Outbox), MongoDB 7 (Audit Logs), ClickHouse 24 (Analytics & Compliance)
-- **Event Bus & Cache:** Kafka 3.6, Redis 7
+- **Backend:** Go 1.22 (Microservices: `control-plane`, `connector-registry`, `iam`, `policy`, `audit`, `threat`, `alerting`, `webhook-delivery`, `compliance`, `dlp`)
+- **Frontend:** Next.js 14 (Admin Dashboard)
+- **Databases:** PostgreSQL 16 (Primary & Outbox), MongoDB 7 (Audit Logs), ClickHouse 24 (Analytics), Redis 7 (Cache & JWT Blocklist)
+- **Event Bus:** Kafka 3.6
 - **Observability:** OpenTelemetry, Prometheus, Grafana, Jaeger
 
 ## 📂 Repository Layout
 
 ```text
 openguard/
-├── services/           # Go microservices (iam, policy, audit, controlplane, etc.)
-├── shared/             # Shared Go module (Kafka outbox, RLS middleware, crypto, models)
-├── web/                # Next.js 14 Admin Console
-├── docs/               # System specification, runbooks, and API definitions
-├── infra/              # Docker Compose, K8s manifests, Kafka topics
-├── proto/              # Protobuf definitions
-└── loadtest/           # k6 load testing scripts
+├── services/           # Go microservices (iam, policy, audit, etc.)
+│   └── (10 services)   # Each with migrations/ pkg/ router/
+├── sdk/                # Multi-tenant Policy & Event SDK (Go)
+├── shared/             # Shared logic (Outbox, RLS, Crypto, Models)
+├── web/                # Next.js 14 Admin Dashboard
+├── docs/               # Architecture, API spec, and Runbooks
+├── infra/              # Docker, Helm charts, and Monitoring
+├── proto/              # Protobuf & gRPC definitions
+├── scripts/            # Life-cycle scripts (gen-mtls-certs.sh, migrate.sh)
+└── loadtest/           # k6 performance validation scripts
 ```
 
 ## 🚀 Getting Started
@@ -196,13 +189,11 @@ openguard/
 6. **Run E2E Tests:**
    ```bash
    cd web
-   npx playwright test e2e/register.spec.ts --headed
-   npx playwright test e2e/login.spec.ts --headed
-   npx playwright test e2e/dashboard.spec.ts --headed
-   npx playwright test e2e/iam.spec.ts --headed
-   npx playwright test e2e/policy.spec.ts --headed
-   npx playwright test e2e/audit.spec.ts --headed
-   npx playwright test e2e/controlplane.spec.ts --headed
+   npx playwright test e2e/real/register.real.spec.ts --headed
+   npx playwright test e2e/real/login.real.spec.ts --headed
+   npx playwright test e2e/real/dashboard.real.spec.ts --headed
+   npx playwright test e2e/real/policy.real.spec.ts --headed
+   npx playwright test e2e/real/phase_1_3_real.spec.ts --headed
    ```
 
 7. **Run Load Testing (k6):**
