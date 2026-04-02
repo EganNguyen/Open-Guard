@@ -41,7 +41,7 @@ func scanUser(row pgx.Row) (*User, error) {
 }
 
 func (r *Repository) CreateUser(ctx context.Context, tx pgx.Tx, orgID, email, displayName string, passwordHash *string) (*User, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -59,7 +59,7 @@ func (r *Repository) CreateUser(ctx context.Context, tx pgx.Tx, orgID, email, di
 }
 
 func (r *Repository) GetUserByID(ctx context.Context, tx pgx.Tx, orgID, id string) (*User, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -71,7 +71,7 @@ func (r *Repository) GetUserByID(ctx context.Context, tx pgx.Tx, orgID, id strin
 }
 
 func (r *Repository) GetUserByEmail(ctx context.Context, tx pgx.Tx, orgID, email string) (*User, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -84,7 +84,7 @@ func (r *Repository) GetUserByEmail(ctx context.Context, tx pgx.Tx, orgID, email
 
 func (r *Repository) GetUserByEmailGlobal(ctx context.Context, tx pgx.Tx, email string) (*User, error) {
 	// Global lookup requires bypassing RLS
-	if err := rls.SetSessionVar(ctx, tx, ""); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, ""); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -96,7 +96,7 @@ func (r *Repository) GetUserByEmailGlobal(ctx context.Context, tx pgx.Tx, email 
 }
 
 func (r *Repository) ListUsersByOrg(ctx context.Context, tx pgx.Tx, orgID string, page, perPage int) ([]*User, int, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, 0, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -129,7 +129,7 @@ func (r *Repository) ListUsersByOrg(ctx context.Context, tx pgx.Tx, orgID string
 }
 
 func (r *Repository) UpdateUserStatus(ctx context.Context, tx pgx.Tx, orgID, id, status string) (*User, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -142,7 +142,7 @@ func (r *Repository) UpdateUserStatus(ctx context.Context, tx pgx.Tx, orgID, id,
 }
 
 func (r *Repository) SoftDeleteUser(ctx context.Context, tx pgx.Tx, orgID, id string) error {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return fmt.Errorf("rls config: %w", err)
 	}
 	_, err := tx.Exec(ctx, `UPDATE users SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, id)

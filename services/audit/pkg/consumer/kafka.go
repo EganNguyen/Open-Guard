@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sync"
 
 	"github.com/openguard/audit/pkg/models"
 	sharedmodels "github.com/openguard/shared/models"
@@ -12,6 +13,11 @@ import (
 
 type lastEventReader interface {
 	GetLastChainState(ctx context.Context, orgID string) (int64, string, error)
+}
+
+type chainState struct {
+	seq  int64
+	hash string
 }
 
 type bulkAdder interface {
@@ -24,6 +30,9 @@ type Consumer struct {
 	writer  bulkAdder
 	logger  *slog.Logger
 	secret  string
+	
+	cacheMu sync.RWMutex
+	cache   map[string]chainState
 }
 
 func NewConsumer(brokers []string, topics []string, repo lastEventReader, writer bulkAdder, logger *slog.Logger, secret string) *Consumer {
@@ -36,11 +45,12 @@ func NewConsumer(brokers []string, topics []string, repo lastEventReader, writer
 	})
 
 	return &Consumer{
-		reader:    reader,
-		writer:    writer,
-		repo:      repo,
-		secret:    secret,
-		logger:    logger,
+		reader: reader,
+		writer: writer,
+		repo:   repo,
+		secret: secret,
+		logger: logger,
+		cache:  make(map[string]chainState),
 	}
 }
 
@@ -72,9 +82,23 @@ func (c *Consumer) HandleMessage(ctx context.Context, m kafkago.Message) error {
 		return err
 	}
 
-	lastSeq, lastHash, err := c.repo.GetLastChainState(ctx, envelope.OrgID)
-	if err != nil {
-		return err
+	c.cacheMu.RLock()
+	state, found := c.cache[envelope.OrgID]
+	c.cacheMu.RUnlock()
+
+	var lastSeq int64
+	var lastHash string
+
+	if found {
+		lastSeq = state.seq
+		lastHash = state.hash
+	} else {
+		seq, hash, err := c.repo.GetLastChainState(ctx, envelope.OrgID)
+		if err != nil {
+			return err
+		}
+		lastSeq = seq
+		lastHash = hash
 	}
 
 	auditEv := models.AuditEvent{
@@ -91,7 +115,16 @@ func (c *Consumer) HandleMessage(ctx context.Context, m kafkago.Message) error {
 
 	auditEv.ChainHash = models.ChainHash(c.secret, lastHash, auditEv)
 
-	return c.writer.Add(ctx, auditEv)
+	err := c.writer.Add(ctx, auditEv)
+	if err == nil {
+		c.cacheMu.Lock()
+		c.cache[envelope.OrgID] = chainState{
+			seq:  auditEv.ChainSeq,
+			hash: auditEv.ChainHash,
+		}
+		c.cacheMu.Unlock()
+	}
+	return err
 }
 
 func (c *Consumer) Stop() error {

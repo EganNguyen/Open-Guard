@@ -110,7 +110,7 @@ func (r *Repository) IngestEvents(ctx context.Context, orgID string, connectorID
 		event.EventSource = "connector:" + connectorID
 		event.OrgID = orgID
 
-		if err := r.outbox.Write(ctx, tx, kafka.TopicConnectorEvents, orgID, event); err != nil {
+		if err := r.outbox.Write(ctx, tx, kafka.TopicConnectorEvents, orgID, orgID, event); err != nil {
 			return fmt.Errorf("write outbox for event %s: %w", event.ID, err)
 		}
 	}
@@ -138,5 +138,5 @@ func (r *Repository) publishEvent(ctx context.Context, tx pgx.Tx, topic, eventTy
 		OccurredAt: time.Now(),
 	}
 
-	return r.outbox.Write(ctx, tx, topic, actorID, envelope)
+	return r.outbox.Write(ctx, tx, topic, actorID, orgID, envelope)
 }

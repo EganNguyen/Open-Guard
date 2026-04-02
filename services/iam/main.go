@@ -21,6 +21,7 @@ import (
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/outbox"
+	"github.com/openguard/shared/rls"
 )
 
 func main() {
@@ -55,6 +56,9 @@ func main() {
 	defer pool.Close()
 	logger.Info("connected to PostgreSQL")
 
+	// RLS Wrapper for Application Queries
+	orgPool := rls.NewOrgPool(pool)
+
 	// Kafka Producer
 	brokers := strings.Split(cfg.KafkaBrokers, ",")
 	producer := kafka.NewProducer(brokers, []string{
@@ -80,7 +84,7 @@ func main() {
 	// Service
 	isDev := cfg.AppEnv == "development"
 	iamService := service.New(
-		pool, 
+		orgPool, 
 		repo, 
 		outboxWriter, 
 		logger, 

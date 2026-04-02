@@ -1,3 +1,4 @@
+SHELL := bash
 .PHONY: dev test lint build migrate seed clean
 
 # Generate mTLS certificates for internal services
@@ -30,7 +31,7 @@ lint:
 
 # Run database migrations
 migrate:
-	@if [ -f .env ]; then export $$(cat .env | grep -v '^#' | xargs); fi; bash scripts/migrate.sh
+	bash scripts/migrate.sh
 
 # Seed the database with sample data
 seed:

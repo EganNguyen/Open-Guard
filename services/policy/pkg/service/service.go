@@ -13,6 +13,7 @@ import (
 	"github.com/openguard/policy/pkg/repository"
 	"github.com/openguard/shared/models"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/singleflight"
 )
 
 // Methods are already part of the Service struct in service.go
@@ -53,6 +54,7 @@ type Service struct {
 	redis        *redis.Client
 	cacheTTL     time.Duration
 	logger       *slog.Logger
+	sf           singleflight.Group
 }
 
 func New(
@@ -141,30 +143,38 @@ func (s *Service) Evaluate(ctx context.Context, req EvalRequest) (*EvalResponse,
 		s.logger.Warn("redis cache read error", "error", err)
 	}
 
-	// Cache miss — evaluate from DB
-	policies, err := s.repo.ListEnabledForOrg(ctx, req.OrgID)
-	if err != nil {
-		// Fail closed: deny on DB error
-		s.logger.Error("policy db error — failing closed", "org_id", req.OrgID, "error", err)
-		return &EvalResponse{Permitted: false, Reason: "policy evaluation failed — fail closed"}, nil
-	}
-
-	resp := s.evaluate(req, policies)
-	latency := int(time.Since(start).Milliseconds())
-
-	// Write to cache — suppress errors (stale cache OK, fail closed on next miss)
-	if data, marshalErr := json.Marshal(resp); marshalErr == nil {
-		pipe := s.redis.Pipeline()
-		pipe.Set(ctx, cacheKey, data, s.cacheTTL)
-		// Maintain a set of keys per org for O(M) invalidation per spec §0.14
-		orgKeysSet := fmt.Sprintf("policy:org_keys:%s", req.OrgID)
-		pipe.SAdd(ctx, orgKeysSet, cacheKey)
-		pipe.Expire(ctx, orgKeysSet, s.cacheTTL+1*time.Hour) // Set TTL slightly longer than entries
-
-		if _, cacheErr := pipe.Exec(ctx); cacheErr != nil {
-			s.logger.Warn("redis cache write error", "error", cacheErr)
+	// Cache miss — evaluate from DB with singleflight to prevent thundering herd
+	v, err, _ := s.sf.Do(cacheKey, func() (any, error) {
+		policies, err := s.repo.ListEnabledForOrg(ctx, req.OrgID)
+		if err != nil {
+			// Fail closed: deny on DB error
+			s.logger.Error("policy db error — failing closed", "org_id", req.OrgID, "error", err)
+			return &EvalResponse{Permitted: false, Reason: "policy evaluation failed — fail closed"}, nil
 		}
+
+		resp := s.evaluate(req, policies)
+
+		// Write to cache — suppress errors (stale cache OK, fail closed on next miss)
+		if data, marshalErr := json.Marshal(resp); marshalErr == nil {
+			pipe := s.redis.Pipeline()
+			pipe.Set(ctx, cacheKey, data, s.cacheTTL)
+			// Maintain a set of keys per org for O(M) invalidation per spec §0.14
+			orgKeysSet := fmt.Sprintf("policy:org_keys:%s", req.OrgID)
+			pipe.SAdd(ctx, orgKeysSet, cacheKey)
+			pipe.Expire(ctx, orgKeysSet, s.cacheTTL+1*time.Hour)
+
+			if _, cacheErr := pipe.Exec(ctx); cacheErr != nil {
+				s.logger.Warn("redis cache write error", "error", cacheErr)
+			}
+		}
+		return resp, nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
+	resp := v.(*EvalResponse)
+	latency := int(time.Since(start).Milliseconds())
 
 	// Log evaluation asynchronously
 	go func() {

@@ -170,23 +170,25 @@ openguard/
    bash scripts/gen-mtls-certs.ps1
    ```
 
-3. **Start Infrastructure and Services:**
+3. **Start Infrastructure & Run Initial Setup:**
+
+   **For Bash / PowerShell 7+:**
    ```bash
-   make dev
+   make dev && make migrate && ./scripts/create-topics.sh
    ```
 
-4. **Run Database Migrations & Create Kafka Topics:**
-   ```bash
-   make migrate && ./scripts/create-topics.sh
+   **For Windows PowerShell 5.1 (Standard):**
+   ```powershell
+   make dev; make migrate; ./scripts/create-topics.sh
    ```
 
-5. **Run Unit/Integration Tests:**
+4. **Run Unit/Integration Tests:**
    ```bash
    make test-unit
    make test-integration
    ```
 
-6. **Run E2E Tests:**
+5. **Run E2E Tests:**
    ```bash
    cd web
    npx playwright test e2e/real/register.real.spec.ts --headed
@@ -196,7 +198,7 @@ openguard/
    npx playwright test e2e/real/phase_1_3_real.spec.ts --headed
    ```
 
-7. **Run Load Testing (k6):**
+6. **Run Load Testing (k6):**
    ```bash
    k6 run loadtest/policy-evaluate.js
    ```

@@ -24,7 +24,7 @@ type Session struct {
 }
 
 func (r *Repository) CreateSession(ctx context.Context, tx pgx.Tx, userID, orgID, refreshHash string, ipAddress, userAgent, countryCode *string, expiresAt time.Time) (*Session, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -42,7 +42,7 @@ func (r *Repository) CreateSession(ctx context.Context, tx pgx.Tx, userID, orgID
 }
 
 func (r *Repository) GetSessionByID(ctx context.Context, tx pgx.Tx, orgID, id string) (*Session, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -59,7 +59,7 @@ func (r *Repository) GetSessionByID(ctx context.Context, tx pgx.Tx, orgID, id st
 }
 
 func (r *Repository) GetActiveSession(ctx context.Context, tx pgx.Tx, orgID, id string) (*Session, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -79,7 +79,7 @@ func (r *Repository) GetActiveSession(ctx context.Context, tx pgx.Tx, orgID, id 
 }
 
 func (r *Repository) GetActiveSessionByHashGlobal(ctx context.Context, tx pgx.Tx, refreshHash string) (*Session, error) {
-	if err := rls.SetSessionVar(ctx, tx, ""); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, ""); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -97,7 +97,7 @@ func (r *Repository) GetActiveSessionByHashGlobal(ctx context.Context, tx pgx.Tx
 	}
 
 	// Restore RLS setting for this transaction
-	if err := rls.SetSessionVar(ctx, tx, s.OrgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, s.OrgID); err != nil {
 		return nil, fmt.Errorf("rls config restore: %w", err)
 	}
 
@@ -105,7 +105,7 @@ func (r *Repository) GetActiveSessionByHashGlobal(ctx context.Context, tx pgx.Tx
 }
 
 func (r *Repository) UpdateSessionCredentials(ctx context.Context, tx pgx.Tx, orgID, id, newRefreshHash string, ipAddress, userAgent *string, newExpiresAt time.Time) error {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return fmt.Errorf("rls config: %w", err)
 	}
 	_, err := tx.Exec(ctx,
@@ -115,7 +115,7 @@ func (r *Repository) UpdateSessionCredentials(ctx context.Context, tx pgx.Tx, or
 }
 
 func (r *Repository) ExtendSessionExpiry(ctx context.Context, tx pgx.Tx, orgID, id string, newExpiresAt time.Time) error {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return fmt.Errorf("rls config: %w", err)
 	}
 	_, err := tx.Exec(ctx, `UPDATE sessions SET expires_at = $1 WHERE id = $2`, newExpiresAt, id)
@@ -123,7 +123,7 @@ func (r *Repository) ExtendSessionExpiry(ctx context.Context, tx pgx.Tx, orgID, 
 }
 
 func (r *Repository) RevokeSession(ctx context.Context, tx pgx.Tx, orgID, id string) error {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return fmt.Errorf("rls config: %w", err)
 	}
 	_, err := tx.Exec(ctx, `UPDATE sessions SET revoked = TRUE WHERE id = $1`, id)
@@ -131,7 +131,7 @@ func (r *Repository) RevokeSession(ctx context.Context, tx pgx.Tx, orgID, id str
 }
 
 func (r *Repository) ListSessionsByUser(ctx context.Context, tx pgx.Tx, orgID, userID string) ([]*Session, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 

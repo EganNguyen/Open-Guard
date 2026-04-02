@@ -18,6 +18,7 @@ import (
 	"github.com/openguard/policy/pkg/service"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/outbox"
+	"github.com/openguard/shared/rls"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -57,6 +58,9 @@ func main() {
 	defer pool.Close()
 	logger.Info("connected to PostgreSQL")
 
+	// RLS Wrapper for Application Queries
+	orgPool := rls.NewOrgPool(pool)
+
 	// ── Redis ───────────────────────────────────────────
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.RedisAddr,
@@ -85,7 +89,7 @@ func main() {
 	go outboxRelay.Start(ctx)
 
 	// ── Repositories ────────────────────────────────────
-	policyRepo := repository.NewPolicyRepository(pool, outboxWriter)
+	policyRepo := repository.NewPolicyRepository(orgPool, outboxWriter)
 
 	// ── Services ────────────────────────────────────────
 	policySvc := service.New(policyRepo, rdb, cfg.CacheTTLSeconds, logger)

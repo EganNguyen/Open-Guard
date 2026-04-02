@@ -68,26 +68,24 @@ func (b *BulkWriter) Add(ctx context.Context, doc models.AuditEvent) error {
 	b.buffer = append(b.buffer, model)
 
 	if len(b.buffer) >= b.maxDocs {
-		// Flush immediately inline if buffer is full
-		// Note: b.flush acquires the lock, so we must unlock first.
-		b.mu.Unlock()
-		err := b.flush(ctx)
-		b.mu.Lock()
-		return err
+		return b.flushLocked(ctx)
 	}
 	return nil
 }
 
 func (b *BulkWriter) flush(ctx context.Context) error {
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.flushLocked(ctx)
+}
+
+func (b *BulkWriter) flushLocked(ctx context.Context) error {
 	if len(b.buffer) == 0 {
-		b.mu.Unlock()
 		return nil
 	}
 
 	batch := b.buffer
 	b.buffer = make([]mongo.WriteModel, 0, b.maxDocs)
-	b.mu.Unlock()
 
 	opts := options.BulkWrite().SetOrdered(false)
 	res, err := b.coll.BulkWrite(ctx, batch, opts)

@@ -24,7 +24,7 @@ type APIToken struct {
 }
 
 func (r *Repository) CreateAPIToken(ctx context.Context, tx pgx.Tx, userID, orgID, name, tokenHash, prefix string, scopes []string, expiresAt *time.Time) (*APIToken, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -42,7 +42,7 @@ func (r *Repository) CreateAPIToken(ctx context.Context, tx pgx.Tx, userID, orgI
 }
 
 func (r *Repository) ListAPITokensByUser(ctx context.Context, tx pgx.Tx, orgID, userID string) ([]*APIToken, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -68,7 +68,7 @@ func (r *Repository) ListAPITokensByUser(ctx context.Context, tx pgx.Tx, orgID, 
 }
 
 func (r *Repository) RevokeAPIToken(ctx context.Context, tx pgx.Tx, orgID, id string) error {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return fmt.Errorf("rls config: %w", err)
 	}
 

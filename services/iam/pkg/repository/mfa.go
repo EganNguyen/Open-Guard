@@ -21,7 +21,7 @@ type MFAConfig struct {
 }
 
 func (r *Repository) CreateMFAConfig(ctx context.Context, tx pgx.Tx, orgID, userID, mfaType, secret string) (*MFAConfig, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -40,7 +40,7 @@ func (r *Repository) CreateMFAConfig(ctx context.Context, tx pgx.Tx, orgID, user
 }
 
 func (r *Repository) VerifyMFA(ctx context.Context, tx pgx.Tx, orgID, userID string) error {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return fmt.Errorf("rls config: %w", err)
 	}
 
@@ -49,7 +49,7 @@ func (r *Repository) VerifyMFA(ctx context.Context, tx pgx.Tx, orgID, userID str
 }
 
 func (r *Repository) GetMFAByUserID(ctx context.Context, tx pgx.Tx, orgID, userID string) (*MFAConfig, error) {
-	if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 

@@ -19,7 +19,7 @@ type Org struct {
 }
 
 func (r *Repository) CreateOrg(ctx context.Context, tx pgx.Tx, name, slug string) (*Org, error) {
-	if err := rls.SetSessionVar(ctx, tx, ""); err != nil { // system operation
+	if err := rls.TxSetSessionVar(ctx, tx, ""); err != nil { // system operation
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -36,7 +36,7 @@ func (r *Repository) CreateOrg(ctx context.Context, tx pgx.Tx, name, slug string
 }
 
 func (r *Repository) GetOrgByID(ctx context.Context, tx pgx.Tx, id string) (*Org, error) {
-	if err := rls.SetSessionVar(ctx, tx, ""); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, ""); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 
@@ -52,7 +52,7 @@ func (r *Repository) GetOrgByID(ctx context.Context, tx pgx.Tx, id string) (*Org
 }
 
 func (r *Repository) GetOrgBySlug(ctx context.Context, tx pgx.Tx, slug string) (*Org, error) {
-	if err := rls.SetSessionVar(ctx, tx, ""); err != nil {
+	if err := rls.TxSetSessionVar(ctx, tx, ""); err != nil {
 		return nil, fmt.Errorf("rls config: %w", err)
 	}
 

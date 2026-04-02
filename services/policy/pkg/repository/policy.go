@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/openguard/shared/models"
 	"github.com/openguard/shared/outbox"
 	sharedkafka "github.com/openguard/shared/kafka"
@@ -18,13 +17,19 @@ import (
 // ErrNotFound is returned when a requested record does not exist.
 var ErrNotFound = errors.New("not found")
 
+// DBPool abstracts the pgxpool connection to allow for isolated unit testing
+// and RLS-wrapped pools from the shared package.
+type DBPool interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
 // PolicyRepository handles persistence of policies and assignments.
 type PolicyRepository struct {
-	pool   *pgxpool.Pool
+	pool   DBPool
 	outbox *outbox.Writer
 }
 
-func NewPolicyRepository(pool *pgxpool.Pool, outbox *outbox.Writer) *PolicyRepository {
+func NewPolicyRepository(pool DBPool, outbox *outbox.Writer) *PolicyRepository {
 	return &PolicyRepository{pool: pool, outbox: outbox}
 }
 
@@ -35,7 +40,7 @@ func (r *PolicyRepository) Create(ctx context.Context, p *models.Policy) error {
 	p.UpdatedAt = time.Now()
 
 	return r.withTx(ctx, func(tx pgx.Tx) error {
-		if err := rls.SetSessionVar(ctx, tx, p.OrgID); err != nil {
+		if err := rls.TxSetSessionVar(ctx, tx, p.OrgID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
@@ -55,7 +60,7 @@ func (r *PolicyRepository) Update(ctx context.Context, p *models.Policy) error {
 	p.UpdatedAt = time.Now()
 
 	return r.withTx(ctx, func(tx pgx.Tx) error {
-		if err := rls.SetSessionVar(ctx, tx, p.OrgID); err != nil {
+		if err := rls.TxSetSessionVar(ctx, tx, p.OrgID); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `
@@ -77,7 +82,7 @@ func (r *PolicyRepository) Update(ctx context.Context, p *models.Policy) error {
 // Delete removes a policy and writes a policy.changes event.
 func (r *PolicyRepository) Delete(ctx context.Context, orgID, policyID string) error {
 	return r.withTx(ctx, func(tx pgx.Tx) error {
-		if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `DELETE FROM policies WHERE id=$1 AND org_id=$2`, policyID, orgID)
@@ -97,7 +102,7 @@ func (r *PolicyRepository) Delete(ctx context.Context, orgID, policyID string) e
 func (r *PolicyRepository) GetByID(ctx context.Context, orgID, policyID string) (*models.Policy, error) {
 	var p *models.Policy
 	err := r.withTx(ctx, func(tx pgx.Tx) error {
-		if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 			return err
 		}
 		row := tx.QueryRow(ctx, `
@@ -115,7 +120,7 @@ func (r *PolicyRepository) GetByID(ctx context.Context, orgID, policyID string) 
 func (r *PolicyRepository) ListByOrg(ctx context.Context, orgID string) ([]*models.Policy, error) {
 	policies := []*models.Policy{}
 	err := r.withTx(ctx, func(tx pgx.Tx) error {
-		if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 			return err
 		}
 		rows, err := tx.Query(ctx, `
@@ -143,7 +148,7 @@ func (r *PolicyRepository) ListByOrg(ctx context.Context, orgID string) ([]*mode
 func (r *PolicyRepository) ListEnabledForOrg(ctx context.Context, orgID string) ([]*models.Policy, error) {
 	policies := []*models.Policy{}
 	err := r.withTx(ctx, func(tx pgx.Tx) error {
-		if err := rls.SetSessionVar(ctx, tx, orgID); err != nil {
+		if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 			return err
 		}
 		rows, err := tx.Query(ctx, `
@@ -170,7 +175,7 @@ func (r *PolicyRepository) ListEnabledForOrg(ctx context.Context, orgID string) 
 // LogEvaluation writes an entry to policy_eval_log for audit trail.
 func (r *PolicyRepository) LogEvaluation(ctx context.Context, log *EvalLog) error {
 	return r.withTx(ctx, func(tx pgx.Tx) error {
-		if err := rls.SetSessionVar(ctx, tx, log.OrgID); err != nil {
+		if err := rls.TxSetSessionVar(ctx, tx, log.OrgID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
@@ -226,7 +231,7 @@ func (r *PolicyRepository) writeOutbox(ctx context.Context, tx pgx.Tx, orgID, ev
 		Payload:   payloadBytes,
 	}
 
-	return r.outbox.Write(ctx, tx, sharedkafka.TopicPolicyChanges, orgID, envelope)
+	return r.outbox.Write(ctx, tx, sharedkafka.TopicPolicyChanges, orgID, orgID, envelope)
 }
 
 // scanPolicy scans a policy row (works with pgx.Row and pgx.Rows via the scanner interface).

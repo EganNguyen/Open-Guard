@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # migrate.sh — Run all *.up.sql migrations in services/*/migrations/ in numeric order.
 set -euo pipefail
+# Load .env if it exists in the root directory
+if [ -f "$(dirname "$0")/../.env" ]; then
+    set -a
+    source "$(dirname "$0")/../.env"
+    set +a
+fi
 
 : "${POSTGRES_HOST:=localhost}"
 : "${POSTGRES_PORT:=5432}"
@@ -20,7 +26,9 @@ find "$ROOT_DIR/services" -path "*/migrations/*.up.sql" | sort -t/ -k"$(echo "$R
     filename="$(basename "$migration")"
     service_dir="$(basename "$(dirname "$(dirname "$migration")")")"
     echo "  -> [$service_dir] $filename"
-    psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$migration" -v ON_ERROR_STOP=1
+    
+    # Run psql inside the docker container to avoid local dependency
+    docker exec -i openguard-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 < "$migration"
 done
 
 echo "==> Migrations complete."

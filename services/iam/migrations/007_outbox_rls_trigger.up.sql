@@ -14,7 +14,7 @@ BEGIN
     ) THEN
         CREATE POLICY outbox_org_isolation
             ON outbox_records
-            USING (key = current_setting('app.org_id', true));
+            USING (org_id::text = current_setting('app.org_id', true));
     END IF;
 END
 $$;

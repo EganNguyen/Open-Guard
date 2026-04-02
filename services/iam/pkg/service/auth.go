@@ -53,7 +53,7 @@ func (s *Service) Register(ctx context.Context, req RegisterInput) (*RegisterRes
 		return nil, fmt.Errorf("create org: %w", err)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 4) // bcrypt.MinCost
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12) 
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
@@ -344,7 +344,7 @@ func (s *Service) publishEvent(ctx context.Context, tx pgx.Tx, topic, eventType,
 		Payload:   payload,
 	}
 
-	if err := s.outbox.Write(ctx, tx, topic, actorID, envelope); err != nil {
+	if err := s.outbox.Write(ctx, tx, topic, actorID, orgID, envelope); err != nil {
 		s.logger.Error("outbox write failed", "error", err)
 	}
 }

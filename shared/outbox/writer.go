@@ -26,14 +26,14 @@ func (w *Writer) getTableName() string {
 	return w.TableName
 }
 
-func (w *Writer) Write(ctx context.Context, tx pgx.Tx, topic string, partitionKey string, envelope models.EventEnvelope) error {
+func (w *Writer) Write(ctx context.Context, tx pgx.Tx, topic string, partitionKey string, orgID string, envelope models.EventEnvelope) error {
 	payloadBytes, err := json.Marshal(envelope)
 	if err != nil {
 		return err
 	}
 
-	query := `INSERT INTO ` + w.getTableName() + ` (id, topic, key, payload, status, attempts, created_at)
-		VALUES ($1, $2, $3, $4, 'pending', 0, $5)`
-	_, err = tx.Exec(ctx, query, uuid.NewString(), topic, partitionKey, payloadBytes, time.Now())
+	query := `INSERT INTO ` + w.getTableName() + ` (id, org_id, topic, key, payload, status, attempts, created_at)
+		VALUES ($1, $2, $3, $4, $5, 'pending', 0, $6)`
+	_, err = tx.Exec(ctx, query, uuid.NewString(), orgID, topic, partitionKey, payloadBytes, time.Now())
 	return err
 }
