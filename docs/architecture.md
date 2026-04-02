@@ -43,6 +43,7 @@
 16. [Phase 8 — Load Testing & Performance Tuning](#16-phase-8--load-testing--performance-tuning)
 17. [Phase 9 — Documentation & Runbooks](#17-phase-9--documentation--runbooks)
 18. [Phase 10 — Content Scanning & DLP](#18-phase-10--content-scanning--dlp)
+  - 18.5 [Disaster Recovery Plan](#185-disaster-recovery-plan)
 19. [Cross-Cutting Concerns](#19-cross-cutting-concerns)
 20. [Full-System Acceptance Criteria](#20-full-system-acceptance-criteria)
 
@@ -692,7 +693,7 @@ These are hard targets. Phase 8 must verify each one with k6 load tests. A phase
 | **Immutable audit trail** | Append-only MongoDB with per-org HMAC hash chaining. Batch chain assignment for throughput (Section 11.2.3). |
 | **Least privilege (services)** | Each service has its own DB user with table-level grants. Migration runs as `openguard_migrate` (DDL only, no `BYPASSRLS` on data tables). |
 | **Secret rotation without downtime** | JWT signing uses `kid`. Multiple valid keys coexist during rotation. Same pattern for MFA encryption keys. |
-| **Access token revocation** | JWT `jti` claim; Redis blocklist checked on every authenticated request. Entries MUST have a TTL of `IAM_JWT_EXPIRY_SECONDS` to prevent unrestrained memory growth. |
+| **Access token revocation** | JWT `jti` claim; Redis blocklist checked on every authenticated request. Entries MUST have a dynamic TTL equal to the token's remaining lifetime (`exp - now()`) to prevent storage drift and unrestrained memory growth. |
 | **mTLS between services** | All internal service-to-service calls use mTLS. |
 | **Exactly-once Kafka delivery** | Idempotent Kafka producer. Consumer commits offsets only after successful downstream write. |
 | **Cache-first connector auth** | Fast-hash prefix → Redis; PBKDF2 only on cache miss → DB. Sustains 20,000 req/s event ingest. |
@@ -758,16 +759,20 @@ The audit log has asymmetric load. Read/write split is enforced in the repositor
 
 User provisioning via SCIM touches multiple services. OpenGuard uses choreography-based sagas via Kafka compensating events. Each step is idempotent and publishes the next step's trigger.
 
+**Saga State Machine**: To prevent users from authenticating while policies are still being provisioned, a new SCIM user is created with `status: initializing`. IAM MUST reject logins for any user in this state. The final saga step sets the status to `active`.
+
 **SCIM `POST /scim/v2/Users` saga:**
 
 ```
-IAM:        user.created          → audit.trail + saga.orchestration
-Policy:     [consumes user.created] → assigns default org policies
-            policy.assigned        → audit.trail
-Threat:     [consumes user.created] → initializes baseline profile
-            threat.baseline.init   → audit.trail
-Alerting:   [consumes user.created] → configures notification preferences
-            alert.prefs.init       → audit.trail
+IAM:        user.created (status=initializing)   → audit.trail + saga.orchestration
+Policy:     [consumes user.created]              → assigns default org policies
+            policy.assigned                      → audit.trail
+Threat:     [consumes policy.assigned]           → initializes baseline profile
+            threat.baseline.init                 → audit.trail
+Alerting:   [consumes threat.baseline.init]      → configures notification preferences
+            alert.prefs.init                     → audit.trail
+IAM:        [consumes alert.prefs.init]          → UPDATE users SET status = 'active'
+            saga.completed                       → audit.trail
 ```
 
 **Saga timeout:** When `user.created` is published, IAM writes a deadline record to a Redis sorted set: `ZADD saga:deadlines <unix_deadline> <saga_id>`. A background watcher daemon (running exclusively within the **IAM Service**, consumer group `openguard-saga-v1`) polls the sorted set every 10 seconds for expired entries. On expiry, it publishes `saga.timed_out` with `compensation: true`. Deadline: `SAGA_STEP_TIMEOUT_SECONDS` (default 30s) per step.
@@ -809,7 +814,7 @@ Control Plane auth flow:
   6. withConnectorScopes(ctx, connector.Scopes)
 ```
 
-**Cache invalidation:** on `PATCH /v1/admin/connectors/:id`, call `DEL "connector:fasthash:{fastHash}"` before returning the HTTP response.
+**Cache invalidation:** on `PATCH /v1/admin/connectors/:id` (e.g. for suspension), update the Redis key to a cached "suspended" sentinel explicitly rather than deleting it. This ensures recent lookups correctly reflect suspension status without bypassing it in the cache grace window.
 
 **Inbound:** Apps push to `POST /v1/events/ingest`. Events are normalized and written to the outbox.
 
@@ -1295,6 +1300,7 @@ type ConnectedApp struct {
     CreatedAt         time.Time  `json:"created_at" db:"created_at"`
     UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
     SuspendedAt       *time.Time `json:"suspended_at,omitempty" db:"suspended_at"`
+    LastVerifiedAt    time.Time  `json:"-" db:"-"` // Ephemeral tracking for Redis cache PBKDF2 grace period
 }
 ```
 
@@ -1777,6 +1783,22 @@ func (p *OrgPool) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, func
     }
     return tx, cleanup, nil
 }
+
+// WithConn is the preferred way to use a single connection safely. It acquires
+// a connection, sets RLS, runs fn, then unconditionally releases on return.
+// This prevents the common bug of forgetting conn.Release() in error paths.
+//
+//   pool.WithConn(ctx, func(conn *pgxpool.Conn) error {
+//       return conn.QueryRow(ctx, "SELECT ...").Scan(&result)
+//   })
+func (p *OrgPool) WithConn(ctx context.Context, fn func(conn *pgxpool.Conn) error) error {
+    conn, err := p.Acquire(ctx)
+    if err != nil {
+        return err
+    }
+    defer conn.Release()
+    return fn(conn)
+}
 ```
 
 Every repository in every service uses `*rls.OrgPool`, not `*pgxpool.Pool` directly.
@@ -1839,6 +1861,10 @@ func APIKeyMiddleware(cache ConnectorCache, repo ConnectorReader) func(http.Hand
             // 1. Redis lookup (O(microseconds))
             app, ok := cache.Get(r.Context(), fastHash)
             if ok {
+                if app.Status != "active" {
+                    writeError(w, http.StatusUnauthorized, "CONNECTOR_SUSPENDED", "connector is suspended", r)
+                    return
+                }
                 // 2. Slow-path verification (only every 5 minutes per connector)
                 if time.Since(app.LastVerifiedAt) > 5 * time.Minute {
                     if !verifyPBKDF2(secret, app.KeyHash) {
@@ -1847,6 +1873,8 @@ func APIKeyMiddleware(cache ConnectorCache, repo ConnectorReader) func(http.Hand
                     }
                 }
                 ctx := rls.WithOrgID(r.Context(), app.OrgID)
+                ctx = withConnectorID(ctx, app.ID)
+                ctx = withConnectorScopes(ctx, app.Scopes)
                 next.ServeHTTP(w, r.WithContext(ctx))
                 return
             }
@@ -2073,12 +2101,16 @@ func (r *Relay) processBatch(ctx context.Context) (int, error) {
     }
     defer tx.Rollback(ctx)
 
+    // SECURITY: relayTotalInstances and relayInstanceIndex MUST be validated as
+    // non-negative integers before use. They are read from the environment at startup
+    // and fail fast if invalid. They are passed as query parameters ($1, $2),
+    // NOT via fmt.Sprintf, to prevent SQL injection from config manipulation.
     rows, err := tx.Query(ctx, `
         SELECT id, org_id, topic, key, payload, attempts
         FROM outbox_records
         WHERE status = 'pending'
           -- Horizontal scaling: Relay instances modulo filter to avoid locking hot rows
-          AND ('%[1]d'::int = 1 OR MOD(hashtext(id::text), '%[1]d'::int) = '%[2]d'::int)
+          AND ($1::int = 1 OR MOD(hashtext(id::text), $1::int) = $2::int)
         ORDER BY created_at
         LIMIT 100
         FOR UPDATE SKIP LOCKED
@@ -2313,7 +2345,7 @@ Configured via `IAM_BCRYPT_WORKER_COUNT`. Recommended size: `2 × NumCPU`.
 | Connector registry unreachable | **Deny all API key requests** after Redis cache misses; return `503`. | Cannot validate credential. Cache still serves recent lookups. |
 | Audit service unreachable | **Continue operation**, buffer via Outbox. | Audit is observability, not a gate. |
 | Threat detection unreachable | **Continue operation**, log warning metric. | Threat is advisory, not a gate. |
-| Redis unreachable | Rate limiting **fails open**; JWT `jti` blocklist validation **fails closed** (denies auth). | Rate limit is an availability concern; auth blocklist is a security boundary and MUST fail closed. |
+| Redis unreachable | Rate limiting **fails open**; JWT `jti` blocklist validation **fails closed** (denies auth). | Rate limit is an availability concern; auth blocklist is a security boundary and MUST fail closed. Because of this strict dependency, Redis MUST be deployed in a High Availability topology (Redis Sentinel or Cluster). |
 | Kafka unreachable | **Outbox buffers events in PostgreSQL**. Writes succeed; events queue. | Kafka is not in the write path. |
 | ClickHouse unreachable | **Compliance reports fail with 503**. | Analytics is read-only. |
 | Webhook delivery unreachable | **Retry via internal loop** with persistence in PostgreSQL. | Delivery state survives service restarts. |
@@ -2359,10 +2391,14 @@ func Do(ctx context.Context, cfg RetryConfig, fn func(context.Context) error) er
             return lastErr
         }
         delay := jitter(cfg.BaseDelay, cfg.MaxDelay, attempt)
+        // time.NewTimer + Stop() prevents the goroutine leak that time.After causes
+        // when the context is cancelled before the timer fires.
+        timer := time.NewTimer(delay)
         select {
         case <-ctx.Done():
+            timer.Stop()
             return ctx.Err()
-        case <-time.After(delay):
+        case <-timer.C:
         }
     }
     return lastErr
@@ -2870,11 +2906,17 @@ The infra and CI setup must be established before service code begins. This is n
 
 Use `golang-migrate/migrate` with these invariants:
 
-- Every `.up.sql` must have a corresponding `.down.sql`.
+- Every `.up.sql` must have a corresponding `.down.sql`. The `.down.sql` MUST be tested in CI by running `migrate up` and then `migrate down` sequentially.
 - Migrations are **additive only** in production: add nullable columns, add indexes, add tables. Never drop or rename in the same migration as adding.
 - Every migration that creates a table with an `org_id` column must include the RLS setup for that table.
 - The migration runner verifies checksums and refuses to apply a modified historical migration.
 - Migrations run at service startup with a distributed lock to prevent concurrent runs in multi-replica deployments.
+- **No DML in migrations**: Migration files run as `openguard_migrate` (DDL only). Any data backfills must occur in a separate, manually-triggered script run by SRE after the migration completes, to prevent locking tables during deployment.
+- **Rollback Procedure**: If a migration fails in production, the process is:
+  1. Immediately pause all deployments via the CI/CD pipeline feature flag.
+  2. Review error in migration runner logs. If the failing migration is idempotent, fix and re-run.
+  3. If it requires reverting, run `migrate down N` with SRE supervision, targeting the exact migration version.
+  4. A migration `.down.sql` that involves a `DROP TABLE` or `DROP COLUMN` MUST include a `CREATE TABLE ... IF NOT EXISTS` guard to preserve any partial data written during the failed up migration.
 
 ```go
 // pkg/db/migrations.go (in each service)
@@ -3229,6 +3271,8 @@ IAM implements the SCIM 2.0 protocol correctly:
 }
 ```
 
+**Pagination Explicit Override:** The SCIM endpoints MUST implement 1-indexed offset/limit pagination using `startIndex` and `count` parameters as strictly mandated by SCIM RFC 7644. These endpoints implicitly bypass the cursor-based pagination standard mandated for the rest of the OpenGuard system.
+
 **SCIM `PATCH` with JSON Patch (RFC 6902):**
 ```go
 // IAM handles SCIM PATCH operations which use JSONPatch operations,
@@ -3266,7 +3310,11 @@ type SCIMOperation struct {
 To comply with OAuth 2.0 Security BCP, the OpenGuard OIDC provider MUST enforce:
 1. **Strict Redirect URI Validation**: The `redirect_uri` requested in `/oauth/authorize` MUST exactly match a pre-registered URI for the client (no wildcard matching).
 2. **PKCE Requirement**: The Authorization Code flow MUST use Proof Key for Code Exchange (PKCE) with `code_challenge_method=S256`. Requests without a `code_challenge` MUST be rejected with HTTP 400.
-3. **State Parameter**: If the client provides a `state` parameter, the authorization response MUST echo it unmodified to prevent CSRF.
+3. **PKCE Verification**: At the `/oauth/token` endpoint, the `code_verifier` provided MUST be validated using SHA-256 to ensure it matches the stored `code_challenge`.
+4. **State Parameter Echoing**: If the client provides a `state` parameter, the authorization response MUST echo it unmodified to prevent CSRF.
+5. **Authorization Code Storage**: Authorization codes MUST be stored in Redis with a strict 10-minute TTL, linked to the `client_id` and the user's session. They MUST be single-use.
+6. **Scope Validation**: The `/oauth/token` endpoint MUST validate that any requested scopes were explicitly granted during the authorization endpoint phase.
+7. **Client Authentication**: OIDC client secrets (`client_secret`) MUST be hashed using PBKDF2 at rest, analogous to Connector API keys.
 
 **Internal management API** (mTLS, called by control plane only):
 
@@ -3290,7 +3338,21 @@ To comply with OAuth 2.0 Security BCP, the OpenGuard OIDC provider MUST enforce:
 | `DELETE` | `/users/:id` | Soft-delete |
 | `POST` | `/users/:id/suspend` | Suspend user |
 | `POST` | `/users/:id/activate` | Activate user |
+| `POST` | `/users/:id/unlock` | Admin unlock locked account |
 | `GET` | `/users/:id/sessions` | List active sessions |
+
+#### Account Lockout Policy
+To prevent brute force enumeration, the following lockout rules apply:
+- **Lockout Threshold**: 10 consecutive failed login attempts triggered by the Threat service.
+- **Lockout Duration**: Exponential backoff starting at 15 minutes, capping at 24 hours. The `locked_until` column tracks this state.
+- **Generic Responses**: A locked user attempting to log in will receive the standard `INVALID_CREDENTIALS` error. At no point should the response indicate that the account is locked outside of explicit Admin APIs.
+- **Unlock Mechanism**: Org admins can explicitly unlock users via `POST /users/:id/unlock`. A successful password reset flow via emailed link also unlocks the account.
+
+#### TOTP Implementation Specifications
+- **Secret Generation**: Enforce RFC 6238. Minimum 160-bit secret generation.
+- **Code Tolerance Window**: ±1 window (30 seconds before and after, total 90 seconds) to account for clock skew.
+- **Code Reuse Prevention**: To thwart replay attacks within the valid 90-second window, successfully verifying a TOTP code MUST record the code hash to a Redis set with a 90-second TTL. If that code is presented again within the window, the server MUST reject it.
+- **Enrollment UX Endpoint**: The `POST /auth/mfa/enroll` endpoint MUST output the base32 secret and an `otpauth://` URI payload suitable for QR Code generation by the frontend client.
 | `DELETE` | `/users/:id/sessions/:sid` | Revoke session |
 | `DELETE` | `/users/:id/sessions` | Revoke all sessions |
 | `GET` | `/users/:id/tokens` | List API tokens |
@@ -3499,6 +3561,24 @@ Also: standard outbox table.
 //   3. DEL "policy:eval:org:{org_id}:keys"         → remove the index
 //
 // This is O(M) for the affected org, not O(total keyspace) like SCAN.
+//
+// Thundering Herd Mitigation on Cache Miss:
+// When a policy.changes event invalidates a large org's cache, concurrent
+// requests will simultaneously miss the cache and all attempt to read from
+// the database. To prevent this stampede, the policy service uses a
+// singleflight group per (org_id, cache_key). Only ONE goroutine executes
+// the database query; all others wait and share the result.
+//
+//   var flightGroup singleflight.Group // per service instance — injected, not package-level
+//
+//   result, err, _ := flightGroup.Do(cacheKey, func() (interface{}, error) {
+//       return evaluateFromDB(ctx, orgID, req) // executes once per key per window
+//   })
+//
+// Additionally, cache entries are given a "stale" grace TTL of +5s beyond the
+// logical TTL. If a cache entry is between its logical TTL and the stale TTL,
+// the stale value is returned immediately while a background goroutine
+// re-evaluates and refreshes the cache (stale-while-revalidate).
 ```
 
 ### 10.3 Policy Service Architecture
@@ -3650,7 +3730,10 @@ func (b *BulkWriter) Flush(ctx context.Context) error {
     b.mu.Unlock()
 
     opts := options.BulkWrite().SetOrdered(false)
-    result, err := b.coll.BulkWrite(ctx, docs, opts)
+    // w:majority ensures the write is confirmed by a quorum of replica set members
+    // before we commit the Kafka offset, preventing data loss on primary failover.
+    writeResult, err := b.coll.BulkWrite(ctx, docs, opts)
+    _ = writeResult
     if err != nil {
         var bulkErr mongo.BulkWriteException
         if errors.As(err, &bulkErr) {
@@ -3666,7 +3749,6 @@ func (b *BulkWriter) Flush(ctx context.Context) error {
         }
         return fmt.Errorf("bulk write failed: %w", err)
     }
-    _ = result
     return nil
 }
 ```
@@ -3852,13 +3934,14 @@ CREATE TABLE IF NOT EXISTS events (
     occurred_at  DateTime64(3, 'UTC'),
     source       LowCardinality(String),
     payload      String        CODEC(ZSTD(3))
-) ENGINE = MergeTree()
+) ENGINE = ReplacingMergeTree(occurred_at)
 -- Correct multi-tenant partition strategy: time-only partitioning.
 -- Do NOT partition by org_id — this creates too many parts for 10k+ orgs
 -- and degrades INSERT performance. org_id belongs only in ORDER BY.
 -- At 50,000 events/sec, daily partitioning prevents extreme partition sizes (>4B rows).
+-- ReplacingMergeTree is required to deduplicate Kafka at-least-once delivery retries.
 PARTITION BY toYYYYMMDD(occurred_at)
-ORDER BY (org_id, type, occurred_at)
+ORDER BY (org_id, type, occurred_at, event_id)
 TTL occurred_at + INTERVAL 2 YEAR
 SETTINGS index_granularity = 8192;
 
@@ -3948,6 +4031,9 @@ func (g *Generator) Generate(ctx context.Context, report *Report) error {
 
 When bulkhead is full: `ErrBulkheadFull` → handler maps to `429` with `Retry-After: 30`.
 
+**Report Object Persistence:**
+Generated compliance PDF reports are mathematically signed to prove non-tampering. The PDF blob MUST be uploaded to an S3-compatible object store (e.g. AWS S3, MinIO) within a dedicated `compliance-reports` bucket. The PostgreSQL `reports` table stores the metadata and an `s3_key` reference for retrieval via pre-signed URLs. The raw PDF bytes are never stored in the database.
+
 ### 13.4 Compliance API
 
 | Method | Path | Description |
@@ -3996,29 +4082,48 @@ Applied to every service router.
 All outgoing webhook URLs (SIEM, connector webhook) are validated at configuration time (startup and on PATCH) AND at delivery time. To prevent TOCTOU DNS rebinding vulnerabilities, the delivery mechanism must bind to the exact safe IP address resolved during validation rather than performing a fresh DNS lookup right before the request.
 
 ```go
-func validateWebhookURL(raw string) error {
+func validateWebhookURL(raw string) (string, error) {
     u, err := url.Parse(raw)
     if err != nil {
-        return fmt.Errorf("invalid URL: %w", err)
+        return "", fmt.Errorf("invalid URL: %w", err)
     }
     if u.Scheme != "https" {
-        return errors.New("webhook URL must use HTTPS")
+        return "", errors.New("webhook URL must use HTTPS")
     }
     ips, err := net.LookupHost(u.Hostname())
-    if err != nil {
-        return fmt.Errorf("DNS resolution failed: %w", err)
+    if err != nil || len(ips) == 0 {
+        return "", fmt.Errorf("DNS resolution failed: %w", err)
     }
+    // Bind to the first resolved IP to prevent DNS rebinding
+    resolvedIP := ips[0]
     for _, ip := range ips {
         parsed := net.ParseIP(ip)
-        if parsed == nil {
-            continue
-        }
-        if parsed.IsLoopback() || parsed.IsPrivate() || parsed.IsLinkLocalUnicast() ||
-            parsed.IsLinkLocalMulticast() || parsed.IsUnspecified() {
-            return fmt.Errorf("webhook URL resolves to restricted IP %s (SSRF blocked)", ip)
+        if parsed == nil { continue }
+        if parsed.IsLoopback() || parsed.IsPrivate() || parsed.IsLinkLocalUnicast() || parsed.IsUnspecified() {
+            return "", fmt.Errorf("webhook URL resolves to restricted IP %s (SSRF blocked)", ip)
         }
     }
-    return nil
+    return resolvedIP, nil
+}
+
+// Construct an HTTP Client that bypasses DNS resolution at delivery time
+// using the securely validated IP address.
+func NewSafeDeliveryClient(resolvedIP, originalHost string) *http.Client {
+    dialer := &net.Dialer{
+        Timeout:   5 * time.Second,
+        KeepAlive: 30 * time.Second,
+    }
+    return &http.Client{
+        Timeout: 10 * time.Second,
+        Transport: &http.Transport{
+            DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+                // Ignore the DNS lookup for 'addr' and dial the explicitly bound IP instead
+                _, port, _ := net.SplitHostPort(addr)
+                targetAddr := net.JoinHostPort(resolvedIP, port)
+                return dialer.DialContext(ctx, network, targetAddr)
+            },
+        },
+    }
 }
 ```
 
@@ -4391,6 +4496,38 @@ Masking flow (monitor mode finding):
 
 ---
 
+## 18.5 Disaster Recovery Plan
+
+A production-grade system requires a documented, tested DR plan. This section defines the RTO/RPO targets and the validated recovery procedures for each data store.
+
+### RTO/RPO Targets
+
+| Component | RPO (Max Data Loss) | RTO (Max Recovery Time) |
+|---|---|---|
+| PostgreSQL (IAM, Policy, Connectors) | 5 minutes | 30 minutes |
+| MongoDB (Audit Log) | 1 hour | 2 hours |
+| ClickHouse (Compliance Analytics) | 24 hours | 4 hours |
+| Redis (Cache, Rate Limits, Blocklist) | 0 (in-memory, ephemeral) | 5 minutes (failover to replica) |
+| Kafka (Event Bus) | 0 (replicated log) | 15 minutes |
+
+### PostgreSQL Recovery
+1. Aurora PostgreSQL Point-in-Time Restore (PITR) is enabled. WAL is streamed to S3 continuously.
+2. To restore: Use `aws rds restore-db-cluster-to-point-in-time` targeting the desired timestamp.
+3. Validate: Run the read-only smoke test suite against the restored cluster before promoting.
+4. Automated: A daily snapshot is triggered by the backup job. Restore is tested in a staging environment weekly via a CI pipeline.
+
+### MongoDB Recovery
+1. The Atlas continuous backup feature is enabled with a 1-hour snapshot interval.
+2. Oplog tailing allows PITR at 1-minute granularity within the retention window.
+3. The hash chain integrity is verified post-restore using the `scripts/verify-audit-chain.sh` script.
+
+### Chaos Drill & DR Test Schedule
+- **Quarterly Redis Failover Test**: Kill the Redis primary. Verify Sentinel promotes a replica within 30 seconds. Verify auth blocklist remains functional. Verify rate limiting fails open (not down).
+- **Monthly PostgreSQL Restore Test**: Restore previous night's snapshot to a staging environment. Run the full acceptance criteria suite (Section 20) against it.
+- **Bi-annual Full DR Drill**: Simulate region failure by cutting off all traffic to the primary region. Verify promotion of the standby region succeeds within the 30-minute RTO target.
+
+---
+
 ## 19. Cross-Cutting Concerns
 
 ### 19.1 Structured Logging — Mandatory Fields
@@ -4557,9 +4694,15 @@ The following end-to-end scenario must execute without manual intervention. Run 
 37. k6 run loadtest/policy-evaluate.js                    → p99 < 5ms (cached); p99 < 30ms (uncached)
 38. SDK local cache: second call produces 0 spans         → verified via Jaeger
 39. docker compose down                                   → clean shutdown; no data loss
+40. POST /auth/mfa/enroll (admin user)                   → TOTP secret + otpauth:// URI returned
+41. POST /auth/mfa/verify (valid TOTP code)               → MFA enrolled
+42. POST /auth/mfa/challenge (same TOTP code, within 90s) → 401 TOTP_REPLAY_DETECTED
+43. POST /scim/v2/Users (SCIM provision new user)        → user.status = initializing; login attempt rejected
+44. After saga completes (all services respond)          → user.status = active; login succeeds
+45. PATCH /v1/admin/connectors/:id {status:"suspended"}  → Redis sentinel key written; cached hits return CONNECTOR_SUSPENDED
 ```
 
-Every step is a CI assertion. The release pipeline does not publish unless all 39 steps pass.
+Every step is a CI assertion. The release pipeline does not publish unless all 45 steps pass.
 
 ---
 
@@ -4577,3 +4720,8 @@ This section documents explicit design decisions where a trade-off was made, so 
 | Manual Kafka offset commit | Auto-commit | Auto-commit acknowledges messages before they are written to MongoDB/ClickHouse. A crash after auto-commit but before the write permanently loses the audit event. Manual commit provides exactly-once semantics with the `event_id` unique index. |
 | Strict single-use refresh tokens | Grace window for retries | A grace window prevents false logouts on network retries but creates a window where a stolen refresh token can be silently reused. Strict single-use ensures that token reuse (a compromise indicator) safely triggers immediate session revocation. |
 | ClickHouse partitioned by day only | Partition by (day, org_id) | ClickHouse does not efficiently handle per-org partitioning at 10k+ orgs. Each org-day pair becomes a separate part, causing part explosion and INSERT degradation. `org_id` in ORDER BY is sufficient for query performance. Daily partitioning prevents individual partitions from exceeding optimal size. |
+| ClickHouse `ReplacingMergeTree` | `MergeTree` | Kafka at-least-once delivery means duplicate events are possible on consumer restart. `ReplacingMergeTree` deduplicates during background merges using `(org_id, type, occurred_at, event_id)` as the ORDER BY key. |
+| SCIM endpoints use offset pagination | Cursor pagination | SCIM RFC 7644 mandates `startIndex` / `count` offset pagination. This is a protocol requirement, not a design choice. The overhead is acceptable at SCIM's provisioning traffic levels (low volume, not high-frequency). |
+| DLP in async monitor mode by default | Synchronous block mode | Synchronous DLP adds ~50-200ms to every event ingest path. For most workloads, async masking with a ~2s window is acceptable. Operators MUST opt-in to `dlp_mode=block` for strict HIPAA/GDPR workloads. |
+| Redis HA mandatory for auth blocklist | Allow single-node Redis for auth | Auth blocklist is a security boundary. It cannot tolerate the availability risk of a single-node Redis failure. Sentinel HA reduces MTTR for Redis to <30s. |
+| Connector suspension written as sentinel to Redis | DEL key on suspension | DELeting on suspension creates a window where in-flight cached lookups for this connector bypass the suspension. Writing a "suspended" sentinel ensures all cached hits correctly reflect the suspended state until the TTL expires. |
