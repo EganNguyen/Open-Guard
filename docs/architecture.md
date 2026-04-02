@@ -56,6 +56,27 @@
 2. **Phase Dependency Refactoring:** Phase 6 (Infrastructure & CI/CD) precedes Phase 1 (Foundation) in execution because Phase 1 Acceptance Criteria require operational pipelines and schema management. The Phase numbering has been aligned to reflect CI/CD foundation mapping to Phase 1.
 3. **DLP Compliance Masking Trade-Off:** The decision to default to an asynchronous DLP monitor mode acknowledges a brief window where plaintext PII exists in MongoDB before being masked by the audit service. For strict HIPAA/GDPR workloads, operators MUST opt-in to `dlp_mode=block` (synchronous execution) to prevent sensitive data resting in cleartext, accepting the associated latency latency.
 
+### Execution Order (Section Number → Implementation Sequence)
+
+> [!IMPORTANT]
+> The document is organized by concern (not execution order). Use this table to determine what to implement first.
+
+| Step | Section | Description | Prerequisite |
+|---|---|---|---|
+| 1 | §9 (Phase 1) | Infra, CI/CD, Docker Compose, certs, Makefile | None |
+| 2 | §6 | Multi-tenancy & RLS (DB roles, OrgPool, RLS policies) | Step 1 |
+| 3 | §7 | Transactional Outbox (table, writer, relay) | Step 2 |
+| 4 | §8 | Circuit Breakers & Resilience patterns | Step 1 |
+| 5 | §10 (Phase 2) | IAM + Control Plane + Auth (JWT, OIDC, SCIM) | Steps 2–4 |
+| 6 | §11 (Phase 3) | Policy Engine (Redis cache, evaluate, SDK) | Step 5 |
+| 7 | §12 (Phase 4) | Kafka + Audit Log (consumers, hash chain) | Steps 3, 6 |
+| 8 | §13 (Phase 5) | Threat Detection & Alerting | Step 7 |
+| 9 | §14 (Phase 6) | Compliance & Analytics (ClickHouse) | Step 7 |
+| 10 | §15 (Phase 7) | Security Hardening & Secret Rotation | Steps 5–9 |
+| 11 | §16 (Phase 8) | Load Testing & Performance Tuning | Steps 5–10 |
+| 12 | §17 (Phase 9) | Documentation & Runbooks | All preceding |
+| 13 | §18 (Phase 10) | DLP, DR Plan, Multi-Region Topology | Steps 7–12 |
+
 ---
 
 ## 0. Code Quality Standards
@@ -681,6 +702,7 @@ These are hard targets. Phase 8 must verify each one with k6 load tests. A phase
 
 **Notes on SLO feasibility:**
 - `POST /oauth/token` at 150ms p99 requires bcrypt to run through a bounded worker pool (Section 9.3.9). At cost 12, bcrypt takes 250–400ms per operation. Without pooling, 2,000 req/s would require ~800 goroutines each blocking on bcrypt, causing CPU starvation. With a worker pool sized to `2 × NumCPU`, throughput is limited by CPU capacity; scale horizontally to meet the target.
+- **Bcrypt capacity model:** At cost 12, one CPU core processes ~2.86 logins/s (1/350ms). A pool of `2N` workers on an N-core node sustains approximately `5.7N` logins/second. Meeting the **2,000 req/s** SLO therefore requires ~**35 CPU cores** of IAM capacity distributed across pods (e.g., 6 pods × 6 cores = 36 cores). Engineers running a single pod will see 429s at ~150 req/s — this is correct behavior, not a bug. Add IAM HPA scaling targets to the Helm chart with `targetCPUUtilizationPercentage: 60`.
 - `POST /v1/events/ingest` at 50ms p99 at 20,000 req/s assumes backpressure shedding kicks in before PostgreSQL outbox writes become the bottleneck (Section 9.4.2).
 
 ### 1.3 Design Principles
@@ -693,7 +715,8 @@ These are hard targets. Phase 8 must verify each one with k6 load tests. A phase
 | **Immutable audit trail** | Append-only MongoDB with per-org HMAC hash chaining. Batch chain assignment for throughput (Section 11.2.3). |
 | **Least privilege (services)** | Each service has its own DB user with table-level grants. Migration runs as `openguard_migrate` (DDL only, no `BYPASSRLS` on data tables). |
 | **Secret rotation without downtime** | JWT signing uses `kid`. Multiple valid keys coexist during rotation. Same pattern for MFA encryption keys. |
-| **Access token revocation** | JWT `jti` claim; Redis blocklist checked on every authenticated request. Entries MUST have a dynamic TTL equal to the token's remaining lifetime (`exp - now()`) to prevent storage drift and unrestrained memory growth. |
+| **Access token revocation** | JWT `jti` claim. Validation order is strictly enforced: (1) verify cryptographic signature, (2) check `exp` claim and reject with `ErrTokenExpired` if already expired, (3) only then check Redis blocklist. This ordering prevents wasting a Redis round-trip on every expired-token replay attempt. Blocklist entries MUST have a dynamic TTL equal to the token's remaining lifetime (`exp - now()`). |
+| **Clock skew tolerance** | JWT `iat` claim must not be more than 5 minutes in the future (matching TOTP tolerance). Refresh tokens arriving before their issued-at time are rejected with `ErrClockSkew`. Maximum accepted backward skew is zero — tokens pre-dated by the server are rejected. |
 | **mTLS between services** | All internal service-to-service calls use mTLS. |
 | **Exactly-once Kafka delivery** | Idempotent Kafka producer. Consumer commits offsets only after successful downstream write. |
 | **Cache-first connector auth** | Fast-hash prefix → Redis; PBKDF2 only on cache miss → DB. Sustains 20,000 req/s event ingest. |
@@ -755,11 +778,29 @@ The audit log has asymmetric load. Read/write split is enforced in the repositor
 
 **MongoDB read path** (HTTP handlers → secondary): `readPreference: secondaryPreferred`. Compliance report queries use `readPreference: secondary` (acceptable staleness: 5s).
 
+**EXCEPTION — `GET /audit/integrity`:** The integrity check verifies the HMAC hash chain for an org. It MUST use `readPreference: primary`. If it reads from a lagging secondary, events written to the primary but not yet replicated will appear as chain gaps, generating false positive integrity failures. A staleness bound is not sufficient — use `primary` or `primaryPreferred` with a max staleness of 0.
+
 ### 2.5 Choreography-Based Sagas
 
 User provisioning via SCIM touches multiple services. OpenGuard uses choreography-based sagas via Kafka compensating events. Each step is idempotent and publishes the next step's trigger.
 
 **Saga State Machine**: To prevent users from authenticating while policies are still being provisioned, a new SCIM user is created with `status: initializing`. IAM MUST reject logins for any user in this state. The final saga step sets the status to `active`.
+
+**User Status Transition Table:**
+
+| From | To | Trigger |
+|---|---|---|
+| (new) | `initializing` | SCIM `POST /Users` — user row created |
+| `initializing` | `active` | `saga.completed` event consumed by IAM |
+| `initializing` | `provisioning_failed` | `saga.timed_out` or any compensation event |
+| `provisioning_failed` | `initializing` | Admin `POST /users/:id/reprovision` — retries saga |
+| `active` | `suspended` | Admin `POST /users/:id/suspend` |
+| `suspended` | `active` | Admin `POST /users/:id/activate` |
+| any | `deprovisioned` | SCIM `DELETE /Users/:id` |
+
+**`provisioning_failed` is not terminal.** Org admins can retry via `POST /users/:id/reprovision`. This re-publishes `user.created` with a new `saga_id`, resetting the deadline. The SCIM `POST /Users` endpoint MUST be idempotent on `scim_external_id`: if a user with the same external ID exists in any non-`deprovisioned` status, return the existing resource (200 with the user body) rather than 409. This correctly handles Okta's 5xx retry behavior.
+
+**Saga timeout:** The deadline MUST account for outbox relay lag. Set the deadline to `SAGA_STEP_TIMEOUT_SECONDS + OUTBOX_MAX_LAG_SECONDS` (defaults: 30s + 10s = 40s). When `user.created` is published, IAM writes a deadline record to a Redis sorted set: `ZADD saga:deadlines <unix_deadline> <saga_id>`. A background watcher daemon (running exclusively within the **IAM Service**, consumer group `openguard-saga-v1`) polls the sorted set every 10 seconds for expired entries. On expiry, it publishes `saga.timed_out` with `compensation: true`.
 
 **SCIM `POST /scim/v2/Users` saga:**
 
@@ -775,8 +816,6 @@ IAM:        [consumes alert.prefs.init]          → UPDATE users SET status = '
             saga.completed                       → audit.trail
 ```
 
-**Saga timeout:** When `user.created` is published, IAM writes a deadline record to a Redis sorted set: `ZADD saga:deadlines <unix_deadline> <saga_id>`. A background watcher daemon (running exclusively within the **IAM Service**, consumer group `openguard-saga-v1`) polls the sorted set every 10 seconds for expired entries. On expiry, it publishes `saga.timed_out` with `compensation: true`. Deadline: `SAGA_STEP_TIMEOUT_SECONDS` (default 30s) per step.
-
 **Compensation (any step failure or timeout):**
 
 ```
@@ -786,6 +825,24 @@ IAM:        [consumes policy.assignment.failed] → sets user status=provisionin
 Threat:     [consumes user.provisioning.failed] → removes baseline profile
 Alerting:   [consumes user.provisioning.failed] → removes notification preferences
 ```
+
+**`user.deleted` saga** (SCIM `DELETE /Users/:id`):
+
+The `user.deleted` saga MUST include immediate session revocation before any other step:
+
+```
+IAM:        [receives DELETE /scim/v2/Users/:id]
+            1. Fetch all active jti values for user_id from sessions table
+            2. PIPELINE: SETEX jti:{jti} <remaining_ttl> "revoked" for each active jti
+            3. UPDATE sessions SET status='revoked' WHERE user_id = $1
+            4. UPDATE users SET status='deprovisioned'
+            user.deleted (status=deprovisioned) → audit.trail
+Policy:     [consumes user.deleted] → removes org policy assignments
+Threat:     [consumes user.deleted] → archives baseline profile
+Alerting:   [consumes user.deleted] → removes notification preferences
+```
+
+Leaving a 15-minute access token window for a deprovisioned user is a security gap. Immediate `jti` revocation closes it without requiring synchronous calls to other services.
 
 Every service that participates in a saga must define compensation handlers for all previous steps. Consumer groups use `auto.offset.reset: earliest` so replays are safe.
 
@@ -815,6 +872,8 @@ Control Plane auth flow:
 ```
 
 **Cache invalidation:** on `PATCH /v1/admin/connectors/:id` (e.g. for suspension), update the Redis key to a cached "suspended" sentinel explicitly rather than deleting it. This ensures recent lookups correctly reflect suspension status without bypassing it in the cache grace window.
+
+**Connector reactivation:** `PATCH /v1/admin/connectors/:id {status:"active"}` MUST overwrite the Redis key with the full connector record (not just delete it). This ensures the transition from the suspended sentinel to an active live record is reflected immediately without waiting for TTL expiry.
 
 **Inbound:** Apps push to `POST /v1/events/ingest`. Events are normalized and written to the outbox.
 
@@ -1058,8 +1117,13 @@ func (b *SDKBreaker) PolicyEvaluate(ctx context.Context, req PolicyRequest) (Pol
 
 // EventIngest calls POST /v1/events/ingest through the breaker.
 // When the breaker is open: buffer events locally up to SDK_OFFLINE_RETRY_LIMIT (default 500).
-// After 500 events, drop newest (tail drop) and publish `sdk.buffer_overflow` metric.
-// On breaker recovery: flush buffered events in a background goroutine.
+//
+// Eviction policy (security audit events): OLDEST events are evicted first (FIFO eviction).
+// The buffer retains the N most recent events, not the N oldest. For audit trail continuity,
+// recent events carry the highest operational relevance — the on-call engineer investigating
+// an incident needs the most recent actions, not events from before the circuit opened.
+// Eviction increments the `sdk.buffer_overflow` metric with label `eviction_policy=fifo`.
+// On breaker recovery: flush buffered events in a background goroutine (oldest first).
 func (b *SDKBreaker) EventIngest(ctx context.Context, event AuditEvent) error
 ```
 
@@ -1351,6 +1415,29 @@ type APIErrorBody struct {
 
 Cursor-based pagination for audit log and threat alert endpoints. Page-number pagination for user and policy lists.
 
+**Cursor format per endpoint — keyset pagination semantics:**
+
+ID-only cursors break when records are deleted (gaps in ID sequence). OpenGuard uses **composite keyset cursors** for all cursor-paginated endpoints:
+
+| Endpoint family | Cursor fields | Cursor key encoding |
+|---|---|---|
+| `GET /audit/events` | `(occurred_at, event_id)` | `base64(json({"t":"<unix_ms>","id":"<uuid>"}))`  |
+| `GET /v1/threats/alerts` | `(created_at, id)` | `base64(json({"t":"<unix_ms>","id":"<uuid>"}))`|
+| `GET /dlp/findings` | `(occurred_at, id)` | `base64(json({"t":"<unix_ms>","id":"<uuid>"}))`|
+| `GET /users` | Offset-based (`page + per_page`) | integer page index |
+| `GET /v1/policies` | Offset-based | integer page index |
+| `GET /v1/scim/v2/Users` | `startIndex` + `count` (RFC 7644) | 1-indexed offset |
+
+**Keyset WHERE clause (audit example):**
+```sql
+WHERE org_id = $1
+  AND (occurred_at, event_id) < ($2, $3)  -- composite keyset, stable across deletes
+ORDER BY occurred_at DESC, event_id DESC
+LIMIT $4
+```
+
+Composite keyset pagination is stable under soft-deletes and concurrent inserts. It does not require a total count (use `"total": null` for cursor endpoints). Append-only collections (audit log, findings) benefit most: gaps from hard-deletes cannot occur.
+
 **SCIM error responses** must follow RFC 7644 §3.12, not the `APIError` format:
 ```json
 {
@@ -1505,9 +1592,26 @@ DLP_PORT=8087
 DLP_ENTROPY_THRESHOLD=4.5
 DLP_MIN_CREDENTIAL_LENGTH=24
 DLP_SYNC_BLOCK_TIMEOUT_MS=30           # Sync check timeout during ingest
+DLP_POLICY_CACHE_TTL_SECONDS=60        # Redis cache for org DLP policies (required for 30ms budget)
 DLP_MTLS_CERT_FILE=/certs/dlp.crt
 DLP_MTLS_KEY_FILE=/certs/dlp.key
 DLP_MTLS_CA_FILE=/certs/ca.crt
+
+# ── Outbox Relay ─────────────────────────────────────────────────────
+# Used when running multiple relay instances for horizontal scaling.
+# In single-instance mode (default), these are not required.
+# For Kubernetes StatefulSets: inject OUTBOX_RELAY_INSTANCE_INDEX via
+# the Downward API (metadata.annotations['statefulset.kubernetes.io/pod-index']).
+# All instances must agree on OUTBOX_RELAY_TOTAL_INSTANCES.
+OUTBOX_RELAY_TOTAL_INSTANCES=1        # Default: single-instance mode (no partitioning)
+OUTBOX_RELAY_INSTANCE_INDEX=0         # Default: first (and only) instance
+OUTBOX_MAX_LAG_SECONDS=10             # Added to SAGA_STEP_TIMEOUT_SECONDS for deadline
+SAGA_STEP_TIMEOUT_SECONDS=30          # Per-step saga deadline; total = this + OUTBOX_MAX_LAG_SECONDS
+
+# ── Webhook Delivery ──────────────────────────────────────────────────
+# How often to re-resolve and re-validate webhook URLs at delivery time (seconds).
+# Prevents stale cached IPs breaking CDN-hosted endpoints while limiting DNS amplification.
+WEBHOOK_IP_REVALIDATE_INTERVAL_SECONDS=300  # Default: 5 minutes
 
 # ── PostgreSQL ───────────────────────────────────────────────────────
 POSTGRES_HOST=localhost
@@ -1692,6 +1796,10 @@ package rls
 import (
     "context"
     "fmt"
+    // pgx/v5 is imported for pgx.Tx and pgx.TxOptions used in BeginTx.
+    // pgxpool is imported for pgxpool.Pool and pgxpool.Conn used in Acquire/WithConn.
+    // Both sub-packages are required; neither can substitute for the other.
+    "github.com/jackc/pgx/v5"
     "github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -1840,6 +1948,20 @@ WHERE status = 'published'
   AND published_at < NOW() - INTERVAL '24 hours';
 ```
 
+> [!WARNING]
+> The cleanup job MUST NOT use `FOR UPDATE`. The relay's `processBatch` uses `FOR UPDATE SKIP LOCKED`. If the cleanup job also uses `FOR UPDATE`, it will block against the relay's locks, creating a deadlock when both try to acquire conflicting row locks on the same records. The cleanup must simply `DELETE` — any rows currently locked by the relay's `SKIP LOCKED` will be skipped by PostgreSQL's visibility rules and cleaned up in the next run.
+
+The 24-hour cleanup window means the table may hold millions of `published` rows between runs. To keep cleanup efficient without scanning the pending index:
+
+```sql
+-- Add to the outbox migration alongside idx_outbox_pending:
+CREATE INDEX idx_outbox_published ON outbox_records(published_at)
+    WHERE status = 'published';
+-- The cleanup DELETE above uses this index (O(rows deleted) not O(table size)).
+-- The relay's FOR UPDATE SKIP LOCKED uses idx_outbox_pending (status='pending' filter).
+-- Each index serves a separate query pattern; neither interferes with the other.
+```
+
 #### 6.1.6 API Key Middleware (Connector Auth)
 
 Hot-path API key lookup uses the two-tier Prefix/Secret scheme (Section 2.6).
@@ -1931,6 +2053,96 @@ Three rate limit tiers using Redis sliding window (token bucket, 1-minute window
 //   X-RateLimit-Limit: <limit>
 //   X-RateLimit-Remaining: 0
 ```
+
+### 6.3 ClickHouse Multi-Tenancy Wrapper
+
+PostgreSQL has RLS. MongoDB has per-query `org_id` filter via the find predicate. ClickHouse has neither. Every ClickHouse query in the compliance service must manually include `WHERE org_id = ?` — there is no enforcement layer. One missed `WHERE` clause in a compliance report query returns cross-tenant data.
+
+To provide a minimum safety net, all ClickHouse queries MUST go through `OrgClickHouseConn`, which guards against queries missing an `org_id` reference:
+
+```go
+// shared/clickhouse/org_conn.go
+package clickhouse
+
+import (
+    "context"
+    "errors"
+    "strings"
+
+    "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+)
+
+// OrgClickHouseConn wraps a ClickHouse driver.Conn and enforces that every
+// SELECT query references org_id. This does not guarantee correctness (a query
+// could reference org_id without filtering on it), but it provides a minimum
+// safety net and makes developer intent explicit.
+//
+// Usage in compliance service:
+//
+//   orgConn := clickhouse.NewOrgConn(conn, orgID)
+//   rows, err := orgConn.Query(ctx, "SELECT ... FROM events WHERE org_id = ? AND ...", ...)
+type OrgClickHouseConn struct {
+    conn  driver.Conn
+    orgID string
+}
+
+func NewOrgConn(conn driver.Conn, orgID string) *OrgClickHouseConn {
+    if conn == nil {
+        panic("NewOrgConn: conn is required")
+    }
+    if orgID == "" {
+        panic("NewOrgConn: orgID is required — use raw conn for system queries")
+    }
+    return &OrgClickHouseConn{conn: conn, orgID: orgID}
+}
+
+// Query enforces that every SELECT includes org_id in the WHERE clause.
+// Rejects queries that do not reference the org_id parameter placeholder.
+// The orgID is prepended to args so the first positional parameter ($1 / ?)
+// in the query is always the org_id value.
+//
+// This guard is case-insensitive and looks for the string "org_id" anywhere
+// in the query. It does NOT parse SQL — it is a last-line defence, not a
+// replacement for code review.
+func (c *OrgClickHouseConn) Query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
+    if !strings.Contains(strings.ToLower(query), "org_id") {
+        return nil, errors.New("ClickHouse query missing org_id filter — potential cross-tenant leak; add WHERE org_id = ? clause")
+    }
+    return c.conn.Query(ctx, query, append([]any{c.orgID}, args...)...)
+}
+
+// QueryRow is the single-row variant of Query with the same org_id guard.
+func (c *OrgClickHouseConn) QueryRow(ctx context.Context, query string, args ...any) driver.Row {
+    if !strings.Contains(strings.ToLower(query), "org_id") {
+        // driver.Row does not return an error directly; panic to surface the bug at development time.
+        // This will never fire in production if QueryRow callers are reviewed in CI.
+        panic("ClickHouse QueryRow missing org_id filter — potential cross-tenant leak")
+    }
+    return c.conn.QueryRow(ctx, query, append([]any{c.orgID}, args...)...)
+}
+
+// Raw returns the underlying driver.Conn for non-tenant queries (e.g., schema
+// migrations, system-level aggregations). Callers using Raw() must add a code
+// comment explaining why org_id isolation is not needed.
+func (c *OrgClickHouseConn) Raw() driver.Conn { return c.conn }
+```
+
+**Compliance report query pattern:**
+```go
+// pkg/reporter/generator.go — every ClickHouse query uses OrgClickHouseConn
+orgConn := clickhouse.NewOrgConn(c.chConn, orgID)
+rows, err := orgConn.Query(ctx, `
+    SELECT type, count() AS cnt
+    FROM events FINAL  -- FINAL forces deduplication; see §13.2
+    WHERE org_id = ?
+      AND occurred_at BETWEEN ? AND ?
+    GROUP BY type
+`, startDate, endDate)
+```
+
+**Testing:** Every compliance service unit test that uses ClickHouse must use a real `OrgClickHouseConn` (not the raw connection). A test that queries without `org_id` in the query string must error.
+
+**Limitation acknowledged:** The string-match guard (`strings.Contains`) does not parse SQL. A query could reference `org_id` in a comment and still lack the actual filter. This is documented in Appendix A as a known trade-off. Code review + SQL lint are the complementary layers.
 
 ---
 
@@ -2352,6 +2564,40 @@ Configured via `IAM_BCRYPT_WORKER_COUNT`. Recommended size: `2 × NumCPU`.
 | DLP service unreachable (sync-block mode) | **Reject event ingest** for orgs with `dlp_mode=block`. | Sync-block is an explicit opt-in with latency tradeoff. |
 | SCIM IdP sends wrong org_id | **Ignore header; derive from token config**. | Prevents org_id spoofing (Section 2.8). |
 
+**JWT `jti` blocklist — three-way return (critical):**
+
+The blocklist check MUST distinguish between a cache miss (key not in Redis — token is NOT blocked) and a Redis error (connection failure, timeout — unknown state). An implementation that conflates these two cases and falls through to allowing the request on Redis error is a security bug.
+
+```go
+// shared/crypto/jwt.go or shared/middleware/auth.go
+
+// CheckBlocklist returns the blocked status for a given jti.
+//
+// Return semantics (three-way):
+//   blocked=true,  err=nil   → token is in blocklist; deny request
+//   blocked=false, err=nil   → key not found in Redis; token not revoked; allow
+//   blocked=false, err!=nil  → Redis error; state unknown; MUST deny (fail closed)
+//
+// Callers MUST treat (err != nil) as (blocked = true). Example:
+//
+//   blocked, err := CheckBlocklist(ctx, redisClient, jti)
+//   if err != nil || blocked {
+//       return ErrTokenRevoked  // fail closed on any uncertainty
+//   }
+func CheckBlocklist(ctx context.Context, rdb *redis.Client, jti string) (blocked bool, err error) {
+    result, err := rdb.Get(ctx, "jti:blocklist:"+jti).Result()
+    if err == redis.Nil {
+        return false, nil // definitive cache miss: token not revoked
+    }
+    if err != nil {
+        return false, err // Redis unreachable: caller must treat as blocked
+    }
+    return result == "revoked", nil
+}
+```
+
+The `APIKeyMiddleware` in §6.1.6 calls `cache.Get()` for the connector cache — a different concern where fail-open is acceptable (rate limit backstop applies). The JWT auth middleware uses `CheckBlocklist`, which is a separate code path and MUST fail closed.
+
 ### 8.4 Retry Policy
 
 ```go
@@ -2440,6 +2686,65 @@ func (b *Bulkhead) Execute(ctx context.Context, fn func() error) error {
 ```
 
 Bulkhead instances are created in `main.go` and injected via constructors. They are never package-level variables initialized from env vars.
+
+### 8.6 PostgreSQL Outbox Write Latency Circuit Breaker
+
+The rate limiter (§6.2) operates on connector/org request rates, but does not measure PostgreSQL write latency. If PostgreSQL outbox insert latency spikes (vacuum autovacuum, replication lag, index bloat), the rate limiter continues accepting requests at full speed until PostgreSQL falls over.
+
+**Backpressure mechanism (event ingest path only):**
+
+```go
+// services/control-plane/pkg/service/ingest.go
+//
+// The IngestService tracks a rolling p99 of outbox INSERT duration.
+// If p99 > OUTBOX_INSERT_LATENCY_WARN_MS for OUTBOX_INSERT_LATENCY_WINDOW_SECONDS
+// consecutive seconds, the service begins shedding load.
+
+// New env vars (add to .env.example):
+// OUTBOX_INSERT_LATENCY_WARN_MS=100       # p99 threshold before shed (default: 100ms)
+// OUTBOX_INSERT_LATENCY_WINDOW_SECONDS=30 # evaluation window (default: 30s)
+
+func (s *IngestService) checkOutboxPressure() error {
+    if s.latencyTracker.P99() > s.cfg.OutboxInsertLatencyWarnMs &&
+        s.latencyTracker.WindowDuration() >= s.cfg.OutboxInsertLatencyWindowSecs {
+        return fmt.Errorf("%w: PostgreSQL outbox write latency elevated (p99 %.0fms > %dms threshold)",
+            models.ErrCircuitOpen,
+            s.latencyTracker.P99(),
+            s.cfg.OutboxInsertLatencyWarnMs,
+        )
+    }
+    return nil
+}
+
+// POST /v1/events/ingest handler:
+func (h *Handler) Ingest(w http.ResponseWriter, r *http.Request) {
+    if err := h.svc.checkOutboxPressure(); err != nil {
+        w.Header().Set("Retry-After", "10")
+        h.respondError(w, r, http.StatusServiceUnavailable, "OUTBOX_PRESSURE",
+            "event ingest temporarily degraded, retry shortly")
+        return
+    }
+    // ... normal ingest path
+}
+```
+
+**Metrics:**
+| Metric | Type | Labels |
+|---|---|---|
+| `openguard_outbox_insert_duration_seconds` | Histogram | `service` |
+| `openguard_outbox_pressure_shed_total` | Counter | `service` |
+
+The `OutboxPressureHigh` Prometheus alert fires when `histogram_quantile(0.99, outbox_insert_duration_seconds_bucket) > 0.1` for 2 minutes:
+
+```yaml
+  - alert: OutboxPressureHigh
+    expr: histogram_quantile(0.99, rate(openguard_outbox_insert_duration_seconds_bucket[2m])) > 0.1
+    for: 2m
+    labels: { severity: warning }
+    annotations:
+      summary: "PostgreSQL outbox insert p99 > 100ms — load shedding may activate"
+      runbook: "docs/runbooks/load-shedding.md"
+```
 ---
 
 ## 9. Phase 1 — Infra, CI/CD & Observability
@@ -2833,6 +3138,7 @@ groups:
 - `Deployment` per service with `minReadySeconds: 30` and `RollingUpdate` strategy.
 - `PodDisruptionBudget` per service: `minAvailable: 1`.
 - `HorizontalPodAutoscaler` for `control-plane`, `iam`, `policy`, `audit`: scale on CPU 70% and `openguard_kafka_consumer_lag`.
+- `HorizontalPodAutoscaler` for `dlp`: minimum 3 replicas when any org has `dlp_mode=block` enabled. Scale on CPU 80%. The 30ms sync-block SLO (`DLP_SYNC_BLOCK_TIMEOUT_MS`) is only achievable with at least 3 DLP pods (each handling ~33 concurrent sync requests at p99 budget). A single DLP pod cannot sustain the 200 sync req/s that 1% of 20k ingest req/s generates at `dlp_mode=block`.
 - `NetworkPolicy`:
   - Internal services (`iam`, `policy`, `audit`, `threat`, `alerting`, `compliance`, `dlp`) accept inbound only from `control-plane` (mTLS).
   - `connector-registry` accepts inbound only from `control-plane`.
@@ -3254,6 +3560,8 @@ func newWebAuthnConfig(cfg config.IAMConfig) *webauthn.WebAuthn {
 
 WebAuthn challenge state is stored in Redis (TTL: 5 minutes) keyed by `webauthn:challenge:{user_id}:{session_id}`, not in the database. The challenge is deleted after successful verification.
 
+**WebAuthn Session ID Security:** The `session_id` used in the challenge key MUST be a server-generated opaque random token (min 128 bits), stored exclusively in an `HttpOnly; Secure; SameSite=Strict` cookie. It MUST NOT be accessible to client-side JavaScript (no `document.cookie` access, no `localStorage`). This prevents a compromised XSS payload from exfiltrating the session ID and racing the WebAuthn challenge. The cookie is invalidated immediately after successful `login/finish`, and a new session ID is issued for the authenticated session.
+
 #### 9.3.7 SCIM v2 Implementation
 
 SCIM endpoints are exposed through the control plane at `/v1/scim/v2/*` and proxied to IAM via mTLS.
@@ -3312,7 +3620,22 @@ To comply with OAuth 2.0 Security BCP, the OpenGuard OIDC provider MUST enforce:
 2. **PKCE Requirement**: The Authorization Code flow MUST use Proof Key for Code Exchange (PKCE) with `code_challenge_method=S256`. Requests without a `code_challenge` MUST be rejected with HTTP 400.
 3. **PKCE Verification**: At the `/oauth/token` endpoint, the `code_verifier` provided MUST be validated using SHA-256 to ensure it matches the stored `code_challenge`.
 4. **State Parameter Echoing**: If the client provides a `state` parameter, the authorization response MUST echo it unmodified to prevent CSRF.
-5. **Authorization Code Storage**: Authorization codes MUST be stored in Redis with a strict 10-minute TTL, linked to the `client_id` and the user's session. They MUST be single-use.
+5. **Authorization Code Storage**: Authorization codes MUST be stored in Redis with a strict 10-minute TTL, linked to the `client_id` and the user's session. They MUST be single-use. The Redis structure MUST be:
+   ```
+   Key:   "oauth:code:{code}"
+   Value: JSON {
+     "client_id":             "<string>",
+     "user_id":               "<uuid>",
+     "org_id":                "<uuid>",
+     "scope":                 "<space-separated string>",
+     "redirect_uri":          "<string>",
+     "code_challenge":        "<base64url SHA-256 hash>",
+     "code_challenge_method": "S256",
+     "expires_at":            "<RFC3339 timestamp>"
+   }
+   TTL:   600s
+   ```
+   Storing `code_challenge` is essential. An implementation that stores only the code without the challenge will pass code issuance tests but fail PKCE verification at the token endpoint.
 6. **Scope Validation**: The `/oauth/token` endpoint MUST validate that any requested scopes were explicitly granted during the authorization endpoint phase.
 7. **Client Authentication**: OIDC client secrets (`client_secret`) MUST be hashed using PBKDF2 at rest, analogous to Connector API keys.
 
@@ -3373,7 +3696,73 @@ To prevent brute force enumeration, the following lockout rules apply:
 | `PATCH` | `/scim/v2/Users/:id` | Partial update (RFC 6902 JSON Patch) |
 | `DELETE` | `/scim/v2/Users/:id` | Deprovision user (triggers saga) |
 
-#### 9.3.9 bcrypt worker pool integration
+#### 9.3.9 SAML 2.0 Implementation
+
+SAML 2.0 has significant implementation complexity: XML signing/validation, assertion replay protection, IdP-initiated flows, NameID format handling, and SP/IdP metadata exchange. Rather than re-implementing these from scratch, OpenGuard delegates SAML to the `github.com/crewjam/saml` library.
+
+**Library:** `github.com/crewjam/saml` (`go get github.com/crewjam/saml@latest`)
+
+**Implementation requirements:**
+
+```go
+// services/iam/pkg/service/saml.go
+//
+// Key requirements not handled automatically by the library:
+//
+// 1. Assertion replay protection:
+//    Cache the Assertion ID in Redis with TTL = NotOnOrAfter - now().
+//    Reject any assertion whose ID is already in Redis.
+//    Key: "saml:assertion:{assertion_id}", Value: "used", TTL: remaining_validity
+//
+// 2. Clock skew tolerance:
+//    NotBefore / NotOnOrAfter conditions MUST be validated with ±5 minute skew
+//    (matching the TOTP and JWT clock skew tolerance in §1.3).
+//    crewjam/saml applies MaxIssueDelay (default 5 minutes); do not relax it.
+//
+// 3. NameID format:
+//    Prefer "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress".
+//    Map the NameID to an IAM user by email address (org-scoped lookup).
+//    Reject assertions where NameID does not match a known user in the org.
+//
+// 4. IdP-initiated flows:
+//    crewjam/saml supports IdP-initiated SSO via the /saml/acs endpoint.
+//    Validate the InResponseTo field: for SP-initiated flows it MUST match a
+//    pending AuthnRequest stored in Redis (TTL: 10 minutes).
+//    For IdP-initiated flows (InResponseTo absent), accept only if the org
+//    has explicitly enabled IdP-initiated SSO in its SAML configuration.
+//
+// 5. Signature validation:
+//    Both Response and Assertion elements MUST be signed by the IdP.
+//    Reject partial signatures (Response unsigned, Assertion signed only).
+//    The IdP certificate is fetched from IAM_SAML_IDP_METADATA_URL at startup
+//    and cached. Certificate rotation requires a service restart or a metadata
+//    refresh endpoint: POST /saml/metadata/refresh (admin-only, mTLS).
+
+func NewSAMLServiceProvider(cfg config.IAMConfig) (*saml.ServiceProvider, error) {
+    idpMetadata, err := fetchIDPMetadata(cfg.SAMLIDPMetadataURL)
+    if err != nil {
+        return nil, fmt.Errorf("fetch SAML IdP metadata: %w", err)
+    }
+    sp := saml.ServiceProvider{
+        EntityID:          cfg.SAMLEntityID,
+        Key:              spPrivateKey,   // RSA private key for SP signing
+        Certificate:      spCertificate,  // SP certificate shared with IdP
+        MetadataURL:      cfg.SAMLMetadataURL,
+        ACSURL:           cfg.SAMLEntityID + "/saml/acs",
+        IDPMetadata:      idpMetadata,
+        AllowIDPInitiated: cfg.SAMLAllowIDPInitiated, // env: IAM_SAML_ALLOW_IDP_INITIATED=false
+    }
+    return &sp, nil
+}
+```
+
+**Audit events produced:**
+- `auth.saml.login.success` → `auth.events` topic
+- `auth.saml.login.failure` (with `reason`: `invalid_signature`, `assertion_replay`, `user_not_found`) → `auth.events` topic
+
+**Out of scope for Phase 2:** SAML attribute mapping beyond NameID (group membership, role assertions). These are deferred to a future SAML attribute mapping specification.
+
+#### 9.3.10 bcrypt worker pool integration
 
 The `AuthWorkerPool` (Section 8.2) is initialized in `main.go` and injected into the IAM service. The `PostMethod` for `/oauth/token` calls `p.Verify()` instead of `bcrypt.CompareHashAndPassword()` directly. This ensures login latency remains predictable even under high load.
 
@@ -3562,6 +3951,28 @@ Also: standard outbox table.
 //
 // This is O(M) for the affected org, not O(total keyspace) like SCAN.
 //
+// === SCALABILITY BOUND ===
+// SMEMBERS on a set with M > 10,000 entries is a blocking O(N) Redis operation
+// that will stall the Redis event loop for hundreds of milliseconds.
+// An org with 10,000 users × 100 resources × 10 action types = 10M keys exceeds this.
+//
+// The system MUST enforce a maximum per-org key set size:
+//   - On SADD: if SCARD(org_keys) >= 10000, use SUNIONSTORE + TTL on a bucketed key
+//     instead of a single SADD (time-bucketed sets, one per POLICY_CACHE_TTL_SECONDS window).
+//   - Alternative: replace SMEMBERS + bulk DEL with a single atomic key namespace
+//     eviction using UNLINK on all keys matching the org prefix (non-blocking DEL):
+//
+//   // Non-blocking bulk delete (preferred for large orgs):
+//   pipe := rdb.Pipeline()
+//   for _, key := range keys {  // keys from SMEMBERS
+//       pipe.Unlink(ctx, key)   // UNLINK is non-blocking (deferred GC), unlike DEL
+//   }
+//   pipe.Unlink(ctx, orgKeysSet)
+//   pipe.Exec(ctx)
+//
+// Operators MUST monitor SCARD("policy:eval:org:{org_id}:keys") per org.
+// Alert threshold: SCARD > 5,000 (warning), > 10,000 (critical, use UNLINK path).
+//
 // Thundering Herd Mitigation on Cache Miss:
 // When a policy.changes event invalidates a large org's cache, concurrent
 // requests will simultaneously miss the cache and all attempt to read from
@@ -3654,6 +4065,25 @@ When a policy changes, connected apps with scope `policy:read` receive a signed 
 
 Replication factor 3 requires 3 brokers in staging/production. Docker Compose uses single-broker (replication=1) for local dev. `create-topics.sh` detects broker count and adjusts replication factor automatically.
 
+### 11.1.1 Kafka Consumer Group Tuning
+
+During a rolling deployment of the audit consumer, Kafka triggers a consumer group rebalance. With default settings (`session.timeout.ms=10000`), the rebalance takes 10–30 seconds, during which **no consumer processes messages**. At 50,000 events/s, this creates up to 1.5M queued events per deployment.
+
+All audit and event consumers MUST use these settings:
+
+```yaml
+# Applied to all consumer group configurations (kafka.consumer config keys)
+session.timeout.ms: 45000        # How long before broker considers consumer dead
+heartbeat.interval.ms: 3000      # Must be < session.timeout.ms / 3
+max.poll.interval.ms: 300000     # Max time between polls (500 docs × 300ms flush = 150s buffer)
+partition.assignment.strategy: cooperative-sticky  # Incremental rebalance — only reassigns
+                                                   # partitions that must move, not all of them.
+                                                   # Minimizes the no-processing window to near-zero.
+```
+
+The `CooperativeStickyAssignor` (incremental rebalancing) is mandatory. With eager rebalancing (the default), all consumers stop consuming during a rebalance. With incremental rebalancing, only the partitions that move are paused — most consumers continue processing throughout the deployment.
+
+
 ### 11.2 Audit Log Service — CQRS Architecture
 
 ```
@@ -3719,6 +4149,12 @@ func (b *BulkWriter) Add(doc AuditEvent) {
 // Called by the consumer after reaching maxDocs or flushAfter interval.
 // The consumer commits Kafka offsets AFTER this function returns nil.
 // Contract: The consumer loop must not call Add() while Flush() and offset commit are in progress.
+//
+// FAILOVER HANDLING: During a MongoDB primary failover (election takes 10-30 seconds),
+// BulkWrite returns a NotPrimaryError / ServerSelectionTimeoutError. This function retries
+// with exponential backoff for up to AUDIT_BULK_FLUSH_RETRY_MAX_MS (default: 60000ms).
+// The MongoDB Go driver handles automatic reconnection to the new primary. Retry MUST
+// respect context cancellation to support graceful shutdown during failover.
 func (b *BulkWriter) Flush(ctx context.Context) error {
     b.mu.Lock()
     if len(b.buffer) == 0 {
@@ -3732,26 +4168,51 @@ func (b *BulkWriter) Flush(ctx context.Context) error {
     opts := options.BulkWrite().SetOrdered(false)
     // w:majority ensures the write is confirmed by a quorum of replica set members
     // before we commit the Kafka offset, preventing data loss on primary failover.
-    writeResult, err := b.coll.BulkWrite(ctx, docs, opts)
-    _ = writeResult
-    if err != nil {
+
+    const maxRetries = 5
+    delay := 200 * time.Millisecond
+    for attempt := 0; attempt < maxRetries; attempt++ {
+        if attempt > 0 {
+            timer := time.NewTimer(delay)
+            select {
+            case <-ctx.Done():
+                timer.Stop()
+                return ctx.Err()
+            case <-timer.C:
+            }
+            delay *= 2
+            if delay > 30*time.Second {
+                delay = 30 * time.Second
+            }
+        }
+
+        writeResult, err := b.coll.BulkWrite(ctx, docs, opts)
+        _ = writeResult
+        if err == nil {
+            return nil
+        }
+
+        // Retry on primary failover errors — the driver reconnects automatically
+        if mongo.IsNetworkError(err) || strings.Contains(err.Error(), "NotPrimary") ||
+            strings.Contains(err.Error(), "ServerSelectionTimeout") {
+            continue
+        }
+
         var bulkErr mongo.BulkWriteException
         if errors.As(err, &bulkErr) {
-            // Log individual failures; ignore duplicate key errors (E11000)
             for _, we := range bulkErr.WriteErrors {
                 if we.Code != 11000 { // not duplicate key
-                    // log genuine failures; return error to prevent offset commit
                     return fmt.Errorf("bulk write non-duplicate error: %w", err)
                 }
             }
-            // All failures were duplicate keys — safe to commit offsets
-            return nil
+            return nil // all duplicate keys — safe to commit offsets
         }
         return fmt.Errorf("bulk write failed: %w", err)
     }
-    return nil
+    return fmt.Errorf("bulk write failed after %d retries", maxRetries)
 }
 ```
+
 
 #### 11.2.3 Atomic Hash Chain (Batched Reservation)
 
@@ -3999,6 +4460,28 @@ func (w *ClickHouseWriter) Flush(ctx context.Context) error {
 }
 ```
 
+**ClickHouse `FINAL` modifier — mandatory for compliance queries:**
+
+`ReplacingMergeTree` deduplicates rows only during background merges. Between insertion and the background merge, duplicate rows are visible to `SELECT` queries. For compliance reports generated shortly after a Kafka consumer restart (which replays and re-inserts duplicates), this can cause overcounting of events. For HIPAA and SOC 2 reports, overcounting is an audit finding.
+
+**All compliance report queries targeting the `events` table MUST use the `FINAL` modifier:**
+
+```sql
+-- CORRECT: forces deduplication at query time
+SELECT type, count() AS cnt
+FROM events FINAL
+WHERE org_id = ? AND occurred_at BETWEEN ? AND ?
+GROUP BY type
+
+-- INCORRECT: may count duplicates during background merge window
+SELECT type, count() AS cnt
+FROM events
+WHERE org_id = ? AND occurred_at BETWEEN ? AND ?
+GROUP BY type
+```
+
+`FINAL` adds query latency (typically 20–100ms additional for typical report scans) but is required for correctness. Do NOT use `FINAL` on the `event_counts_daily` materialized view or `alert_stats` table — `SummingMergeTree` merges happen more frequently and the latency cost is not justified for dashboard queries. `FINAL` is specifically required for the `events` `ReplacingMergeTree` in compliance report generation.
+
 ### 13.3 Report Generation with Injected Bulkhead
 
 The `reportBulkhead` is not a package-level variable. It is constructed in `main.go` and injected:
@@ -4032,7 +4515,24 @@ func (g *Generator) Generate(ctx context.Context, report *Report) error {
 When bulkhead is full: `ErrBulkheadFull` → handler maps to `429` with `Retry-After: 30`.
 
 **Report Object Persistence:**
-Generated compliance PDF reports are mathematically signed to prove non-tampering. The PDF blob MUST be uploaded to an S3-compatible object store (e.g. AWS S3, MinIO) within a dedicated `compliance-reports` bucket. The PostgreSQL `reports` table stores the metadata and an `s3_key` reference for retrieval via pre-signed URLs. The raw PDF bytes are never stored in the database.
+Generated compliance PDF reports are cryptographically signed to prove non-tampering using **RSA-PSS** (PKCS#1 v2.1, SHA-256). The signing procedure:
+
+1. Generate the PDF bytes.
+2. Compute `SHA-256(pdf_bytes)`.
+3. Sign the hash using the compliance signing key (RSA-4096, stored in Secret Manager): `sig = RSA-PSS-Sign(privateKey, sha256_hash)`.
+4. Base64-encode the signature.
+5. Store the PDF as `{s3_key}.pdf` and the detached signature as `{s3_key}.sig` in the `compliance-reports` S3 bucket.
+6. Store both `s3_key` and `s3_sig_key` in the PostgreSQL `reports` table.
+
+**Verification:** Recipients download both the PDF and the `.sig` file and verify:
+```go
+// Verification (recipient or auditor)
+err := rsa.VerifyPSS(publicKey, crypto.SHA256, sha256sum(pdf), sig, nil)
+```
+
+The compliance signing key pair is rotated annually as part of the secret rotation runbook (§15.4). Add `COMPLIANCE_SIGNING_KEY_ARN` to `.env.example`.
+
+The raw PDF bytes are never stored in the database. Retrieval uses pre-signed S3 URLs (TTL: 1 hour).
 
 ### 13.4 Compliance API
 
@@ -4079,10 +4579,23 @@ Applied to every service router.
 
 ### 15.2 SSRF Protection
 
-All outgoing webhook URLs (SIEM, connector webhook) are validated at configuration time (startup and on PATCH) AND at delivery time. To prevent TOCTOU DNS rebinding vulnerabilities, the delivery mechanism must bind to the exact safe IP address resolved during validation rather than performing a fresh DNS lookup right before the request.
+All outgoing webhook URLs (SIEM, connector webhook) are validated at registration time (startup and on PATCH) AND re-validated on every delivery attempt. **Do not cache the resolved IP across deliveries.** CDN rotation and legitimate failover will change the resolved IP between registrations and deliveries; cached IPs will connect to stale addresses.
+
+The correct approach: re-resolve and re-validate on each delivery, then use the newly resolved IP for that specific connection — closing the TOCTOU window without breaking CDN-hosted endpoints.
+
+```sql
+-- Add to connected_apps table (migration)
+ALTER TABLE connected_apps ADD COLUMN IF NOT EXISTS
+    webhook_ip_last_validated_at TIMESTAMPTZ;
+```
 
 ```go
-func validateWebhookURL(raw string) (string, error) {
+// WEBHOOK_IP_REVALIDATE_INTERVAL_SECONDS controls how often the IP is re-resolved.
+// Default: 300s (5 minutes). This matches typical CDN TTL while limiting DNS amplification.
+// At delivery time, if (now - webhook_ip_last_validated_at) > revalidate_interval,
+// re-resolve and re-validate the webhook URL before dialing.
+
+func resolveAndValidateWebhookURL(raw string) (resolvedIP string, err error) {
     u, err := url.Parse(raw)
     if err != nil {
         return "", fmt.Errorf("invalid URL: %w", err)
@@ -4094,8 +4607,7 @@ func validateWebhookURL(raw string) (string, error) {
     if err != nil || len(ips) == 0 {
         return "", fmt.Errorf("DNS resolution failed: %w", err)
     }
-    // Bind to the first resolved IP to prevent DNS rebinding
-    resolvedIP := ips[0]
+    // Validate ALL resolved IPs before accepting the first
     for _, ip := range ips {
         parsed := net.ParseIP(ip)
         if parsed == nil { continue }
@@ -4103,12 +4615,12 @@ func validateWebhookURL(raw string) (string, error) {
             return "", fmt.Errorf("webhook URL resolves to restricted IP %s (SSRF blocked)", ip)
         }
     }
-    return resolvedIP, nil
+    return ips[0], nil // use first validated IP for this delivery
 }
 
-// Construct an HTTP Client that bypasses DNS resolution at delivery time
-// using the securely validated IP address.
-func NewSafeDeliveryClient(resolvedIP, originalHost string) *http.Client {
+// NewBoundDeliveryClient creates an http.Client bound to a specific resolved IP.
+// Called per-delivery AFTER re-validation. Never cached across deliveries.
+func NewBoundDeliveryClient(resolvedIP string) *http.Client {
     dialer := &net.Dialer{
         Timeout:   5 * time.Second,
         KeepAlive: 30 * time.Second,
@@ -4117,15 +4629,14 @@ func NewSafeDeliveryClient(resolvedIP, originalHost string) *http.Client {
         Timeout: 10 * time.Second,
         Transport: &http.Transport{
             DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-                // Ignore the DNS lookup for 'addr' and dial the explicitly bound IP instead
                 _, port, _ := net.SplitHostPort(addr)
-                targetAddr := net.JoinHostPort(resolvedIP, port)
-                return dialer.DialContext(ctx, network, targetAddr)
+                return dialer.DialContext(ctx, network, net.JoinHostPort(resolvedIP, port))
             },
         },
     }
 }
 ```
+
 
 ### 15.3 Safe Logger
 
@@ -4269,6 +4780,7 @@ export const options = {
 | Connector auth p99 > 5ms (cached) | Redis pool exhausted | Increase `REDIS_POOL_SIZE` |
 | Webhook delivery backlog | Delivery service under-scaled | Increase `webhook-delivery` replicas |
 | MongoDB OOM | Bulk write buffer too large | Reduce `AUDIT_BULK_INSERT_MAX_DOCS`; tune MongoDB `wiredTiger.engineConfig.cacheSizeGB` |
+| Compliance report overcounts events | No `FINAL` modifier on ClickHouse query | Add `FINAL` modifier to ALL `SELECT ... FROM events` queries in compliance reports; see §13.2 |
 
 ### 16.3 Phase 8 Acceptance Criteria
 
@@ -4528,6 +5040,188 @@ A production-grade system requires a documented, tested DR plan. This section de
 
 ---
 
+## 18.6 Multi-Region Topology
+
+OpenGuard supports active-passive multi-region deployments for Fortune-500 customers requiring regional DR and data residency. This section specifies how each data store and the event bus are distributed across two regions (primary + standby).
+
+> [!IMPORTANT]
+> Active-active multi-region write is NOT supported in v1. All writes go to the primary region. The standby region is a hot standby for failover only. Read traffic may be served from the standby region for compliance analytics (ClickHouse) and audit read queries (MongoDB secondary).
+
+### 18.6.1 Kafka — MirrorMaker 2
+
+**Topology:** One Kafka cluster per region. MirrorMaker 2 (MM2) replicates topics from the primary cluster to the standby cluster in near-real-time.
+
+```yaml
+# infra/kafka/mirrormaker2.yaml
+# MirrorMaker 2 configuration — deployed in the standby region
+clusters:
+  - alias: primary
+    bootstrap.servers: kafka-primary.internal:9092
+    sasl.mechanism: SCRAM-SHA-512
+    security.protocol: SASL_SSL
+
+  - alias: standby
+    bootstrap.servers: kafka-standby.internal:9092
+    sasl.mechanism: SCRAM-SHA-512
+    security.protocol: SASL_SSL
+
+mirrors:
+  - source.cluster.alias: primary
+    target.cluster.alias: standby
+    topics:
+      # Replicate all audit, threat, and compliance topics.
+      # Do NOT replicate saga.orchestration — sagas only run in the primary region.
+      - audit.trail
+      - threat.alerts
+      - connector.events
+      - data.access
+      - auth.events
+      - policy.changes
+      - outbox.dlq
+      - webhook.dlq
+    topics.blacklist: saga.orchestration,webhook.delivery,notifications.outbound
+    replication.factor: 3
+    sync.topic.configs.enabled: true
+    sync.topic.acls.enabled: true
+    # Consumer offset translation: MM2 translates primary offsets to standby offsets.
+    # This allows consumers in the standby region to resume from the last replicated
+    # offset without reprocessing all history after failover.
+    emit.checkpoints.enabled: true
+    emit.checkpoints.interval.seconds: 60
+```
+
+**Replication lag monitoring:**
+```yaml
+  - alert: MirrorMakerLagHigh
+    expr: kafka_mirror_maker_record_age_ms_max > 30000
+    for: 5m
+    labels: { severity: warning }
+    annotations:
+      summary: "MirrorMaker 2 replication lag > 30s — standby region is falling behind"
+      runbook: "docs/runbooks/kafka-consumer-lag.md"
+```
+
+**Failover procedure:**
+1. Update DNS CNAME for Kafka bootstrap to point to the standby cluster.
+2. MM2 consumer offset checkpoints allow consumers to resume from the last replicated position.
+3. Remaining in-flight messages in the primary cluster that weren't replicated (RPO window) will be reprocessed from the outbox when PostgreSQL is promoted.
+
+**Topic naming:** MM2 prefixes replicated topics with the source alias (`primary.audit.trail`). Consumers in the standby region must be configured to consume from prefixed topic names during failover.
+
+### 18.6.2 PostgreSQL — Streaming Replication
+
+**Topology:** Aurora PostgreSQL in the primary region with cross-region read replica in the standby region. Replication is asynchronous with a target lag < 5 seconds under normal load.
+
+```
+Primary Region: Aurora PostgreSQL (writer + 2 readers, Multi-AZ)
+                    │
+                    │ async streaming replication (WAL shipping)
+                    ▼
+Standby Region: Aurora PostgreSQL Read Replica (promoted to writer during failover)
+```
+
+**Replication configuration:**
+```sql
+-- On primary: verify replication is established
+SELECT client_addr, state, sent_lsn, write_lsn, flush_lsn, replay_lsn,
+       (sent_lsn - replay_lsn) AS replication_lag_bytes
+FROM pg_stat_replication;
+```
+
+**Failover procedure:**
+1. Detect primary region failure (health check fails for > 60s).
+2. Promote the standby Aurora cluster: `aws rds promote-read-replica-db-cluster --db-cluster-identifier standby-cluster`.
+3. Update application connection strings to point to the new primary.
+4. The outbox relay in the standby region begins draining the outbox (which was replicated via WAL).
+5. Any outbox records written to the primary region after the last replicated WAL position are permanently lost (within the RPO window of ~5 minutes).
+
+**RLS in the standby region:** RLS policies are replicated via WAL. They are identical on the standby. No schema changes are required for failover.
+
+**Connection routing:** Use `pgbouncer` with a `host` override file that points to the current writer. During failover, update the pgbouncer config and reload: `pgbouncer -R`.
+
+**Replication lag alert:**
+```yaml
+  - alert: PostgreSQLReplicationLagHigh
+    expr: aws_rds_replica_lag_average > 30
+    for: 5m
+    labels: { severity: warning }
+    annotations:
+      summary: "PostgreSQL standby replica lag > 30s — RPO window expanding"
+      runbook: "docs/runbooks/postgres-rls-bypass.md"
+```
+
+### 18.6.3 MongoDB — Atlas Global Clusters
+
+**Topology:** MongoDB Atlas Global Clusters with zone-based sharding. Each region is a zone. Write traffic is routed to the primary zone (primary region). Reads for audit queries can be served from the local zone.
+
+```
+Primary Region (Zone A):  Atlas Cluster — Primary Shard + Primary Replica Set
+Standby Region (Zone B):  Atlas Cluster — Electable Replica Set Members (3 nodes)
+```
+
+**Zone mapping for data residency:**
+```js
+// Atlas Global Cluster zone configuration
+// Zone A: Primary region — receives all writes
+// Zone B: Standby region — receives replicated writes; serves reads
+db.adminCommand({
+  customAction: "createOrUpdateGeoZoneMapping",
+  zoneMapping: [
+    { location: "us-east-1", zone: "Zone A" },
+    { location: "eu-west-1", zone: "Zone B" }
+  ]
+})
+```
+
+**Connection string configuration:**
+```
+# Primary region services (write client)
+MONGO_URI_PRIMARY=mongodb+srv://cluster.mongodb.net/?readPreference=primary&appName=openguard-write
+
+# Secondary read client (can use either region)
+MONGO_URI_SECONDARY=mongodb+srv://cluster.mongodb.net/?readPreference=secondaryPreferred&appName=openguard-read
+```
+
+**Failover behavior:** Atlas Global Clusters handle automatic failover. If the primary region loses quorum, Atlas promotes a secondary in Zone B to primary within ~30 seconds. The application connection string does not change (Atlas handles DNS failover via the `+srv` SRV record).
+
+**Audit chain integrity post-failover:** After a MongoDB failover, run `scripts/verify-audit-chain.sh --org-id all` to verify the hash chain is intact. A failover that includes a partial write may create a chain gap; the integrity verifier reports the exact `chain_seq` gap per org.
+
+**Hash chain note:** The `audit_chain_state` counter (`findOneAndUpdate` with `$inc`) is atomic within a single MongoDB cluster. After failover to Zone B, the counter continues correctly from the last replicated value. Any events written to Zone A after the last replication checkpoint are not in Zone B, creating a `chain_seq` gap that the integrity verifier will report.
+
+### 18.6.4 Redis — Sentinel HA with Cross-Region Warm Standby
+
+Redis is stateless from a persistence perspective (the blocklist is rebuilt from JWT expiry; the cache is rebuilt from DB reads). Full cross-region replication of Redis is not required.
+
+**Primary region:** Redis Sentinel (3 nodes, Multi-AZ) — authoritative.
+
+**Standby region:** Empty Redis instance. During failover, the standby region's services start with a cold cache. The first few minutes of traffic will have elevated DB load as the cache warms.
+
+**Blocklist recovery after failover:**
+- Active JWT `jti` blocklist entries are lost at failover (Redis is ephemeral).
+- To close the security gap: immediately after promoting the standby PostgreSQL cluster, run `scripts/rebuild-jti-blocklist.sh` which queries the `sessions` table for all `revoked=true` entries with unexpired JWTs and re-populates Redis.
+- Script run time: < 60 seconds for typical deployments (< 100k active sessions).
+
+```bash
+# scripts/rebuild-jti-blocklist.sh
+# Run immediately after standby region promotion
+# Queries sessions table for revoked sessions with non-expired JWTs
+# and populates Redis jti:blocklist:{jti} keys with remaining TTL.
+```
+
+### 18.6.5 Multi-Region Acceptance Criteria
+
+- [ ] MM2 replication lag < 30s under 50,000 events/s sustained load (verified via `kafka_mirror_maker_record_age_ms_max`).
+- [ ] PostgreSQL standby replication lag < 30s under normal write load.
+- [ ] MongoDB Zone B election completes within 30s of Zone A primary failure (Atlas SLA).
+- [ ] After PostgreSQL failover: outbox relay resumes draining within 60s.
+- [ ] After MongoDB failover: `verify-audit-chain.sh` reports gap at expected `chain_seq` (not silent corruption).
+- [ ] After Redis failover: `rebuild-jti-blocklist.sh` completes in < 60s. Revoked tokens correctly blocked.
+- [ ] RTO for full region failover: < 30 minutes (matches §18.5 target).
+- [ ] `MirrorMakerLagHigh` alert fires correctly during simulated MM2 shutdown.
+- [ ] Standby region read traffic (audit queries) serves correctly from MongoDB Zone B secondary.
+
+---
+
 ## 19. Cross-Cutting Concerns
 
 ### 19.1 Structured Logging — Mandatory Fields
@@ -4713,7 +5407,7 @@ This section documents explicit design decisions where a trade-off was made, so 
 | Decision | Alternatives | Reason |
 |---|---|---|
 | Connector auth via Redis cache | DB lookup per request | 20,000 req/s event ingest would require 20,000 DB lookups/s. Cache reduces to ~50 DB lookups/s (cache miss rate ~0.25%) at 30s TTL. |
-| Per-org key index for policy cache invalidation | Redis SCAN on pattern | SCAN on 5M+ keys is O(N) and blocks Redis event loop. Per-org key set is O(M) where M = keys for that org. |
+| Per-org key index for policy cache invalidation | Redis SCAN on pattern | SCAN on 5M+ keys is O(N) and blocks Redis event loop. Per-org key set is O(M) where M = keys for that org. Cap at 10,000 keys per org; use UNLINK (non-blocking DEL) for bulk eviction. |
 | MongoDB hash chain via `findOneAndUpdate` | In-application sequence | In-application sequence has TOCTOU race between reads. `findOneAndUpdate` with `$inc` is atomic at the MongoDB layer. |
 | Separate `org_id` column on outbox table | Use Kafka partition key for RLS | Partition key is a routing concern; RLS is a security concern. Coupling them creates correctness bugs if routing changes. |
 | HMAC for MFA backup codes | bcrypt array | bcrypt array is O(N × bcrypt_cost) = ~3s for 10 codes. HMAC lookup is O(1). Backup codes are not passwords; brute-force enumeration is protected by rate limiting, not hashing cost. |
@@ -4721,7 +5415,11 @@ This section documents explicit design decisions where a trade-off was made, so 
 | Strict single-use refresh tokens | Grace window for retries | A grace window prevents false logouts on network retries but creates a window where a stolen refresh token can be silently reused. Strict single-use ensures that token reuse (a compromise indicator) safely triggers immediate session revocation. |
 | ClickHouse partitioned by day only | Partition by (day, org_id) | ClickHouse does not efficiently handle per-org partitioning at 10k+ orgs. Each org-day pair becomes a separate part, causing part explosion and INSERT degradation. `org_id` in ORDER BY is sufficient for query performance. Daily partitioning prevents individual partitions from exceeding optimal size. |
 | ClickHouse `ReplacingMergeTree` | `MergeTree` | Kafka at-least-once delivery means duplicate events are possible on consumer restart. `ReplacingMergeTree` deduplicates during background merges using `(org_id, type, occurred_at, event_id)` as the ORDER BY key. |
+| ClickHouse `FINAL` on compliance queries | Accept eventual deduplication | Background merges are not instantaneous. For HIPAA/SOC 2 compliance reports, duplicate rows visible during the merge window would cause overcounting — an audit finding. `FINAL` forces deduplication at query time at the cost of 20–100ms additional latency, which is acceptable for report generation (p99 < 30s SLO). |
+| `OrgClickHouseConn` string-match guard | Full SQL parser enforcement | A full SQL parser would be accurate but adds a significant dependency and compile-time cost. The string-match guard (`strings.Contains(query, "org_id")`) catches the most common class of missing-filter bugs — plain omissions — and fails loudly at development time. It is a complement to code review and SQL lint, not a replacement. |
+| JTI blocklist fail-closed on Redis error | Fail-open (allow unknown tokens) | When Redis is unreachable, the blocklist state is unknown. Allowing a potentially revoked token to authenticate violates the security contract. The availability cost (brief 503s during Redis degradation) is acceptable given that Redis is deployed in HA mode (Sentinel) with < 30s MTTR. |
 | SCIM endpoints use offset pagination | Cursor pagination | SCIM RFC 7644 mandates `startIndex` / `count` offset pagination. This is a protocol requirement, not a design choice. The overhead is acceptable at SCIM's provisioning traffic levels (low volume, not high-frequency). |
 | DLP in async monitor mode by default | Synchronous block mode | Synchronous DLP adds ~50-200ms to every event ingest path. For most workloads, async masking with a ~2s window is acceptable. Operators MUST opt-in to `dlp_mode=block` for strict HIPAA/GDPR workloads. |
 | Redis HA mandatory for auth blocklist | Allow single-node Redis for auth | Auth blocklist is a security boundary. It cannot tolerate the availability risk of a single-node Redis failure. Sentinel HA reduces MTTR for Redis to <30s. |
 | Connector suspension written as sentinel to Redis | DEL key on suspension | DELeting on suspension creates a window where in-flight cached lookups for this connector bypass the suspension. Writing a "suspended" sentinel ensures all cached hits correctly reflect the suspended state until the TTL expires. |
+| Active-passive multi-region (not active-active) | Active-active writes | Active-active multi-region writes require distributed transaction coordination (2PC or Paxos) to maintain RLS and audit chain consistency across regions. The operational complexity and latency cost outweigh the availability benefit for v1. Active-passive achieves the Fortune-500 DR SLO (30-min RTO) with significantly lower complexity. |
