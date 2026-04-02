@@ -33,12 +33,12 @@
 6. [Multi-Tenancy & RLS](#6-multi-tenancy--rls)
 7. [Transactional Outbox Pattern](#7-transactional-outbox-pattern)
 8. [Circuit Breakers & Resilience](#8-circuit-breakers--resilience)
-9. [Phase 1 — Foundation](#9-phase-1--foundation)
-10. [Phase 2 — Policy Engine](#10-phase-2--policy-engine)
-11. [Phase 3 — Event Bus & Audit Log](#11-phase-3--event-bus--audit-log)
-12. [Phase 4 — Threat Detection & Alerting](#12-phase-4--threat-detection--alerting)
-13. [Phase 5 — Compliance & Analytics](#13-phase-5--compliance--analytics)
-14. [Phase 6 — Infra, CI/CD & Observability](#14-phase-6--infra-cicd--observability)
+9. [Phase 1 — Infra, CI/CD & Observability](#9-phase-1--infra-cicd--observability)
+10. [Phase 2 — Foundation & Authentication](#10-phase-2--foundation--authentication)
+11. [Phase 3 — Policy Engine](#11-phase-3--policy-engine)
+12. [Phase 4 — Event Bus & Audit Log](#12-phase-4--event-bus--audit-log)
+13. [Phase 5 — Threat Detection & Alerting](#13-phase-5--threat-detection--alerting)
+14. [Phase 6 — Acceptance Criteria](#14-phase-6--acceptance-criteria)
 15. [Phase 7 — Security Hardening & Secret Rotation](#15-phase-7--security-hardening--secret-rotation)
 16. [Phase 8 — Load Testing & Performance Tuning](#16-phase-8--load-testing--performance-tuning)
 17. [Phase 9 — Documentation & Runbooks](#17-phase-9--documentation--runbooks)
@@ -46,36 +46,6 @@
   - 18.5 [Disaster Recovery Plan](#185-disaster-recovery-plan)
 19. [Cross-Cutting Concerns](#19-cross-cutting-concerns)
 20. [Full-System Acceptance Criteria](#20-full-system-acceptance-criteria)
-
----
-
-## Architecture Decision Record (ADR)
-*Added post-Senior Architect Review to clarify core trade-offs and structural adjustments.*
-
-1. **RLS Cast Bug Rectification:** The original RLS policies explicitly cast `current_setting('app.org_id', true)` to UUID. Because PostgreSQL attempts execution before returning an empty set, empty strings evaluated during system administration triggers generated cast exceptions. The standard has been revised to strictly mandate `NULLIF(current_setting(...), '')::UUID` to return NULL and safely fail closed.
-2. **Phase Dependency Refactoring:** Phase 6 (Infrastructure & CI/CD) precedes Phase 1 (Foundation) in execution because Phase 1 Acceptance Criteria require operational pipelines and schema management. The Phase numbering has been aligned to reflect CI/CD foundation mapping to Phase 1.
-3. **DLP Compliance Masking Trade-Off:** The decision to default to an asynchronous DLP monitor mode acknowledges a brief window where plaintext PII exists in MongoDB before being masked by the audit service. For strict HIPAA/GDPR workloads, operators MUST opt-in to `dlp_mode=block` (synchronous execution) to prevent sensitive data resting in cleartext, accepting the associated latency latency.
-
-### Execution Order (Section Number → Implementation Sequence)
-
-> [!IMPORTANT]
-> The document is organized by concern (not execution order). Use this table to determine what to implement first.
-
-| Step | Section | Description | Prerequisite |
-|---|---|---|---|
-| 1 | §9 (Phase 1) | Infra, CI/CD, Docker Compose, certs, Makefile | None |
-| 2 | §6 | Multi-tenancy & RLS (DB roles, OrgPool, RLS policies) | Step 1 |
-| 3 | §7 | Transactional Outbox (table, writer, relay) | Step 2 |
-| 4 | §8 | Circuit Breakers & Resilience patterns | Step 1 |
-| 5 | §10 (Phase 2) | IAM + Control Plane + Auth (JWT, OIDC, SCIM) | Steps 2–4 |
-| 6 | §11 (Phase 3) | Policy Engine (Redis cache, evaluate, SDK) | Step 5 |
-| 7 | §12 (Phase 4) | Kafka + Audit Log (consumers, hash chain) | Steps 3, 6 |
-| 8 | §13 (Phase 5) | Threat Detection & Alerting | Step 7 |
-| 9 | §14 (Phase 6) | Compliance & Analytics (ClickHouse) | Step 7 |
-| 10 | §15 (Phase 7) | Security Hardening & Secret Rotation | Steps 5–9 |
-| 11 | §16 (Phase 8) | Load Testing & Performance Tuning | Steps 5–10 |
-| 12 | §17 (Phase 9) | Documentation & Runbooks | All preceding |
-| 13 | §18 (Phase 10) | DLP, DR Plan, Multi-Region Topology | Steps 7–12 |
 
 ---
 
