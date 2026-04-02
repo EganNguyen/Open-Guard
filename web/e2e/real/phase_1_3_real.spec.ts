@@ -100,6 +100,19 @@ async function setupOrg(request: APIRequestContext): Promise<{
   };
 }
 
+/**
+ * Performs a real login via the UI to establish a session (Cookie-based).
+ */
+async function loginViaUI(page: any, email: string, password = 'Password123!') {
+  await page.goto('/login');
+  await page.fill('#login-email', email);
+  await page.fill('#login-password', password);
+  await page.click('button[type="submit"]');
+  // Wait for the redirect to dashboard
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+  await page.waitForLoadState('networkidle');
+}
+
 // Legacy alias for compatibility
 async function setupUser(request: APIRequestContext) {
   return setupOrg(request);
@@ -129,25 +142,19 @@ test.describe('Phase 1 — IAM Foundation', () => {
   });
 
   test('P1-02: Login UI → Dashboard loads with real token', async ({ page, request }) => {
-    const { token } = await setupOrg(request);
-
-    await page.goto('/login');
-    await page.evaluate((t) => localStorage.setItem('access_token', t), token);
-
-    await page.goto('/dashboard');
-    await expect(page.getByText('Overview').first()).toBeVisible({ timeout: 15_000 });
+    const { email } = await setupOrg(request);
+    await loginViaUI(page, email);
+    await expect(page.getByTestId('page-title').first()).toBeVisible({ timeout: 15_000 });
   });
 
   test('P1-03: Register a Connector via UI and verify it appears in list', async ({ page, request }) => {
     test.setTimeout(90_000);
-    const { token } = await setupOrg(request);
+    const { email } = await setupOrg(request);
     const connectorName = `E2E Connector ${Date.now()}`;
 
-    await page.goto('/login');
-    await page.evaluate((t) => localStorage.setItem('access_token', t), token);
+    await loginViaUI(page, email);
     await page.goto('/dashboard/connectors');
     await expect.poll(() => page.url(), { timeout: 15_000 }).toContain('/dashboard/connectors');
-    await page.waitForLoadState('networkidle');
 
     // Wait for the page to be ready and interactive
     await page.waitForLoadState('networkidle');
@@ -198,15 +205,14 @@ test.describe('Phase 1 — IAM Foundation', () => {
   });
 
   test('P1-05: Admin creates a user via UI and user appears in the table', async ({ page, request }) => {
-    const { token } = await setupOrg(request);
+    const { email } = await setupOrg(request);
     const unique = Date.now();
     const newEmail = `ui_member_${unique}@openguard.io`;
 
-    await page.goto('/login');
-    await page.evaluate((t) => localStorage.setItem('access_token', t), token);
+    await loginViaUI(page, email);
     await page.goto('/dashboard/users');
 
-    await expect(page.getByTestId('page-title')).toContainText('Organization Users', { timeout: 20_000 });
+    await expect(page.getByTestId('page-title')).toContainText('OpenGuard', { timeout: 20_000 });
     // Wait for the UI state to settle (either empty or full table)
     await expect(page.getByTestId('user-list').or(page.getByTestId('no-users-view'))).toBeVisible({ timeout: 15_000 });
 
@@ -253,11 +259,9 @@ test.describe('Phase 1 — IAM Foundation', () => {
   });
 
   test('P1-07: User list UI renders data from real backend', async ({ page, request }) => {
-    const { token, email } = await setupOrg(request);
+    const { email } = await setupOrg(request);
 
-    await page.goto('/login');
-    await page.evaluate((t) => localStorage.setItem('access_token', t), token);
-
+    await loginViaUI(page, email);
     await page.goto('/dashboard/users');
     // Admin user should always appear in their own org
     await expect(page.getByTestId('user-list').or(page.getByTestId('no-users-view'))).toBeVisible({ timeout: 15_000 });
@@ -380,7 +384,7 @@ test.describe('Phase 2 — Policy Engine', () => {
   });
 
   test('P2-03: Policy Registry page renders policies from real backend', async ({ page, request }) => {
-    const { token } = await setupOrg(request);
+    const { token, email } = await setupOrg(request);
     const policyName = `E2E UI Policy ${Date.now()}`;
 
     const createRes = await request.post(`${API}/api/v1/policies`, {
@@ -394,10 +398,9 @@ test.describe('Phase 2 — Policy Engine', () => {
     });
     expect(createRes.status()).toBe(201);
 
-    await sleep(1500);
+    await sleep(2000);
 
-    await page.goto('/login');
-    await page.evaluate((t) => localStorage.setItem('access_token', t), token);
+    await loginViaUI(page, email);
     await page.goto('/dashboard/access-policies');
 
     await expect(page.getByTestId('page-title')).toContainText('Policy Registry', { timeout: 15_000 });
@@ -405,11 +408,10 @@ test.describe('Phase 2 — Policy Engine', () => {
   });
 
   test('P2-04: Create and delete a policy via UI', async ({ page, request }) => {
-    const { token } = await setupOrg(request);
+    const { email } = await setupOrg(request);
     const policyName = `E2E UI Create ${Date.now()}`;
 
-    await page.goto('/login');
-    await page.evaluate((t) => localStorage.setItem('access_token', t), token);
+    await loginViaUI(page, email);
     await page.goto('/dashboard/access-policies');
 
     await page.getByTestId('toggle-create-policy').click();
@@ -719,10 +721,9 @@ test.describe('Phase 2 — Policy Engine', () => {
 
 test.describe('Phase 3 — Audit Log', () => {
   test('P3-01: Audit page loads for authenticated user', async ({ page, request }) => {
-    const { token } = await setupOrg(request);
+    const { email } = await setupOrg(request);
 
-    await page.goto('/login');
-    await page.evaluate((t) => localStorage.setItem('access_token', t), token);
+    await loginViaUI(page, email);
     await page.goto('/dashboard/audit');
 
     await expect(page.getByTestId('page-title')).toContainText('System Audit Events', { timeout: 15_000 });

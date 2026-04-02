@@ -1,327 +1,252 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
-import styles from "./dashboard.module.css";
-import { getUsers, getPolicies, getThreats, getAuditEvents, getAlerts } from "@/lib/api";
-
-/* ── Sparkline bars ── */
-function Sparkline({ data, color }: { data: number[]; color: string }) {
-  return (
-    <div className={styles.sparklineRow}>
-      {data.map((h, i) => (
-        <div key={i} className={styles.sparkBar} style={{ height: `${h}%`, background: color }} />
-      ))}
-    </div>
-  );
-}
-
-/* ── Check icon ── */
-const CheckIcon = () => (
-  <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor">
-    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
-  </svg>
-);
-
-/* ── Recommendation item ── */
-function RecItem({ title, desc, meta, done }: { title: string; desc: string; meta?: string; done?: boolean }) {
-  const [isDone, setIsDone] = useState(!!done);
-  return (
-    <div className={`${styles.recItem} ${isDone ? styles.recDone : ""}`} onClick={() => setIsDone(!isDone)}>
-      <div className={styles.recCheck}><CheckIcon /></div>
-      <div className={styles.recContent}>
-        <div className={styles.recTitle} style={isDone ? { color: "var(--muted)", textDecoration: "line-through" } : {}}>{title}</div>
-        <div className={styles.recDesc}>{desc}</div>
-      </div>
-      {meta && <div className={styles.recMeta} style={isDone ? { color: "var(--green)" } : {}}>{isDone ? "✓ Done" : meta}</div>}
-      <div className={styles.recArrow}>›</div>
-    </div>
-  );
-}
+import Shell from "@/components/layout/Shell";
+import { 
+  Users, 
+  ShieldCheck, 
+  Activity, 
+  History, 
+  ChevronRight, 
+  Plus, 
+  Settings, 
+  AlertTriangle 
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function DashboardPage() {
-  const [hideCompleted, setHideCompleted] = useState(false);
-  const [userCount, setUserCount] = useState<number | string>("—");
-  const [policyCount, setPolicyCount] = useState<number | string>("—");
-
-  useEffect(() => {
-    const token = localStorage.getItem("access_token");
-
-    async function fetchData() {
-      try {
-        const [usersRes, policiesRes, threatsRes, auditRes, alertsRes] = await Promise.allSettled([
-          getUsers(token!),
-          getPolicies(token!),
-          getThreats(token!),
-          getAuditEvents(token!),
-          getAlerts(token!)
-        ]);
-
-        if (usersRes.status === "fulfilled") {
-          setUserCount(usersRes.value.meta.total_items || usersRes.value.data.length || 0);
-        }
-        if (policiesRes.status === "fulfilled") {
-          setPolicyCount(policiesRes.value.meta.total || policiesRes.value.data.length || 0);
-        }
-        
-        // Log errors for unavailable services (Threats, Audit, Alerts)
-        [threatsRes, auditRes, alertsRes].forEach((res, i) => {
-          if (res.status === "rejected") {
-            console.warn(`Service ${["Threats", "Audit", "Alerts"][i]} is currently unavailable.`);
-          }
-        });
-      } catch (err) {
-        console.error("Failed to fetch dashboard data:", err);
-      }
-    }
-
-    fetchData();
-  }, []);
-
   return (
-    <DashboardLayout title="Overview">
-      {/* ── HERO GRID ── */}
-      <div className={styles.heroGrid}>
-        {/* First step */}
-        <div className={styles.heroCard}>
-          <div className={styles.eyebrow}>First step <span className="tag tag-purple" style={{ marginLeft: "4px" }}>Phase 5</span></div>
-          <h2>Verify your domain</h2>
-          <p>Prove you own your domain so you can claim and manage user accounts. Managed accounts are significantly more secure and enable policy enforcement.</p>
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <button className="btn btn-primary" disabled>
-              <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
-              </svg>
-              Verify domain
+    <Shell 
+      title="Security Overview" 
+      crumbs={["Dashboard"]}
+    >
+      <div className="grid grid-cols-4 gap-6">
+        <StatCard 
+          title="Active Alerts" 
+          value="3" 
+          trend="+2" 
+          status="destructive" 
+          icon={AlertTriangle} 
+        />
+        <StatCard 
+          title="Managed Users" 
+          value="124" 
+          trend="+5" 
+          status="info" 
+          icon={Users} 
+        />
+        <StatCard 
+          title="Audit Volume (24h)" 
+          value="1.2k" 
+          trend="-12%" 
+          status="success" 
+          icon={History} 
+        />
+        <StatCard 
+          title="Active Policies" 
+          value="8" 
+          trend="—" 
+          status="primary" 
+          icon={ShieldCheck} 
+        />
+      </div>
+
+      <div className="grid grid-cols-3 gap-8 mt-10">
+        <div className="col-span-2 space-y-8">
+          {/* Quick Actions */}
+          <section className="bg-surface-1 border border-border rounded-xl p-8 space-y-6 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 rounded-full -translate-y-16 translate-x-16" />
+            <div className="space-y-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-accent">Getting Started</span>
+              <h2 className="text-xl font-bold tracking-tight">Verify your organization domain</h2>
+              <p className="text-sm text-muted-foreground max-w-md">
+                Claim your domain to automatically manage user accounts and enforce 
+                security policies across all organization-owned identities.
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <button className="btn btn-primary h-10 px-6 gap-2">
+                Verify domain
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+              <button className="btn btn-ghost h-10 px-6">View documentation</button>
+            </div>
+            
+            <div className="flex items-center gap-4 pt-4 border-t border-border mt-6">
+              <div className="flex -space-x-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="w-8 h-8 rounded-full border-2 border-surface-1 bg-secondary grid place-items-center">
+                    <Users className="w-3.5 h-3.5 text-muted-foreground" />
+                  </div>
+                ))}
+              </div>
+              <span className="text-[12px] text-muted-foreground font-medium">8 users pending domain verification</span>
+            </div>
+          </section>
+
+          {/* Activity Section */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold tracking-tight">Recent Activity</h3>
+              <button className="text-[12px] text-accent font-medium hover:underline">View all trail</button>
+            </div>
+            <div className="bg-surface-1 border border-border rounded-xl divide-y divide-border">
+              <ActivityItem 
+                title="SAML SSO configured" 
+                desc="Azure AD integration was successfully tested by Jane D." 
+                time="2m ago" 
+                icon={Settings} 
+              />
+              <ActivityItem 
+                title="New policy version created" 
+                desc="Production RBAC policy v2.4 (Strict Isolation) by Bob K." 
+                time="15m ago" 
+                icon={ShieldCheck} 
+              />
+              <ActivityItem 
+                title="Outbox relay delay" 
+                desc="Infrastructure latency detected in us-east-1 queue" 
+                time="42m ago" 
+                icon={Activity} 
+                status="warning"
+              />
+            </div>
+          </section>
+        </div>
+
+        <aside className="space-y-8">
+          {/* Recommendations Panel */}
+          <div className="bg-card border border-border rounded-xl p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold tracking-tight">Security Posture</h3>
+              <div className="w-8 h-8 rounded-full border-2 border-accent/20 flex items-center justify-center text-[11px] font-bold text-accent">
+                84%
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <RecommendationItem 
+                title="Enable MFA enforcement" 
+                desc="Require two-factor for all admin accounts" 
+                priority="high"
+              />
+              <RecommendationItem 
+                title="Rotate SCIM tokens" 
+                desc="Tokens for Okta have been active for >90 days" 
+                priority="med"
+              />
+              <RecommendationItem 
+                title="Audit log retention" 
+                desc="Current retention set to minimum (30 days)" 
+                priority="low"
+              />
+            </div>
+
+            <button className="w-full btn btn-ghost py-2 mt-4 text-[12px] gap-2 border-accent/20 hover:border-accent">
+              <Settings className="w-3.5 h-3.5" />
+              Manage Security Policies
             </button>
-            <button className="btn btn-ghost" disabled>Learn more</button>
           </div>
-          <div className={styles.progressWrap}>
-            <div className={styles.progressLabel}>
-              <span>Setup progress</span>
-              <span>2 of 8 complete</span>
-            </div>
-            <div className={styles.progressBar}>
-              <div className={styles.progressFill} style={{ width: "25%" }} />
-            </div>
-          </div>
-        </div>
 
-        {/* Users chart */}
-        <div className={styles.heroCard} style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
-            <span style={{ fontSize: "13.5px", fontWeight: 600 }}>Users with access to your apps</span>
-            <div style={{ display: "flex", gap: "6px" }}>
-              <div className={styles.iconBtn}>↻</div>
-              <div className={styles.iconBtn}>⋯</div>
+          {/* Quick Stats Panel */}
+          <div className="bg-surface-1 border border-border rounded-xl p-6 space-y-4">
+            <h3 className="text-sm font-bold tracking-tight flex items-center gap-2">
+              <Activity className="w-4 h-4 text-accent" />
+              SLO Status
+            </h3>
+            <div className="space-y-3">
+              <SloProgress name="Login Latency" value="88ms" percent={65} />
+              <SloProgress name="Policy Evaluation" value="22ms" percent={82} />
+              <SloProgress name="Audit Ingestion" value="4ms" percent={95} />
             </div>
           </div>
-          <div className="chip-group" style={{ marginBottom: "14px" }}>
-            <div className="chip active"><div className="chip-dot" style={{ background: "var(--accent)" }} />All users</div>
-            <div className="chip"><div className="chip-dot" style={{ background: "var(--green)" }} />Managed</div>
-            <div className="chip"><div className="chip-dot" style={{ background: "var(--amber)" }} />External</div>
-          </div>
-          <div className={styles.usersChartArea}>
-            <div className={styles.usersEmptyIcon}>
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"/>
-              </svg>
-            </div>
-            <span style={{ fontSize: "13px", color: "var(--muted)" }}>No insights yet — verify your domain first</span>
-            <button className="btn btn-ghost" style={{ fontSize: "12px", padding: "6px 12px", marginTop: "4px" }} disabled>Verify domain →</button>
-          </div>
-        </div>
+        </aside>
       </div>
-
-      {/* ── STATS ROW ── */}
-      <div className={styles.statsRow}>
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>
-            <div className={styles.statDot} style={{ background: "var(--red)" }} />
-            Active alerts
-            <span className="tag tag-red" style={{ marginLeft: "auto", fontSize: "9px" }}>Phase 4</span>
-          </div>
-          <div className={styles.statValue} style={{ color: "var(--red)" }}>3</div>
-          <div className={styles.statSub}><span className={`${styles.statTrend} ${styles.trendUp}`}>+2</span> since yesterday</div>
-          <Sparkline data={[30, 20, 60, 40, 80, 50, 100]} color="var(--red)" />
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>
-            <div className={styles.statDot} style={{ background: "var(--accent)" }} />
-            Managed users
-          </div>
-          <div className={styles.statValue} style={{ color: "var(--accent)" }} data-testid="user-count">{userCount}</div>
-          <div className={styles.statSub}><span className={`${styles.statTrend} ${styles.trendNeutral}`}>—</span> active accounts</div>
-          <Sparkline data={[10, 10, 10, 10, 10, 10, 10]} color="var(--accent)" />
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>
-            <div className={styles.statDot} style={{ background: "var(--green)" }} />
-            Audit events (24h)
-            <span className="tag tag-green" style={{ marginLeft: "auto", fontSize: "9px" }}>Phase 3</span>
-          </div>
-          <div className={styles.statValue} style={{ color: "var(--green)" }}>1,284</div>
-          <div className={styles.statSub}><span className={`${styles.statTrend} ${styles.trendDown}`}>-12%</span> vs prior day</div>
-          <Sparkline data={[55, 70, 45, 90, 60, 75, 80]} color="var(--green)" />
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>
-            <div className={styles.statDot} style={{ background: "var(--purple)" }} />
-            Active policies
-          </div>
-          <div className={styles.statValue} style={{ color: "var(--purple)" }} data-testid="policy-count">{policyCount}</div>
-          <div className={styles.statSub}><span className={`${styles.statTrend} ${styles.trendNeutral}`}>RBAC</span> policies defined</div>
-          <Sparkline data={[65, 80, 70, 95, 75, 85, 100]} color="var(--purple)" />
-        </div>
-      </div>
-
-      {/* ── SECTION GRID ── */}
-      <div className={styles.sectionGrid}>
-        {/* Recommendations */}
-        <div className={styles.panel}>
-          <div className={styles.panelHeader}>
-            <span className={styles.panelTitle}>Security recommendations</span>
-            <div className={styles.panelActions}>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--muted)" }}>
-                Hide completed
-                <div
-                  className={styles.toggle}
-                  onClick={() => setHideCompleted(!hideCompleted)}
-                  style={{ background: hideCompleted ? "var(--accent)" : "var(--border2)" }}
-                >
-                  <div className={styles.toggleThumb} style={{ left: hideCompleted ? "14px" : "2px" }} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className={styles.recSectionLabel}>Get control of your organization</div>
-          <RecItem title="Add another admin" desc="Ensure you have another admin to avoid being locked out" meta="1 org admin" />
-          <RecItem title="Verify your domain" desc="Prove you own the domain of your user accounts" />
-          <RecItem title="Claim your user accounts" desc="Claim accounts from your domain to apply authentication settings" />
-          <RecItem title="Update your authentication policy" desc="Specify authentication settings for managed accounts" />
-          <RecItem title="Control the location of your data" desc="Choose where you store app data to meet privacy and legal requirements" />
-
-          <div className={styles.recSectionLabel} style={{ paddingTop: "6px" }}>
-            Secure your organization&apos;s users and data
-            <span style={{ color: "var(--accent)", fontSize: "10px", marginLeft: "6px", fontWeight: 500, cursor: "pointer" }}>⚡ Powered by OpenGuard</span>
-          </div>
-          <RecItem title="Connect your identity provider" desc="Set up SAML SSO and automatic user provisioning via SCIM" meta="0 providers" />
-          {!hideCompleted && <RecItem title="Set up MFA enforcement" desc="Require two-factor authentication for all managed accounts" done />}
-          <RecItem title="Set up external user policy" desc="Control how you manage users you don't own" meta="0 external users" />
-        </div>
-
-        {/* Right column */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          {/* Active Alerts */}
-          <div className={styles.panel}>
-            <div className={styles.panelHeader}>
-              <span className={styles.panelTitle}>Active alerts</span>
-              <div className={styles.panelActions}>
-                <span className="tag tag-red">3 open</span>
-                <div className={styles.iconBtn} style={{ fontSize: "11px" }}>→</div>
-              </div>
-            </div>
-            <AlertItem severity="critical" title="Brute force detected" tag="CRITICAL" tagClass="tag-red" actor="user@acme.com" time="2m ago" />
-            <AlertItem severity="high" title="Impossible travel" tag="HIGH" tagClass="tag-amber" actor="bob@acme.com" time="18m ago" />
-            <AlertItem severity="medium" title="Off-hours admin access" tag="MEDIUM" tagClass="tag-purple" actor="svc-deploy" time="1h ago" />
-          </div>
-
-          {/* SLO Status */}
-          <div className={styles.panel}>
-            <div className={styles.panelHeader}>
-              <span className={styles.panelTitle}>Service SLOs</span>
-              <span className="tag tag-green">All healthy</span>
-            </div>
-            <div className={styles.sloGrid}>
-              <SloItem name="Login p99" val="88ms" target="target <150ms" />
-              <SloItem name="Policy p99" val="22ms" target="target <30ms" />
-              <SloItem name="Audit p99" val="64ms" target="target <100ms" />
-              <SloItem name="JWT valid p99" val="3ms" target="target <5ms" />
-              <SloItem name="Outbox lag" val="824" target="target <1000" warn />
-              <SloItem name="CB status" val="Closed" target="all breakers" />
-            </div>
-          </div>
-
-          {/* Audit Mini Table */}
-          <div className={styles.panel}>
-            <div className={styles.panelHeader}>
-              <span className={styles.panelTitle}>Recent audit events</span>
-              <div className={styles.iconBtn} style={{ fontSize: "11px" }}>→</div>
-            </div>
-            <table className={styles.auditTable}>
-              <thead>
-                <tr>
-                  <th>Actor</th>
-                  <th>Event</th>
-                  <th>Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                <AuditRow initials="JD" name="Jane D." gradient="linear-gradient(135deg,#4f7cff,#a78bfa)" event="auth.login.success" time="2m ago" />
-                <AuditRow initials="BK" name="Bob K." gradient="linear-gradient(135deg,#22d98f,#4f7cff)" event="policy.changes" time="15m ago" />
-                <AuditRow initials="SY" name="system" gradient="linear-gradient(135deg,#f5a623,#ff4f6b)" event="auth.mfa.enrolled" time="42m ago" />
-                <AuditRow initials="AP" name="Alice P." gradient="linear-gradient(135deg,#a78bfa,#22d98f)" event="user.created" time="1h ago" />
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </DashboardLayout>
+    </Shell>
   );
 }
 
-/* ── Sub-components ── */
-
-function AlertItem({ severity, title, tag, tagClass, actor, time }: {
-  severity: string; title: string; tag: string; tagClass: string; actor: string; time: string;
-}) {
-  const sevClass =
-    severity === "critical" ? styles.sevCritical :
-    severity === "high" ? styles.sevHigh :
-    severity === "medium" ? styles.sevMedium : styles.sevLow;
-
+function StatCard({ title, value, trend, status, icon: Icon }: any) {
   return (
-    <div className={styles.alertItem}>
-      <div className={`${styles.alertSev} ${sevClass}`} />
-      <div className={styles.alertBody}>
-        <div className={styles.alertTitle}>{title}</div>
-        <div className={styles.alertMeta}>
-          <span className={`tag ${tagClass}`}>{tag}</span>
-          <span>{actor}</span>
-          <span style={{ marginLeft: "auto", fontFamily: "var(--mono)", fontSize: "10.5px" }}>{time}</span>
+    <div className="p-6 bg-surface-1 border border-border rounded-xl space-y-3 relative overflow-hidden transition-all hover:border-accent/40 hover:shadow-lg hover:shadow-accent/5 cursor-default group">
+      <div className="flex items-center justify-between relative z-10">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{title}</span>
+        <div className={cn(
+          "w-8 h-8 rounded-lg grid place-items-center transition-colors shadow-sm",
+          status === "destructive" ? "bg-destructive/10 text-destructive group-hover:bg-destructive/20" :
+          status === "success" ? "bg-green/10 text-green group-hover:bg-green/20" :
+          "bg-accent/10 text-accent group-hover:bg-accent/20"
+        )}>
+          <Icon className="w-4 h-4" />
+        </div>
+      </div>
+      <div className="flex items-end gap-3 relative z-10">
+        <div className={cn(
+          "text-3xl font-bold tracking-tight tabular-nums",
+          status === "destructive" && "text-destructive"
+        )}>{value}</div>
+        <div className={cn(
+          "text-[12px] font-medium mb-1 flex items-center gap-1",
+          trend.startsWith("+") ? "text-green" : trend.startsWith("-") ? "text-destructive" : "text-muted-foreground"
+        )}>
+          {trend}
         </div>
       </div>
     </div>
   );
 }
 
-function SloItem({ name, val, target, warn, crit }: {
-  name: string; val: string; target: string; warn?: boolean; crit?: boolean;
-}) {
-  const cls = crit ? styles.sloCrit : warn ? styles.sloWarn : "";
+function ActivityItem({ title, desc, time, icon: Icon, status }: any) {
   return (
-    <div className={styles.sloItem}>
-      <div className={styles.sloName}>{name}</div>
-      <div className={`${styles.sloVal} ${cls}`}>{val}</div>
-      <div className={styles.sloTarget}>{target}</div>
+    <div className="p-4 flex gap-4 transition-colors hover:bg-secondary/30 group">
+      <div className={cn(
+        "w-8 h-8 rounded-lg grid place-items-center mt-0.5",
+        status === "warning" ? "bg-amber/10 text-amber" : "bg-secondary text-muted-foreground transition-colors group-hover:text-foreground"
+      )}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <div className="flex-1 space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[13px] font-bold tracking-tight">{title}</span>
+          <span className="text-[11px] font-mono text-muted-foreground tabular-nums">{time}</span>
+        </div>
+        <p className="text-[12px] text-muted-foreground leading-relaxed">{desc}</p>
+      </div>
     </div>
   );
 }
 
-function AuditRow({ initials, name, gradient, event, time }: {
-  initials: string; name: string; gradient: string; event: string; time: string;
-}) {
+function RecommendationItem({ title, desc, priority }: any) {
   return (
-    <tr>
-      <td>
-        <div className={styles.actorCell}>
-          <div className={styles.miniAvatar} style={{ background: gradient }}>{initials}</div>
-          {name}
-        </div>
-      </td>
-      <td><span className={styles.eventType}>{event}</span></td>
-      <td className={styles.timeCell}>{time}</td>
-    </tr>
+    <div className="space-y-1.5 group cursor-default">
+      <div className="flex items-center gap-2">
+        <div className={cn(
+          "w-1.5 h-1.5 rounded-full",
+          priority === "high" ? "bg-destructive" : priority === "med" ? "bg-amber" : "bg-blue"
+        )} />
+        <span className="text-[12px] font-bold tracking-tight group-hover:text-accent transition-colors">{title}</span>
+      </div>
+      <p className="text-[11px] text-muted-foreground pl-3.5 border-l border-border ml-0.5 group-hover:border-accent/40 transition-colors">{desc}</p>
+    </div>
+  );
+}
+
+function SloProgress({ name, value, percent }: any) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-[11px] font-medium">
+        <span className="text-muted-foreground">{name}</span>
+        <span className="font-bold tabular-nums">{value}</span>
+      </div>
+      <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+        <div 
+          className={cn(
+            "h-full rounded-full transition-all duration-500",
+            percent > 90 ? "bg-green" : percent > 75 ? "bg-accent" : "bg-amber"
+          )} 
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
   );
 }

@@ -1,460 +1,307 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
-import {
-  getUsers,
-  createUser,
-  suspendUser,
-  activateUser,
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import Shell from "@/components/layout/Shell";
+import { 
+  getUsers, 
+  createUser, 
+  suspendUser, 
+  activateUser, 
   deleteUser,
-  User,
-  CreateUserRequest,
+  User 
 } from "@/lib/api";
-import styles from "../dashboard.module.css";
-
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("access_token");
-}
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const color =
-    status === "active"
-      ? "tag-green"
-      : status === "suspended"
-      ? "tag-red"
-      : "tag-yellow";
-  return (
-    <span className={`tag ${color}`} style={{ textTransform: "capitalize" }}>
-      {status}
-    </span>
-  );
-}
-
-interface CreateUserModalProps {
-  onClose: () => void;
-  onCreated: (user: User) => void;
-}
-
-function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
-  const [form, setForm] = useState<CreateUserRequest>({
-    email: "",
-    display_name: "",
-    password: "TempPassword123!",
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    try {
-      const token = getToken();
-      if (!token) throw new Error("Not authenticated");
-      const user = await createUser(token, form);
-      onCreated(user);
-    } catch (err: any) {
-      setError(err?.error?.message ?? err?.message ?? "Failed to create user");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-      }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div
-        style={{
-          background: "var(--card)",
-          border: "1px solid var(--border)",
-          borderRadius: "12px",
-          padding: "28px",
-          width: "100%",
-          maxWidth: "460px",
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }}>
-          <h3 style={{ margin: 0 }}>Add User to Organization</h3>
-          <button
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--muted)",
-              cursor: "pointer",
-              fontSize: "20px",
-            }}
-          >
-            ×
-          </button>
-        </div>
-
-        {error && (
-          <div
-            style={{
-              background: "rgba(239,68,68,0.1)",
-              border: "1px solid rgba(239,68,68,0.3)",
-              borderRadius: "8px",
-              padding: "10px 14px",
-              color: "#ef4444",
-              marginBottom: "16px",
-              fontSize: "13px",
-            }}
-          >
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-          <div>
-            <label style={{ display: "block", fontSize: "13px", color: "var(--muted)", marginBottom: "6px" }}>
-              Email Address *
-            </label>
-            <input
-              data-testid="create-user-email"
-              type="email"
-              required
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              placeholder="user@example.com"
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: "8px",
-                color: "var(--fg)",
-                fontSize: "14px",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: "block", fontSize: "13px", color: "var(--muted)", marginBottom: "6px" }}>
-              Display Name
-            </label>
-            <input
-              data-testid="create-user-display-name"
-              type="text"
-              value={form.display_name}
-              onChange={(e) => setForm({ ...form, display_name: e.target.value })}
-              placeholder="Jane Smith"
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: "8px",
-                color: "var(--fg)",
-                fontSize: "14px",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: "block", fontSize: "13px", color: "var(--muted)", marginBottom: "6px" }}>
-              Temporary Password
-            </label>
-            <input
-              data-testid="create-user-password"
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder="Min 8 characters"
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: "8px",
-                color: "var(--fg)",
-                fontSize: "14px",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "6px" }}>
-            <button type="button" onClick={onClose} className="btn" style={{ fontSize: "13px" }}>
-              Cancel
-            </button>
-            <button
-              data-testid="submit-create-user"
-              type="submit"
-              className="btn btn-primary"
-              disabled={loading}
-              style={{ fontSize: "13px" }}
-            >
-              {loading ? "Creating…" : "Create User"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+import { 
+  Plus, 
+  Search, 
+  MoreVertical, 
+  UserPlus, 
+  ShieldCheck, 
+  ShieldAlert, 
+  Mail, 
+  Calendar, 
+  UserMinus,
+  CheckCircle2,
+  AlertCircle
+} from "lucide-react";
+import { cn, formatDate } from "@/lib/utils";
 
 export default function UsersPage() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showModal, setShowModal] = useState(false);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [showAddUser, setShowAddUser] = useState(false);
+  
+  // Form State
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
 
-  const loadUsers = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const token = getToken();
-      if (!token) throw new Error("Not authenticated");
-      const res = await getUsers(token);
-      setUsers(res.data ?? []);
-    } catch (err: any) {
-      setError(err?.error?.message ?? err?.message ?? "Failed to load users");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { data: usersRes, status } = useQuery({
+    queryKey: ["users"],
+    queryFn: () => getUsers(),
+  });
 
-  useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
+  const createMutation = useMutation({
+    mutationFn: (data: any) => createUser(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      setShowAddUser(false);
+      setEmail("");
+      setDisplayName("");
+    },
+  });
 
-  const handleCreated = (user: User) => {
-    setUsers((prev) => [user, ...prev]);
-    setShowModal(false);
-  };
+  const suspendMutation = useMutation({
+    mutationFn: (id: string) => suspendUser(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+  });
 
-  const handleSuspend = async (user: User) => {
-    setActionLoading(user.id);
-    try {
-      const token = getToken()!;
-      const updated = await suspendUser(token, user.id);
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
-    } catch {
-      /* silent */
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  const activateMutation = useMutation({
+    mutationFn: (id: string) => activateUser(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+  });
 
-  const handleActivate = async (user: User) => {
-    setActionLoading(user.id);
-    try {
-      const token = getToken()!;
-      const updated = await activateUser(token, user.id);
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
-    } catch {
-      /* silent */
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteUser(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+  });
 
-  const handleDelete = async (user: User) => {
-    if (!confirm(`Delete user ${user.email}? This cannot be undone.`)) return;
-    setActionLoading(user.id);
-    try {
-      const token = getToken()!;
-      await deleteUser(token, user.id);
-      setUsers((prev) => prev.filter((u) => u.id !== user.id));
-    } catch {
-      /* silent */
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  const users = usersRes?.data ?? [];
 
   return (
-    <DashboardLayout title="Users">
-      {showModal && (
-        <CreateUserModal onClose={() => setShowModal(false)} onCreated={handleCreated} />
-      )}
-
-      <div className={styles.panel}>
-        <div className={styles.panelHeader}>
-          <span className={styles.panelTitle} data-testid="page-title">
-            Organization Users
-            <span className="tag tag-green" style={{ marginLeft: "8px" }}>
-              Phase 1
-            </span>
-          </span>
-          <button
+    <Shell 
+      title="Managed Identities" 
+      crumbs={["Identity", "Users"]}
+    >
+      <div className="space-y-6 animate-fade-up">
+        {/* Header Summary */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <SummaryItem label="Total Users" value={users.length.toString()} />
+            <SummaryItem label="MFA Coverage" value={`${Math.round((users.filter(u => u.mfa_enabled).length / (users.length || 1)) * 100)}%`} />
+            <SummaryItem label="Active Sessions" value="23" />
+          </div>
+          
+          <button 
+            className="btn btn-primary h-10 px-6 gap-2"
+            onClick={() => setShowAddUser(true)}
             data-testid="add-user-btn"
-            className="btn btn-primary"
-            style={{ fontSize: "13px" }}
-            onClick={() => setShowModal(true)}
           >
-            + Add User
+            <UserPlus className="w-4 h-4" />
+            Add new identity
           </button>
         </div>
 
-        {error && (
-          <div
-            style={{
-              margin: "0 0 16px",
-              padding: "12px 16px",
-              background: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.25)",
-              borderRadius: "8px",
-              color: "#ef4444",
-              fontSize: "13px",
-            }}
-          >
-            {error}
+        {/* Filters & Actions */}
+        <div className="flex items-center gap-4">
+          <div className="relative group flex-1 max-w-md">
+            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2 group-focus-within:text-accent transition-colors" />
+            <input 
+              type="text" 
+              placeholder="Search by name, email, or role..." 
+              className="bg-surface-1 border border-border rounded-lg pl-10 pr-4 py-2 text-[13px] w-full focus:outline-none focus:ring-1 focus:ring-accent transition-all"
+            />
           </div>
-        )}
+          
+          <div className="flex items-center gap-2">
+            <button className="btn btn-ghost text-[12px] h-9">Export CSV</button>
+            <button className="btn btn-ghost text-[12px] h-9">Bulk Actions</button>
+          </div>
+        </div>
 
-        {loading ? (
-          <div style={{ padding: "60px", textAlign: "center", color: "var(--muted)" }}>
-            Loading users…
-          </div>
-        ) : users.length === 0 ? (
-          <div
-            data-testid="no-users-view"
-            style={{ padding: "60px", textAlign: "center", color: "var(--muted)" }}
-          >
-            <div style={{ fontSize: "48px", marginBottom: "16px" }}>👥</div>
-            <h3>No users yet</h3>
-            <p style={{ maxWidth: "350px", margin: "0 auto 20px" }}>
-              Add members to your organization so they can access connected apps.
-            </p>
-            <button
-              data-testid="add-user-empty-btn"
-              className="btn btn-primary"
-              onClick={() => setShowModal(true)}
-            >
-              + Add First User
-            </button>
-          </div>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table
-              data-testid="user-table"
-              style={{ width: "100%", borderCollapse: "collapse" }}
-            >
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  {["Email", "Display Name", "Status", "MFA", "Created", "Actions"].map(
-                    (h) => (
-                      <th
-                        key={h}
-                        style={{
-                          padding: "10px 14px",
-                          textAlign: "left",
-                          fontSize: "11px",
-                          fontWeight: 600,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.05em",
-                          color: "var(--muted)",
-                        }}
-                      >
-                        {h}
-                      </th>
-                    )
-                  )}
+        {/* Users Table */}
+        <div className="bg-surface-1 border border-border rounded-xl overflow-hidden shadow-sm">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-secondary/50 border-b border-border">
+              <tr className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                <th className="px-6 py-4">Identity</th>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4">MFA Policy</th>
+                <th className="px-6 py-4">Last Activity</th>
+                <th className="px-4 py-4 w-12"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border" data-testid="user-list">
+              {status === "pending" ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i} className="animate-pulse">
+                    <td colSpan={5} className="px-6 py-4 h-16 bg-secondary/10" />
+                  </tr>
+                ))
+              ) : users.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-20 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-secondary grid place-items-center mx-auto mb-4">
+                      <UserPlus className="w-6 h-6 text-muted-foreground" />
+                    </div>
+                    <h3 className="font-bold tracking-tight">No identities found</h3>
+                    <p className="text-sm text-muted-foreground max-w-sm mx-auto leading-relaxed">
+                      Identity management is centralized. Add users to your organization 
+                      to begin enforcing MFA and RBAC policies.
+                    </p>
+                  </td>
                 </tr>
-              </thead>
-              <tbody data-testid="user-list">
-                {users.map((user) => (
-                  <tr
-                    key={user.id}
-                    data-testid={`user-row-${user.id}`}
-                    style={{ borderBottom: "1px solid var(--border)" }}
+              ) : (
+                users.map((user) => (
+                  <tr 
+                    key={user.id} 
+                    className="group hover:bg-secondary/30 transition-colors"
                   >
-                    <td style={{ padding: "12px 14px", fontSize: "13px" }}>
-                      {user.email}
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full bg-accent/10 border border-accent/20 transition-all flex items-center justify-center font-bold text-accent text-[12px] group-hover:scale-110">
+                          {user.display_name?.substring(0, 1) || user.email.substring(0, 1).toUpperCase()}
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[13px] font-bold tracking-tight block">
+                            {user.display_name || "New Identity"}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                            <Mail className="w-3 h-3" />
+                            {user.email}
+                          </span>
+                        </div>
+                      </div>
                     </td>
-                    <td style={{ padding: "12px 14px", fontSize: "13px" }}>
-                      {user.display_name || "—"}
+                    <td className="px-6 py-4">
+                      <span className={cn(
+                        "tag capitalize",
+                        user.status === "active" ? "tag-green" : "tag-red"
+                      )}>
+                        {user.status}
+                      </span>
                     </td>
-                    <td style={{ padding: "12px 14px" }}>
-                      <StatusBadge status={user.status} />
-                    </td>
-                    <td style={{ padding: "12px 14px", fontSize: "13px" }}>
+                    <td className="px-6 py-4">
                       {user.mfa_enabled ? (
-                        <span className="tag tag-green">Enabled</span>
+                        <div className="flex items-center gap-2 text-green font-medium text-[11px]">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Enforced
+                        </div>
                       ) : (
-                        <span className="tag">Off</span>
+                        <div className="flex items-center gap-2 text-amber font-medium text-[11px]">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          Unprotected
+                        </div>
                       )}
                     </td>
-                    <td
-                      style={{
-                        padding: "12px 14px",
-                        fontSize: "12px",
-                        color: "var(--muted)",
-                      }}
-                    >
-                      {user.created_at ? formatDate(user.created_at) : "—"}
+                    <td className="px-6 py-4 tabular-nums">
+                      <div className="flex flex-col text-[12px] font-medium">
+                        <span className="flex items-center gap-1.5 text-foreground">
+                          <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                          {formatDate(user.created_at)}
+                        </span>
+                      </div>
                     </td>
-                    <td style={{ padding: "12px 14px" }}>
-                      <div style={{ display: "flex", gap: "6px" }}>
+                    <td className="px-4 py-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
                         {user.status === "active" ? (
-                          <button
-                            data-testid={`suspend-user-${user.id}`}
-                            className="btn"
-                            style={{ fontSize: "11px", padding: "4px 10px" }}
-                            disabled={actionLoading === user.id}
-                            onClick={() => handleSuspend(user)}
+                          <button 
+                            onClick={() => suspendMutation.mutate(user.id)}
+                            className="p-2 hover:bg-destructive/10 rounded-lg transition-colors text-muted-foreground hover:text-destructive"
+                            title="Suspend Access"
                           >
-                            Suspend
+                            <ShieldAlert className="w-4 h-4" />
                           </button>
                         ) : (
-                          <button
-                            data-testid={`activate-user-${user.id}`}
-                            className="btn btn-primary"
-                            style={{ fontSize: "11px", padding: "4px 10px" }}
-                            disabled={actionLoading === user.id}
-                            onClick={() => handleActivate(user)}
+                          <button 
+                            onClick={() => activateMutation.mutate(user.id)}
+                            className="p-2 hover:bg-green/10 rounded-lg transition-colors text-muted-foreground hover:text-green"
+                            title="Activate Access"
                           >
-                            Activate
+                            <CheckCircle2 className="w-4 h-4" />
                           </button>
                         )}
-                        <button
-                          data-testid={`delete-user-${user.id}`}
-                          className="btn"
-                          style={{
-                            fontSize: "11px",
-                            padding: "4px 10px",
-                            color: "#ef4444",
-                            borderColor: "rgba(239,68,68,0.3)",
-                          }}
-                          disabled={actionLoading === user.id}
-                          onClick={() => handleDelete(user)}
+                        <button 
+                          onClick={() => deleteMutation.mutate(user.id)}
+                          className="p-2 hover:bg-destructive/10 rounded-lg transition-colors text-muted-foreground hover:text-destructive"
                         >
-                          Delete
+                          <UserMinus className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </DashboardLayout>
+
+      {/* Add User Modal */}
+      {showAddUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/90 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-surface-1 border border-border rounded-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-border bg-secondary/30">
+              <h3 className="text-lg font-bold tracking-tight">Provision Global Identity</h3>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                Add an identity to the central control plane. Identities can then 
+                be managed, audited, and enforced via global security policies.
+              </p>
+            </div>
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault();
+                createMutation.mutate({ email, display_name: displayName });
+              }} 
+              className="p-6 space-y-6"
+            >
+              <div className="space-y-4">
+                <div className="space-y-1.5 font-bold tracking-tight text-foreground">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground ml-1">Identity Endpoint (Email)</label>
+                  <input 
+                    type="email" 
+                    required 
+                    placeholder="user@acme.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    data-testid="create-user-email"
+                    className="w-full bg-secondary/50 border border-border rounded-lg px-4 py-3 text-[13px] focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
+                  />
+                </div>
+                <div className="space-y-1.5 font-bold tracking-tight text-foreground">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground ml-1">Professional Display Name</label>
+                  <input 
+                    type="text" 
+                    placeholder="Jane Smith"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    data-testid="create-user-display-name"
+                    className="w-full bg-secondary/50 border border-border rounded-lg px-4 py-3 text-[13px] focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => setShowAddUser(false)}
+                  className="flex-1 btn btn-ghost py-3 font-bold"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={createMutation.isPending}
+                  className="flex-[2] btn btn-primary py-3 font-bold"
+                  data-testid="submit-create-user"
+                >
+                  {createMutation.isPending ? "Signing Identity..." : "Commit Identity"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </Shell>
+  );
+}
+
+function SummaryItem({ label, value, status }: any) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
+      <div className="flex items-center gap-2">
+        <span className="text-[18px] font-bold tabular-nums tracking-tight">{value}</span>
+        {status === "healthy" && <div className="w-1.5 h-1.5 rounded-full bg-green animate-pulse" />}
+      </div>
+    </div>
   );
 }

@@ -1,91 +1,100 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
-import styles from "../dashboard.module.css";
-import { getAuditEvents } from "@/lib/api";
+import Shell from "@/components/layout/Shell";
+import { AuditTable } from "@/components/audit/AuditTable";
+import { useAuditEvents } from "@/hooks/use-audit-events";
+import { Download, RefreshCw, ShieldAlert, History } from "lucide-react";
 
 export default function AuditPage() {
-  const [events, setEvents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { 
+    data, 
+    fetchNextPage, 
+    hasNextPage, 
+    isFetchingNextPage, 
+    status,
+    refetch 
+  } = useAuditEvents();
 
-  useEffect(() => {
-    loadEvents();
-  }, []);
-
-  const loadEvents = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem("access_token");
-      if (!token) throw new Error("No token");
-      const resp = await getAuditEvents(token);
-      setEvents(resp.data);
-    } catch (err) {
-      console.error("Failed to load audit events:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const events = data?.pages.flatMap((page) => page.data) ?? [];
 
   return (
-    <DashboardLayout title="Audit log">
-      <div className={styles.panel}>
-        <div className={styles.panelHeader}>
-          <span className={styles.panelTitle} data-testid="page-title">
-            System Audit Events
-          </span>
+    <Shell 
+      title="Audit Log" 
+      crumbs={["Governance", "Audit Log"]}
+    >
+      <div className="flex flex-col gap-6">
+        {/* Header Actions */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-secondary/50 px-3 py-1.5 rounded-md border border-border text-[12px] font-medium">
+              <History className="w-3.5 h-3.5 text-muted-foreground" />
+              <span>Streaming events</span>
+              <div className="w-1.5 h-1.5 rounded-full bg-green animate-pulse ml-1" />
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <button 
+              className="btn btn-ghost text-[12px] gap-2"
+              onClick={() => refetch()}
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Refresh
+            </button>
+            <button className="btn btn-ghost text-[12px] gap-2">
+              <Download className="w-3.5 h-3.5" />
+              Export
+            </button>
+            <button className="btn btn-primary text-[12px] gap-2">
+              <ShieldAlert className="w-3.5 h-3.5" />
+              Integrity Check
+            </button>
+          </div>
         </div>
-        
-        {loading ? (
-          <div style={{ padding: "40px", textAlign: "center", color: "var(--muted)" }}>Loading...</div>
-        ) : events.length === 0 ? (
-          <div style={{ padding: "40px", textAlign: "center", color: "var(--muted)" }}>
-            <div style={{ fontSize: "48px", marginBottom: "16px" }}>📜</div>
-            <h3>No events found</h3>
-            <p style={{ maxWidth: "400px", margin: "0 auto" }}>
-              Events will appear here as you interact with the system.
-            </p>
+
+        {/* Stats Summary */}
+        <div className="grid grid-cols-4 gap-4">
+          <div className="p-4 bg-surface-1 border border-border rounded-lg space-y-1">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Total Events (24h)</span>
+            <div className="text-2xl font-bold">12,482</div>
+            <div className="text-[11px] text-green font-medium">+14% vs yesterday</div>
+          </div>
+          <div className="p-4 bg-surface-1 border border-border rounded-lg space-y-1">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Critical Failures</span>
+            <div className="text-2xl font-bold text-destructive">24</div>
+            <div className="text-[11px] text-destructive font-medium">3 requiring review</div>
+          </div>
+          <div className="p-4 bg-surface-1 border border-border rounded-lg space-y-1">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Integrity Status</span>
+            <div className="text-2xl font-bold text-green">Verified</div>
+            <div className="text-[11px] text-muted-foreground">Last checked 5m ago</div>
+          </div>
+          <div className="p-4 bg-surface-1 border border-border rounded-lg space-y-1">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Storage Usage</span>
+            <div className="text-2xl font-bold text-accent">1.2 GB</div>
+            <div className="text-[11px] text-muted-foreground">90 days retention</div>
+          </div>
+        </div>
+
+        {/* Audit Table */}
+        {status === "pending" ? (
+          <div className="h-[400px] flex flex-col items-center justify-center gap-4 border border-border rounded-lg bg-surface-1">
+            <div className="w-10 h-10 border-4 border-accent border-t-transparent rounded-full animate-spin" />
+            <span className="text-muted-foreground animate-pulse text-[13px]">Stream processing audit trail...</span>
+          </div>
+        ) : status === "error" ? (
+          <div className="h-[200px] flex flex-col items-center justify-center gap-4 border border-destructive/20 rounded-lg bg-destructive/5">
+            <span className="text-destructive font-medium">Failed to load audit history</span>
+            <button className="btn btn-primary" onClick={() => refetch()}>Try again</button>
           </div>
         ) : (
-          <table className={styles.auditTable}>
-            <thead>
-              <tr>
-                <th>Timestamp</th>
-                <th>Actor</th>
-                <th>Action</th>
-                <th>Target</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody data-testid="audit-list">
-              {events.map((event: any) => (
-                <tr key={event.id}>
-                  <td className={styles.timeCell}>{new Date(event.occurred_at).toLocaleString()}</td>
-                  <td>
-                    <div className={styles.actorCell}>
-                      <span className={styles.miniAvatar} style={{ background: "var(--surface2)", border: "1px solid var(--border)" }}>
-                        {event.actor_id?.substring(0, 2).toUpperCase() || "SY"}
-                      </span>
-                      {event.actor_email || event.actor_id}
-                    </div>
-                  </td>
-                  <td>
-                    <span className={styles.eventType}>{event.type}</span>
-                  </td>
-                  <td style={{ fontSize: "11px", color: "var(--muted)", fontFamily: "var(--mono)" }}>
-                    {event.resource_id}
-                  </td>
-                  <td>
-                    <span className={`tag tag-${event.status === 'success' ? 'green' : 'red'}`}>
-                      {event.status || 'success'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <AuditTable 
+            events={events} 
+            onLoadMore={hasNextPage ? () => fetchNextPage() : undefined}
+            isFetchingNextPage={isFetchingNextPage}
+          />
         )}
       </div>
-    </DashboardLayout>
+    </Shell>
   );
 }

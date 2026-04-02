@@ -127,6 +127,10 @@ func (r *Relay) processBatch(ctx context.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
+	// Explicitly set the search path to public for the session to avoid "relation does not exist"
+	// in environments where the search path might be non-standard OR during initial startup.
+	_, _ = tx.Exec(ctx, "SET search_path TO public")
+
 	query := `
 		SELECT id, topic, key, payload, attempts
 		FROM ` + r.getTableName() + `

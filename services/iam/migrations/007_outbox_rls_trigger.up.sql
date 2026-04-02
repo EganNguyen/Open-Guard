@@ -3,21 +3,13 @@
 ALTER TABLE outbox_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE outbox_records FORCE ROW LEVEL SECURITY;
 
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_policies
-        WHERE schemaname = 'public'
-          AND tablename = 'outbox_records'
-          AND policyname = 'outbox_org_isolation'
-    ) THEN
-        CREATE POLICY outbox_org_isolation
-            ON outbox_records
-            USING (org_id::text = current_setting('app.org_id', true));
-    END IF;
-END
-$$;
+DROP POLICY IF EXISTS outbox_org_isolation ON outbox_records;
+CREATE POLICY outbox_org_isolation
+    ON outbox_records
+    USING (
+        (current_setting('app.org_id', true) = '') OR -- Global relay (system)
+        (org_id::text = current_setting('app.org_id', true)) -- Tenant access
+    );
 
 CREATE OR REPLACE FUNCTION notify_outbox() RETURNS trigger AS $$
 BEGIN

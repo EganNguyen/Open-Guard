@@ -1,151 +1,180 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import styles from "./register.module.css";
-
-import { register } from "@/lib/api";
+import { ShieldCheck, ArrowRight, Building, Mail, Lock, CheckCircle2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [orgName, setOrgName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setError("");
+  const [form, setForm] = useState({
+    org_name: "",
+    email: "",
+    password: "",
+    confirm_password: "",
+  });
 
-    if (password !== confirmPassword) {
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (form.password !== form.confirm_password) {
       setError("Passwords do not match");
       return;
     }
 
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters");
-      return;
-    }
-
     setLoading(true);
+    setError("");
 
     try {
-      const res = await register({ org_name: orgName, email, password });
-      localStorage.setItem("access_token", res.token);
-      localStorage.setItem("user", JSON.stringify(res.user));
-      localStorage.setItem("org", JSON.stringify(res.org));
-      router.push("/dashboard");
-    } catch {
-      setError("Registration failed. Please try again.");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/v1/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          org_name: form.org_name,
+          email: form.email,
+          password: form.password,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error?.message || "Registration failed");
+      }
+
+      // After successful registration, redirect to login
+      router.push("/login?registered=true");
+    } catch (err: any) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className={styles.page}>
-      <div className={styles.card}>
-        {/* Logo */}
-        <div className={styles.logo}>
-          <div className={styles.logoMark}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
-          </div>
-          <span className={styles.logoText}>
-            Open<span>Guard</span>
-          </span>
-        </div>
-
-        <h1 className={styles.heading}>Create your organization</h1>
-        <p className={styles.subheading}>
-          Set up your security platform in under a minute
-        </p>
-
-        {error && <div className={styles.error}>{error}</div>}
-
-        <form onSubmit={handleSubmit} className={styles.form}>
-          <div className={styles.field}>
-            <label htmlFor="reg-org" className={styles.label}>Organization name</label>
-            <input
-              id="reg-org"
-              type="text"
-              value={orgName}
-              onChange={(e) => setOrgName(e.target.value)}
-              placeholder="Acme Corp"
-              required
-              className={styles.input}
-            />
-          </div>
-
-          <div className={styles.field}>
-            <label htmlFor="reg-email" className={styles.label}>Admin email</label>
-            <input
-              id="reg-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@acme.com"
-              required
-              className={styles.input}
-              autoComplete="email"
-            />
-          </div>
-
-          <div className={styles.fieldRow}>
-            <div className={styles.field}>
-              <label htmlFor="reg-password" className={styles.label}>Password</label>
-              <input
-                id="reg-password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                minLength={8}
-                className={styles.input}
-                autoComplete="new-password"
-              />
-            </div>
-
-            <div className={styles.field}>
-              <label htmlFor="reg-confirm" className={styles.label}>Confirm password</label>
-              <input
-                id="reg-confirm"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                className={styles.input}
-                autoComplete="new-password"
-              />
-            </div>
-          </div>
-
-          <button type="submit" className={`btn btn-primary ${styles.submitBtn}`} disabled={loading}>
-            {loading ? (
-              <span className={styles.spinner} />
-            ) : (
-              <>
-                <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
-                </svg>
-                Create organization
-              </>
-            )}
-          </button>
-        </form>
-
-        <p className={styles.footer}>
-          Already have an account? <Link href="/login">Sign in</Link>
-        </p>
+    <div className="min-h-screen bg-background flex items-center justify-center p-6 relative overflow-hidden">
+      {/* Decorative Glows */}
+      <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-20">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-accent/20 blur-[120px] rounded-full" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue/10 blur-[120px] rounded-full" />
       </div>
 
-      <div className={styles.glow} />
+      <div className="w-full max-w-md space-y-8 animate-fade-up relative z-10">
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center gap-2.5 mb-2">
+            <div className="p-2 rounded-lg bg-accent/10 border border-accent/20">
+              <ShieldCheck className="w-6 h-6 text-accent" />
+            </div>
+            <span className="text-xl font-bold tracking-tight">OpenGuard</span>
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight">Establish your perimeter</h1>
+          <p className="text-muted-foreground text-sm">
+            Create an organization to begin centralized identity management and 
+            governance across your infrastructure.
+          </p>
+        </div>
+
+        <div className="bg-surface-1 border border-border rounded-2xl p-8 shadow-2xl relative overflow-hidden">
+          {error && (
+            <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive text-[13px] font-medium flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+              <ShieldCheck className="w-4 h-4 rotate-180" />
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-1.5 text-left">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground ml-1">Organization Name</label>
+              <div className="relative group">
+                <Building className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-accent transition-colors" />
+                <input 
+                  id="reg-org"
+                  required
+                  placeholder="Acme Global Inc."
+                  className="w-full bg-secondary/50 border border-border rounded-xl pl-11 pr-4 py-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all"
+                  value={form.org_name}
+                  onChange={(e) => setForm({ ...form, org_name: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5 text-left">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground ml-1">Administrator Email</label>
+              <div className="relative group">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-accent transition-colors" />
+                <input 
+                  id="reg-email"
+                  type="email"
+                  required
+                  placeholder="admin@acme.com"
+                  className="w-full bg-secondary/50 border border-border rounded-xl pl-11 pr-4 py-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5 text-left">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground ml-1">Password</label>
+                <div className="relative group">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-accent transition-colors" />
+                  <input 
+                    id="reg-password"
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    className="w-full bg-secondary/50 border border-border rounded-xl pl-11 pr-4 py-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all"
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5 text-left">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground ml-1">Confirm</label>
+                <div className="relative group">
+                  <CheckCircle2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-accent transition-colors" />
+                  <input 
+                    id="reg-confirm"
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    className="w-full bg-secondary/50 border border-border rounded-xl pl-11 pr-4 py-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all"
+                    value={form.confirm_password}
+                    onChange={(e) => setForm({ ...form, confirm_password: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button 
+                type="submit" 
+                disabled={loading}
+                className="w-full btn btn-primary py-4 font-bold rounded-xl shadow-xl shadow-accent/20 gap-2 h-auto"
+              >
+                {loading ? "Establishing Perimeter..." : "Register Organization"}
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </form>
+
+          <p className="mt-8 text-center text-sm text-muted-foreground">
+            Already have an organization?{" "}
+            <Link href="/login" className="text-accent font-bold hover:underline">
+              Sign in
+            </Link>
+          </p>
+        </div>
+
+        <div className="text-center">
+          <p className="text-[11px] text-muted-foreground uppercase tracking-widest font-medium opacity-60">
+            Enterprise Identity Management — Phase 1 Foundation
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
