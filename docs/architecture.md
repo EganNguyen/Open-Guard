@@ -2719,9 +2719,7 @@ The `OutboxPressureHigh` Prometheus alert fires when `histogram_quantile(0.99, o
 
 ## 9. Phase 1 — Infra, CI/CD & Observability
 
-> Note on ordering: Infrastructure and CI are established as prerequisites in Phase 1 (Section 9.1). This section specifies the full detail of the Docker Compose file, CI pipeline, metrics, and Helm chart — the reference against which Phase 1's prerequisites are built.
-
-### 14.1 Docker Compose
+### 9.1 Docker Compose
 
 ```yaml
 # infra/docker/docker-compose.yml
@@ -2942,7 +2940,7 @@ volumes:
   grafana-data: {}
 ```
 
-### 14.2 GitHub Actions CI
+### 9.2 GitHub Actions CI
 
 ```yaml
 # .github/workflows/ci.yml
@@ -3025,7 +3023,7 @@ jobs:
       - run: go mod verify  # fails if go.sum is not up to date
 ```
 
-### 14.3 Prometheus Metrics
+### 9.3 Prometheus Metrics
 
 | Metric | Type | Labels |
 |---|---|---|
@@ -3050,7 +3048,7 @@ jobs:
 | `openguard_dlp_scan_duration_seconds` | Histogram | `mode` (`sync`\|`async`) |
 | `openguard_dlp_findings_total` | Counter | `type` (`pii`\|`credential`\|`financial`) |
 
-### 14.4 Alertmanager Rules
+### 9.4 Alertmanager Rules
 
 ```yaml
 # infra/monitoring/alerts/openguard.yml
@@ -3102,7 +3100,7 @@ groups:
       summary: "Kafka offset commits are slow (p99 {{ $value }}s) — potential consumer stall"
 ```
 
-### 14.5 Helm Chart
+### 9.5 Helm Chart
 
 `infra/k8s/helm/openguard/` with:
 - `Deployment` per service with `minReadySeconds: 30` and `RollingUpdate` strategy.
@@ -3118,7 +3116,7 @@ groups:
 - `Secret` references via `external-secrets.io` for production; plain secrets for dev.
 - `topologySpreadConstraints`: spread pods across 3 AZs.
 
-### 14.6 Connected Apps Admin UI (`/connectors`)
+### 9.6 Connected Apps Admin UI (`/connectors`)
 
 **Page: `/connectors`** — list view:
 - Table: name, status badge, scopes, created date, last event timestamp, event volume (30d).
@@ -3137,7 +3135,7 @@ groups:
 - "Send test webhook" button.
 - Danger zone: suspend / delete.
 
-### 14.7 Phase 6 Acceptance Criteria
+### 9.7 Phase 6 Acceptance Criteria
 
 - [ ] `docker compose up` starts all services healthy with MongoDB replica set initialized.
 - [ ] MongoDB init service: if primary not ready on first attempt, retries until healthy (tested by adding `sleep 10` delay to primary startup).
@@ -3151,7 +3149,7 @@ groups:
 - [ ] `helm lint` and `helm template` pass without warnings.
 - [ ] Connected app registration UI flow end-to-end: register → copy key → authenticate → verify in delivery log.
 
-### 14.8 Capacity Planning & Connection Pooling
+### 9.8 Capacity Planning & Connection Pooling
 
 At an expected ingest of 20,000 req/s, the infrastructure MUST provision:
 - **PostgreSQL Connection Pooling (PgBouncer)**: Direct connections will exhaust database memory. Run PgBouncer in transaction pooling mode. Minimum `max_connections=5000` via PgBouncer, with Postgres operating at `max_connections=200`.
@@ -3167,7 +3165,7 @@ At an expected ingest of 20,000 req/s, the infrastructure MUST provision:
 
 **Goal:** Running skeleton with enterprise-grade auth and working control plane. JWT multi-key rotation, RLS enforced, Outbox in place, circuit breakers configured, connector registration operational. At the end of Phase 1: an app can register, receive an API key, and call the control plane; a user can log in via OIDC and receive a JWT; every write publishes via the Outbox.
 
-### 9.1 Prerequisites (produce before any service code)
+### 10.1 Prerequisites (produce before any service code)
 
 The infra and CI setup must be established before service code begins. This is not "Phase 6" work — it is the foundation:
 
@@ -3178,7 +3176,7 @@ The infra and CI setup must be established before service code begins. This is n
 5. `.env.example` as defined in Section 5.1.
 6. `.github/workflows/ci.yml` — the CI pipeline (Section 14.2) must be operational from the first commit.
 
-### 9.2 Migration Strategy
+### 10.2 Migration Strategy
 
 Use `golang-migrate/migrate` with these invariants:
 
@@ -3240,9 +3238,9 @@ func RunMigrations(ctx context.Context, dsn string, redisClient *redis.Client, s
 }
 ```
 
-### 9.3 IAM Service
+### 10.3 IAM Service
 
-#### 9.3.1 Database Schema
+#### 10.3.1 Database Schema
 
 **001_create_orgs.up.sql**
 ```sql
@@ -3414,7 +3412,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON webauthn_credentials TO openguard_app;
 
 **006_create_outbox.up.sql** — standard outbox table (Section 7.1).
 
-#### 9.3.2 MFA Backup Code Storage
+#### 10.3.2 MFA Backup Code Storage
 
 Backup codes must be O(1) to look up, not O(N × bcrypt_cost). The correct scheme:
 
@@ -3434,7 +3432,7 @@ Backup codes must be O(1) to look up, not O(N × bcrypt_cost). The correct schem
 // must be rotated separately from passwords and JWT keys.
 ```
 
-#### 9.3.3 MFA Encryption (AES-256-GCM Multi-Key)
+#### 10.3.3 MFA Encryption (AES-256-GCM Multi-Key)
 
 ```go
 // shared/crypto/aes.go
@@ -3456,7 +3454,7 @@ func (k *EncryptionKeyring) Encrypt(plaintext []byte) (string, error)
 func (k *EncryptionKeyring) Decrypt(ciphertext string) ([]byte, error)
 ```
 
-#### 9.3.4 JWT Multi-Key Keyring
+#### 10.3.4 JWT Multi-Key Keyring
 
 ```go
 // shared/crypto/jwt.go
@@ -3480,7 +3478,7 @@ func (k *JWTKeyring) Sign(claims jwt.Claims) (string, error)
 func (k *JWTKeyring) Verify(tokenString string) (jwt.MapClaims, error)
 ```
 
-#### 9.3.5 Risk-Based Session Protection
+#### 10.3.5 Risk-Based Session Protection
 
 Applied at `/auth/refresh`. Scores are additive:
 
@@ -3501,7 +3499,7 @@ Applied at `/auth/refresh`. Scores are additive:
 
 **Session Fixation Protection:** A pre-MFA session must not maintain the same identifier after MFA verification. The `POST /auth/mfa/challenge` and `/auth/webauthn/login/finish` endpoints MUST issue a completely new session ID and invalidate the pre-MFA session identifier upon successful verification.
 
-#### 9.3.6 WebAuthn Implementation
+#### 10.3.6 WebAuthn Implementation
 
 Use `github.com/go-webauthn/webauthn`. Configuration:
 
@@ -3532,7 +3530,7 @@ WebAuthn challenge state is stored in Redis (TTL: 5 minutes) keyed by `webauthn:
 
 **WebAuthn Session ID Security:** The `session_id` used in the challenge key MUST be a server-generated opaque random token (min 128 bits), stored exclusively in an `HttpOnly; Secure; SameSite=Strict` cookie. It MUST NOT be accessible to client-side JavaScript (no `document.cookie` access, no `localStorage`). This prevents a compromised XSS payload from exfiltrating the session ID and racing the WebAuthn challenge. The cookie is invalidated immediately after successful `login/finish`, and a new session ID is issued for the authenticated session.
 
-#### 9.3.7 SCIM v2 Implementation
+#### 10.3.7 SCIM v2 Implementation
 
 SCIM endpoints are exposed through the control plane at `/v1/scim/v2/*` and proxied to IAM via mTLS.
 
@@ -3571,7 +3569,7 @@ type SCIMOperation struct {
 
 **SCIM error format** (RFC 7644 §3.12): The SCIM handler layer translates all domain errors to SCIM error format (see Section 4.7). OpenGuard's `APIError` format is never returned on SCIM endpoints.
 
-#### 9.3.8 IAM HTTP Endpoints
+#### 10.3.8 IAM HTTP Endpoints
 
 **OIDC/SAML IdP** (public, standard TLS):
 
@@ -3666,7 +3664,7 @@ To prevent brute force enumeration, the following lockout rules apply:
 | `PATCH` | `/scim/v2/Users/:id` | Partial update (RFC 6902 JSON Patch) |
 | `DELETE` | `/scim/v2/Users/:id` | Deprovision user (triggers saga) |
 
-#### 9.3.9 SAML 2.0 Implementation
+#### 10.3.9 SAML 2.0 Implementation
 
 SAML 2.0 has significant implementation complexity: XML signing/validation, assertion replay protection, IdP-initiated flows, NameID format handling, and SP/IdP metadata exchange. Rather than re-implementing these from scratch, OpenGuard delegates SAML to the `github.com/crewjam/saml` library.
 
@@ -3732,7 +3730,7 @@ func NewSAMLServiceProvider(cfg config.IAMConfig) (*saml.ServiceProvider, error)
 
 **Out of scope for Phase 2:** SAML attribute mapping beyond NameID (group membership, role assertions). These are deferred to a future SAML attribute mapping specification.
 
-#### 9.3.10 bcrypt worker pool integration
+#### 10.3.10 bcrypt worker pool integration
 
 The `AuthWorkerPool` (Section 8.2) is initialized in `main.go` and injected into the IAM service. The `PostMethod` for `/oauth/token` calls `p.Verify()` instead of `bcrypt.CompareHashAndPassword()` directly. This ensures login latency remains predictable even under high load.
 
@@ -3746,7 +3744,7 @@ if user == nil {
 }
 ```
 
-#### 9.3.10 IAM Kafka Events (via Outbox)
+#### 10.3.11 IAM Kafka Events (via Outbox)
 
 | Event type | Topic | Saga topic? |
 |---|---|---|
@@ -3761,9 +3759,9 @@ if user == nil {
 | `user.deleted` | `audit.trail` | `saga.orchestration` |
 | `user.scim.provisioned` | `audit.trail` | `saga.orchestration` |
 
-### 9.4 Control Plane Foundation
+### 10.4 Control Plane Foundation
 
-#### 9.4.1 Route Table
+#### 10.4.1 Route Table
 
 The control plane's connector registry uses the two-tier Prefix/Secret scheme (Section 2.6).
 
@@ -3780,7 +3778,7 @@ The control plane's connector registry uses the two-tier Prefix/Secret scheme (S
 - `POST /v1/admin/connectors`: Generates prefix (8 chars) + plaintext secret (24 chars). Hashes secret with PBKDF2.
 - `PATCH /v1/admin/connectors/:id`: Invalidates Redis cache entry (`DEL connector:fasthash:{hash}`) on status or scope change.
 
-#### 9.4.2 Connector Registry Schema
+#### 10.4.2 Connector Registry Schema
 
 ```sql
 CREATE TABLE connector_registry (
@@ -3802,7 +3800,7 @@ ALTER TABLE connector_registry ENABLE ROW LEVEL SECURITY;
 GRANT SELECT ON connector_registry TO openguard_app;
 ```
 
-### 9.5 DLQ Inspector (Phase 1 Operations)
+### 10.5 DLQ Inspector (Phase 1 Operations)
 
 A CLI tool for inspecting and replaying failed events from `TopicOutboxDLQ` and `TopicWebhookDLQ`.
 
@@ -3811,7 +3809,7 @@ A CLI tool for inspecting and replaying failed events from `TopicOutboxDLQ` and 
 # openguard-admin dlq replay --id <uuid> --target audit.trail
 ```
 
-### 9.6 Phase 1 Release Acceptance Criteria
+### 10.6 Phase 2 Release Acceptance Criteria
 
 1.  **IAM Security:**
     - [ ] `POST /oauth/token` passes with valid credentials; fails with 401 on invalid.
@@ -3845,7 +3843,7 @@ A CLI tool for inspecting and replaying failed events from `TopicOutboxDLQ` and 
 
 **Goal:** p99 < 30ms for `POST /v1/policy/evaluate` (uncached); p99 < 5ms (Redis cached). Two-tier cache: SDK LRU (client-side) + Redis (server-side). Fail closed.
 
-### 10.1 Database Schema
+### 11.1 Database Schema
 
 Standard policy tables plus:
 
@@ -3889,7 +3887,7 @@ GRANT SELECT, INSERT ON policy_eval_log TO openguard_app;
 
 Also: standard outbox table.
 
-### 10.2 Redis Caching for Evaluate
+### 11.2 Redis Caching for Evaluate
 
 **Cache key:**
 ```
@@ -3962,7 +3960,7 @@ Also: standard outbox table.
 // re-evaluates and refreshes the cache (stale-while-revalidate).
 ```
 
-### 10.3 Policy Service Architecture
+### 11.3 Policy Service Architecture
 
 The control plane calls the policy service via mTLS when handling `POST /v1/policy/evaluate` from the SDK. The SDK also maintains a local LRU cache.
 
@@ -3982,11 +3980,11 @@ The control plane calls the policy service via mTLS when handling `POST /v1/poli
 - After SDK cache TTL expires with no successful re-fetch: SDK returns `DenyDecision`.
 - The SDK never grants access after cache expiry when it cannot reach the policy service.
 
-### 10.4 Policy Webhook to Connectors
+### 11.4 Policy Webhook to Connectors
 
 When a policy changes, connected apps with scope `policy:read` receive a signed outbound webhook within 5 seconds. The flow: `policy.changes` Kafka event → audit service consumes → webhook delivery service reads `webhook.delivery` topic → POSTs to connector URL.
 
-### 10.5 Policy Management API
+### 11.5 Policy Management API
 
 | Method | Path | Description |
 |---|---|---|
@@ -3998,7 +3996,7 @@ When a policy changes, connected apps with scope `policy:read` receive a signed 
 | `POST` | `/v1/policy/evaluate` | Real-time evaluation (SDK entry point) |
 | `GET` | `/v1/policy/eval-logs` | Evaluation history |
 
-### 10.6 Phase 2 Acceptance Criteria
+### 11.6 Phase 3 Acceptance Criteria
 
 - [ ] `POST /v1/policy/evaluate` p99 < 30ms (uncached) under 500 concurrent requests.
 - [ ] `POST /v1/policy/evaluate` p99 < 5ms (Redis cached) under 500 concurrent requests.
@@ -4015,7 +4013,7 @@ When a policy changes, connected apps with scope `policy:read` receive a signed 
 
 **Goal:** Kafka fully operational. Outbox relay running in all services. Audit Log consumes all events with manual-commit consumers, bulk inserts, atomic hash chaining, and CQRS read/write split.
 
-### 11.1 Kafka Topic Configuration
+### 12.1 Kafka Topic Configuration
 
 ```json
 [
@@ -4035,7 +4033,7 @@ When a policy changes, connected apps with scope `policy:read` receive a signed 
 
 Replication factor 3 requires 3 brokers in staging/production. Docker Compose uses single-broker (replication=1) for local dev. `create-topics.sh` detects broker count and adjusts replication factor automatically.
 
-### 11.1.1 Kafka Consumer Group Tuning
+### 12.1.1 Kafka Consumer Group Tuning
 
 During a rolling deployment of the audit consumer, Kafka triggers a consumer group rebalance. With default settings (`session.timeout.ms=10000`), the rebalance takes 10–30 seconds, during which **no consumer processes messages**. At 50,000 events/s, this creates up to 1.5M queued events per deployment.
 
@@ -4054,7 +4052,7 @@ partition.assignment.strategy: cooperative-sticky  # Incremental rebalance — o
 The `CooperativeStickyAssignor` (incremental rebalancing) is mandatory. With eager rebalancing (the default), all consumers stop consuming during a rebalance. With incremental rebalancing, only the partitions that move are paused — most consumers continue processing throughout the deployment.
 
 
-### 11.2 Audit Log Service — CQRS Architecture
+### 12.2 Audit Log Service — CQRS Architecture
 
 ```
 services/audit/pkg/
@@ -4071,7 +4069,7 @@ services/audit/pkg/
     └── verifier.go         # Hash chain verification
 ```
 
-#### 11.2.1 Kafka Consumer (Manual Offset Commit)
+#### 12.2.1 Kafka Consumer (Manual Offset Commit)
 
 ```go
 // pkg/consumer/consumer.go
@@ -4093,7 +4091,7 @@ services/audit/pkg/
 //   in the audit log.
 ```
 
-#### 11.2.2 Bulk Writer with Correct Flush Semantics
+#### 12.2.2 Bulk Writer with Correct Flush Semantics
 
 ```go
 // pkg/consumer/bulk_writer.go
@@ -4184,7 +4182,7 @@ func (b *BulkWriter) Flush(ctx context.Context) error {
 ```
 
 
-#### 11.2.3 Atomic Hash Chain (Batched Reservation)
+#### 12.2.3 Atomic Hash Chain (Batched Reservation)
 
 To prevent MongoDB write lock contention on every audit event, the audit service reserves chain sequences in batches of 100 per org.
 
@@ -4252,7 +4250,7 @@ Collection: `audit_chain_state`
 db.audit_chain_state.createIndex({ _id: 1 })  // org_id is _id
 ```
 
-#### 11.2.5 Audit HTTP API
+#### 12.2.5 Audit HTTP API
 
 | Method | Path | Description |
 |---|---|---|
@@ -4264,7 +4262,7 @@ db.audit_chain_state.createIndex({ _id: 1 })  // org_id is _id
 | `GET` | `/audit/integrity` | Verify hash chain for org |
 | `GET` | `/audit/stats` | Event counts by type and day |
 
-### 11.3 Phase 3 Acceptance Criteria
+### 12.3 Phase 4 Acceptance Criteria
 
 - [ ] Kafka consumer processes 50,000 events/s sustained (k6 + producer load test).
 - [ ] Bulk writer: each batch ≤ 500 docs, flush interval ≤ 1000ms.
@@ -4284,7 +4282,7 @@ db.audit_chain_state.createIndex({ _id: 1 })  // org_id is _id
 
 **Goal:** Real-time detection via Redis-backed counters. Composite risk scoring. Saga-based alert lifecycle. SIEM payloads signed with HMAC and replay-protected.
 
-### 12.1 Threat Detectors
+### 13.1 Threat Detectors
 
 All detectors consume from `TopicAuthEvents`, `TopicPolicyChanges`, or `TopicConnectorEvents`. Each maintains state in Redis.
 
@@ -4299,7 +4297,7 @@ All detectors consume from `TopicAuthEvents`, `TopicPolicyChanges`, or `TopicCon
 
 **Composite scoring:** `max(individual_scores)` weighted by recency. Score ≥ 0.5 → alert. Score ≥ 0.8 → HIGH. Score ≥ 0.95 → CRITICAL.
 
-### 12.2 Alert Lifecycle Saga
+### 13.2 Alert Lifecycle Saga
 
 ```
 threat.alert.created   →  Step 1: persist alert in MongoDB
@@ -4312,7 +4310,7 @@ threat.alert.resolved  → update status, compute MTTR, write audit event
 
 All steps must succeed or compensate. MTTR (mean time to resolve) is tracked per org per severity.
 
-### 12.3 SIEM Webhook Signing and Replay Protection
+### 13.3 SIEM Webhook Signing and Replay Protection
 
 Every SIEM webhook POST includes:
 ```
@@ -4325,7 +4323,7 @@ HMAC is computed over `"<timestamp>.<payload_bytes>"` using `ALERTING_SIEM_WEBHO
 
 Outgoing SIEM webhook URLs are validated at startup and on update for SSRF (must be HTTPS, must not resolve to RFC 1918 / loopback addresses).
 
-### 12.4 Threat & Alerting API
+### 13.4 Threat & Alerting API
 
 | Method | Path | Description |
 |---|---|---|
@@ -4336,7 +4334,7 @@ Outgoing SIEM webhook URLs are validated at startup and on update for SSRF (must
 | `GET` | `/v1/threats/stats` | Alert counts and MTTR |
 | `GET` | `/v1/threats/detectors` | Active detectors and weights |
 
-### 12.5 Phase 4 Acceptance Criteria
+### 13.5 Phase 4 Acceptance Criteria
 
 - [ ] 11 failed logins within window → HIGH alert in MongoDB within 3s.
 - [ ] Privilege escalation detector fires within 5s of role grant event.
@@ -4353,7 +4351,7 @@ Outgoing SIEM webhook URLs are validated at startup and on update for SSRF (must
 
 **Goal:** ClickHouse receives bulk-inserted event stream. Report generation is concurrency-limited via injected Bulkhead. PDF output complete and signed. Analytics queries meet p99 < 100ms.
 
-### 13.1 ClickHouse Schema
+### 14.1 ClickHouse Schema
 
 ```sql
 CREATE TABLE IF NOT EXISTS events (
@@ -4399,7 +4397,7 @@ CREATE TABLE IF NOT EXISTS alert_stats (
 ORDER BY (org_id, day, severity);
 ```
 
-### 13.2 ClickHouse Bulk Insertion
+### 14.2 ClickHouse Bulk Insertion
 
 ```go
 // pkg/consumer/clickhouse_writer.go
@@ -4452,7 +4450,7 @@ GROUP BY type
 
 `FINAL` adds query latency (typically 20–100ms additional for typical report scans) but is required for correctness. Do NOT use `FINAL` on the `event_counts_daily` materialized view or `alert_stats` table — `SummingMergeTree` merges happen more frequently and the latency cost is not justified for dashboard queries. `FINAL` is specifically required for the `events` `ReplacingMergeTree` in compliance report generation.
 
-### 13.3 Report Generation with Injected Bulkhead
+### 14.3 Report Generation with Injected Bulkhead
 
 The `reportBulkhead` is not a package-level variable. It is constructed in `main.go` and injected:
 
@@ -4504,7 +4502,7 @@ The compliance signing key pair is rotated annually as part of the secret rotati
 
 The raw PDF bytes are never stored in the database. Retrieval uses pre-signed S3 URLs (TTL: 1 hour).
 
-### 13.4 Compliance API
+### 14.4 Compliance API
 
 | Method | Path | Description |
 |---|---|---|
@@ -4514,7 +4512,7 @@ The raw PDF bytes are never stored in the database. Retrieval uses pre-signed S3
 | `GET` | `/v1/compliance/stats` | Compliance score and trends |
 | `GET` | `/v1/compliance/posture` | Real-time posture vs controls |
 
-### 13.5 Phase 5 Acceptance Criteria
+### 14.5 Phase 5 Acceptance Criteria
 
 - [ ] ClickHouse receives 10,000 events in ≤ 3 batches of ≤ 5,000 rows.
 - [ ] Materialized view `event_counts_daily` populated automatically.
