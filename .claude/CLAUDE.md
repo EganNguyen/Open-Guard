@@ -46,9 +46,8 @@ webhook-delivery:8091
 - Shared contracts: `shared/models/`
 - Kafka topics: `shared/kafka/topics.go`
 - Canonical env vars: `.env.example`
-- Full spec: `docs/architecture.md`
+- Full spec: `docs/architecture/architecture.md`
 - Frontend Architecture & Component Specification: `docs/frontend.md`
-- Runbooks: `docs/runbooks/`
 - Migration patterns: any `services/*/migrations/001_*.up.sql`
 
 ## Testing Requirements
