@@ -34,7 +34,7 @@ func NewPolicyClient(addr, apiKey string, cacheSize int) (*PolicyClient, error) 
 		apiKey: apiKey,
 		cache:  cache,
 		httpClient: &http.Client{
-			Timeout: 100 * time.Millisecond,
+			Timeout: 3 * time.Second,
 		},
 	}, nil
 }
@@ -57,7 +57,11 @@ func (c *PolicyClient) Evaluate(ctx context.Context, req PolicyRequest) (bool, s
 	if err != nil {
 		return false, "client_error", err
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	apiKey := c.apiKey
+	if req.APIKey != "" {
+		apiKey = req.APIKey
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -83,12 +87,17 @@ func (c *PolicyClient) Evaluate(ctx context.Context, req PolicyRequest) (bool, s
 		return false, "json_error", err
 	}
 
-	// Update cache
-	c.cache.Add(cacheKey, cacheItem{
-		Decision:   evalResp.Permitted,
-		Reason:     evalResp.Reason,
-		Expiration: time.Now().Add(60 * time.Second),
-	})
+	// Update cache — only cache permitted=true results.
+	// Denials are NOT cached because a new policy may be created at any time
+	// that would turn a denial into a permit. Caching denials would violate
+	// the fail-closed posture during policy propagation windows.
+	if evalResp.Permitted {
+		c.cache.Add(cacheKey, cacheItem{
+			Decision:   evalResp.Permitted,
+			Reason:     evalResp.Reason,
+			Expiration: time.Now().Add(60 * time.Second),
+		})
+	}
 
 	return evalResp.Permitted, evalResp.Reason, nil
 }

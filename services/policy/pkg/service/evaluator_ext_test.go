@@ -14,15 +14,15 @@ import (
 
 func TestApplyPolicy_Branches(t *testing.T) {
 	// Bad JSON
-	m, _, _ := applyPolicy(EvalRequest{}, &models.Policy{Rules: []byte("{bad")})
+	m, _, _ := applyPolicy(slog.Default(), EvalRequest{}, &models.Policy{Rules: []byte("{bad")})
 	assert.False(t, m)
 
 	// Unknown Type
-	m, _, _ = applyPolicy(EvalRequest{}, &models.Policy{Type: "unknown", Rules: []byte("{}")})
+	m, _, _ = applyPolicy(slog.Default(), EvalRequest{}, &models.Policy{Type: "unknown", Rules: []byte("{}")})
 	assert.False(t, m)
 
 	// Session Limit
-	m, _, _ = applyPolicy(EvalRequest{}, &models.Policy{Type: "session_limit", Rules: []byte("{}")})
+	m, _, _ = applyPolicy(slog.Default(), EvalRequest{}, &models.Policy{Type: "session_limit", Rules: []byte("{}")})
 	assert.False(t, m)
 }
 

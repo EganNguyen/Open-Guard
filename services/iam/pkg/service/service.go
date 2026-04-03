@@ -48,3 +48,6 @@ func New(
 		isDev:              isDev,
 	}
 }
+func (s *Service) GetJWTKeys() []crypto.JWTKey {
+	return s.jwtKeyring.GetKeys()
+}

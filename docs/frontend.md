@@ -2,7 +2,7 @@
 
 > **Document status:** Authoritative. Companion to the Backend Specification.
 > **Audience:** Frontend engineers, design system contributors, security reviewers.
-> **Stack:** Next.js 14 (App Router), TypeScript 5, Tailwind CSS v3, TanStack Query v5, Zustand v4.
+> **Stack:** Next.js 16 (App Router), TypeScript 5, Tailwind CSS v3.4, TanStack Query v5, Zustand v5.
 
 ---
 
@@ -132,12 +132,12 @@ Compiler options in `tsconfig.json`:
 
 | Concern | Choice | Rationale |
 |---|---|---|
-| Framework | Next.js 14 (App Router) | Server components reduce JS bundle; nested layouts match the multi-section dashboard. Matches existing `web/` in the repo. |
+| Framework | Next.js 16 (App Router) | Server components reduce JS bundle; React 19 (Async Transitions, Action Hooks) handles optimistic UI natively. |
 | Language | TypeScript 5 (strict) | Type-safety catches the class of bug (wrong field name, missing null check) most common in dashboard UIs. |
-| Styling | Tailwind CSS v3 | Zero-runtime. Tokens map directly to the design system. Purge keeps bundle small. |
+| Styling | Tailwind CSS v3.4 | Zero-runtime. Stable v3 engine with plugin support. Tokens map directly to the design system. |
 | Component primitives | Radix UI (headless) | Accessibility-correct primitives (dialogs, dropdowns, tooltips) without styling opinions. |
 | Data fetching | TanStack Query v5 | Stale-while-revalidate, optimistic updates, deduplication. Aligns with the backend's cache TTL design. |
-| Global state | Zustand v4 | Tiny footprint. Only session context, org context, and UI preferences need global state. |
+| Global state | Zustand v5 | Tiny footprint. Current version handles immutability and hydration natively. |
 | Forms | React Hook Form + Zod | Client-side validation mirrors server-side validation schema. Zod schemas are shared with the API client type layer. |
 | Tables | TanStack Table v8 + `@tanstack/react-virtual` | Virtual scrolling required for audit log (potentially millions of rows per org). |
 | Charts | Recharts | Sufficient for event volume bar charts and MTTR line charts without a heavy dependency. |

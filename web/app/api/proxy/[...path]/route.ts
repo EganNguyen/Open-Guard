@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 
-const BACKEND_URL = process.env.API_INTERNAL_URL || "http://control-plane:8080";
+const BACKEND_URL = process.env.API_INTERNAL_URL || "http://controlplane:8080";
 
 export async function proxyRequest(
   req: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
   const session = (await auth()) as any;
   const { path } = await params;
@@ -29,6 +29,10 @@ export async function proxyRequest(
       },
       body,
     });
+
+    if (res.status === 204) {
+      return new Response(null, { status: 204 });
+    }
 
     const data = await res.json().catch(() => ({}));
     return NextResponse.json(data, { status: res.status });

@@ -146,6 +146,7 @@ func main() {
 		AuditAddr:      sharedcfg.Default("AUDIT_TARGET", ""),
 		AlertingAddr:   sharedcfg.Default("ALERTING_TARGET", ""),
 		ComplianceAddr: sharedcfg.Default("COMPLIANCE_TARGET", ""),
+		PublicBaseURL:  cfg.PublicBaseURL,
 	})
 	if err != nil {
 		logger.Error("failed to build router", "error", err)

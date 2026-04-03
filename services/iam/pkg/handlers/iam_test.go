@@ -61,7 +61,7 @@ func setupAuthHandler(beginErr error) (*AuthHandler, *chi.Mux) {
 		nil, nil, 900*time.Second, 3600*time.Second, true,
 	)
 
-	h := NewAuthHandler(iamSvc)
+	h := NewAuthHandler(iamSvc, "")
 	r := chi.NewRouter()
 	r.Post("/auth/register", h.Register)
 	r.Post("/auth/login", h.Login)
@@ -238,7 +238,7 @@ func TestAuthHandler_Success(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	repo := repository.New()
 	iamSvc := service.New(&goodPool{}, repo, nil, logger, keyring, nil, 900*time.Second, 3600*time.Second, true)
-	h := NewAuthHandler(iamSvc)
+	h := NewAuthHandler(iamSvc, "http://localhost:3000")
 
 	r := chi.NewRouter()
 	r.Post("/auth/register", h.Register)

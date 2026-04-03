@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"log/slog"
 	"net/http"
 	"os"
@@ -34,7 +35,16 @@ func main() {
 	}
 
 	// 2. OpenGuard SDK Components
-	authClient, err := sdk.NewAuthClient(ctx, cfg.OIDCIssuer, cfg.ClientID, cfg.ClientSecret, cfg.FrontendURL, nil)
+	var httpClient *http.Client
+	if cfg.SkipTLSVerify {
+		httpClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		}
+	}
+
+	authClient, err := sdk.NewAuthClient(ctx, cfg.OIDCIssuer, cfg.ClientID, cfg.ClientSecret, cfg.FrontendURL, nil, httpClient)
 	if err != nil {
 		logger.Error("auth_sdk_failed", "error", err)
 		os.Exit(1)

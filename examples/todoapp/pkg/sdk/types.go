@@ -7,10 +7,13 @@ import (
 
 // PolicyRequest matches the OpenGuard control plane evaluation request.
 type PolicyRequest struct {
-	UserID   string `json:"user_id"`
-	OrgID    string `json:"org_id"`
-	Action   string `json:"action"`
-	Resource string `json:"resource"`
+	UserID     string   `json:"user_id"`
+	OrgID      string   `json:"org_id"`
+	UserGroups []string `json:"user_groups,omitempty"`
+	Action     string   `json:"action"`
+	Resource   string   `json:"resource"`
+	IPAddress  string   `json:"ip_address,omitempty"`
+	APIKey     string   `json:"-"`
 }
 
 // PolicyResponse matches the OpenGuard control plane evaluation response.

@@ -13,13 +13,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!credentials?.email || !credentials?.password) return null;
 
         try {
-          const res = await fetch(`${process.env.API_INTERNAL_URL || "http://control-plane:8080"}/api/v1/auth/login`, {
+          const res = await fetch(`${process.env.API_INTERNAL_URL || "http://controlplane:8080"}/api/v1/auth/login`, {
             method: "POST",
             body: JSON.stringify(credentials),
             headers: { "Content-Type": "application/json" },
           });
 
           const data = await res.json();
+          console.log("NextAuth Login Response - status:", res.status, "data:", JSON.stringify(data));
 
           if (res.ok && data.token) {
             return {
@@ -62,4 +63,5 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   session: {
     strategy: "jwt",
   },
+  trustHost: true,
 });

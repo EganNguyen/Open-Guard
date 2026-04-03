@@ -19,7 +19,7 @@ export default function AuditPage() {
 
   return (
     <Shell 
-      title="Audit Log" 
+      title="System Audit Events" 
       crumbs={["Governance", "Audit Log"]}
     >
       <div className="flex flex-col gap-6">

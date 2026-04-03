@@ -8,23 +8,17 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/openguard/policy/pkg/service"
-	"github.com/openguard/shared/middleware"
+	"github.com/openguard/policy/pkg/tenant"
 	"github.com/openguard/shared/models"
 )
 
 // orgIDFromCtx reads the org ID set by the router's injectOrgContext middleware.
 func orgIDFromCtx(ctx context.Context) string {
-	if v, ok := ctx.Value(middleware.TenantIDKey).(string); ok {
-		return v
-	}
-	return ""
+	return tenant.OrgIDFromContext(ctx)
 }
 
 func userIDFromCtx(ctx context.Context) string {
-	if v, ok := ctx.Value("user_id").(string); ok {
-		return v
-	}
-	return ""
+	return tenant.UserIDFromContext(ctx)
 }
 
 // PolicyHandler handles CRUD and evaluation of policies.

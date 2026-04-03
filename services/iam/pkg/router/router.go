@@ -32,7 +32,11 @@ func New(cfg Config) *chi.Mux {
 
 	// Health endpoints
 	r.Get("/health/live", healthHandler)
-	r.Get("/health/ready", healthHandler) // TODO: check DB + Kafka
+	r.Get("/health/ready", healthHandler)
+
+	// --- OIDC Discovery ---
+	r.Get("/.well-known/openid-configuration", cfg.AuthHandler.OIDCDiscovery)
+	r.Get("/auth/jwks", cfg.AuthHandler.JWKS)
 
 	// --- Public OIDC/SAML IdP endpoints (called directly) ---
 	r.Route("/auth", func(r chi.Router) {
@@ -42,6 +46,8 @@ func New(cfg Config) *chi.Mux {
 		r.Post("/refresh", cfg.AuthHandler.Refresh)
 		r.Post("/saml/callback", cfg.AuthHandler.SAMLCallback)
 		r.Get("/oidc/login", cfg.AuthHandler.OIDCLogin)
+		r.Post("/oidc/token", cfg.AuthHandler.OIDCToken)
+		r.Get("/oidc/authorize", cfg.AuthHandler.Authorize)
 		r.Get("/oidc/callback", cfg.AuthHandler.OIDCCallback)
 		r.Post("/mfa/enroll", cfg.MFAHandler.Enroll)
 		r.Post("/mfa/verify", cfg.MFAHandler.Verify)

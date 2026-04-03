@@ -67,7 +67,7 @@ export default function AccessPoliciesPage() {
 
   return (
     <Shell 
-      title="Security Policy Registry" 
+      title="Policy Registry" 
       crumbs={["Governance", "Access Policies"]}
     >
       <div className="space-y-8 animate-fade-up">

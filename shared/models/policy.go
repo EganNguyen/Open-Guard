@@ -12,6 +12,8 @@ type Policy struct {
 	Name        string          `json:"name" db:"name"`
 	Description string          `json:"description" db:"description"`
 	Type        PolicyType      `json:"type" db:"type"`
+	Action      string          `json:"action" db:"action"`
+	Resource    string          `json:"resource" db:"resource"`
 	Rules       json.RawMessage `json:"rules" db:"rules"`
 	Enabled     bool            `json:"enabled" db:"enabled"`
 	CreatedBy   string          `json:"created_by" db:"created_by"`

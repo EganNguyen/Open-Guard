@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"testing"
@@ -50,9 +51,10 @@ func TestApplyIPAllowlist(t *testing.T) {
 		},
 	}
 
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			matched, deny, reason := applyIPAllowlist(EvalRequest{IPAddress: tt.ip}, rules)
+			matched, deny, reason := applyIPAllowlist(logger, EvalRequest{IPAddress: tt.ip}, rules)
 			if matched != tt.matched || deny != tt.deny || reason != tt.expReason {
 				t.Errorf("got (%v, %v, %q), want (%v, %v, %q)", matched, deny, reason, tt.matched, tt.deny, tt.expReason)
 			}
@@ -99,9 +101,10 @@ func TestApplyDataExportPolicy(t *testing.T) {
 		},
 	}
 
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			matched, deny, reason := applyDataExportPolicy(EvalRequest{Action: tt.action, UserGroups: tt.groups}, rules)
+			matched, deny, reason := applyDataExportPolicy(logger, EvalRequest{Action: tt.action, UserGroups: tt.groups}, rules)
 			if matched != tt.matched || deny != tt.deny || reason != tt.expReason {
 				t.Errorf("got (%v, %v, %q), want (%v, %v, %q)", matched, deny, reason, tt.matched, tt.deny, tt.expReason)
 			}
@@ -147,9 +150,10 @@ func TestApplyAnonAccessPolicy(t *testing.T) {
 		},
 	}
 
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			matched, deny, reason := applyAnonAccessPolicy(EvalRequest{UserID: tt.userID}, tt.rules)
+			matched, deny, reason := applyAnonAccessPolicy(logger, EvalRequest{UserID: tt.userID}, tt.rules)
 			if matched != tt.matched || deny != tt.deny || reason != tt.expReason {
 				t.Errorf("got (%v, %v, %q), want (%v, %v, %q)", matched, deny, reason, tt.matched, tt.deny, tt.expReason)
 			}
@@ -158,6 +162,7 @@ func TestApplyAnonAccessPolicy(t *testing.T) {
 }
 
 func TestApplyRBAC(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rules := map[string]interface{}{
 		"allowed_roles": []interface{}{"admin", "editor"},
 	}
@@ -196,7 +201,7 @@ func TestApplyRBAC(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			matched, deny, _ := applyRBAC(EvalRequest{UserID: "u1", UserGroups: tt.groups}, rules)
+			matched, deny, _ := applyRBAC(logger, EvalRequest{UserID: "u1", UserGroups: tt.groups}, rules)
 			if matched != tt.matched || deny != tt.deny {
 				t.Errorf("got (matched=%v, deny=%v), want (matched=%v, deny=%v)",
 					matched, deny, tt.matched, tt.deny)
@@ -206,14 +211,14 @@ func TestApplyRBAC(t *testing.T) {
 
 	t.Run("empty allowed_roles is a no-op", func(t *testing.T) {
 		emptyRules := map[string]interface{}{"allowed_roles": []interface{}{}}
-		matched, deny, _ := applyRBAC(EvalRequest{UserGroups: []string{"admin"}}, emptyRules)
+		matched, deny, _ := applyRBAC(logger, EvalRequest{UserGroups: []string{"admin"}}, emptyRules)
 		if matched || deny {
 			t.Error("expected no-op (false, false) for empty allowed_roles")
 		}
 	})
 
 	t.Run("missing allowed_roles key is a no-op", func(t *testing.T) {
-		matched, deny, _ := applyRBAC(EvalRequest{UserGroups: []string{"admin"}}, map[string]interface{}{})
+		matched, deny, _ := applyRBAC(logger, EvalRequest{UserGroups: []string{"admin"}}, map[string]interface{}{})
 		if matched || deny {
 			t.Error("expected no-op (false, false) when allowed_roles key is missing")
 		}

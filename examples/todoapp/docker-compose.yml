@@ -26,10 +26,11 @@ services:
       - OPENGUARD_URL=http://openguard-controlplane:8080
       - TODO_OPENGUARD_API_KEY=${TODO_OPENGUARD_API_KEY:-}
       - OPENGUARD_WEBHOOK_SECRET=test-webhook-secret
-      - OPENGUARD_OIDC_ISSUER=http://openguard-iam:8081
+      - OPENGUARD_OIDC_ISSUER=http://localhost:8081
       - OPENGUARD_OIDC_CLIENT_ID=todo-app
       - OPENGUARD_OIDC_CLIENT_SECRET=todo-app-secret
       - FRONTEND_URL=http://localhost:8083
+      - SKIP_TLS_VERIFY=true
       - SDK_EVENT_BATCH_SIZE=100
       - SDK_EVENT_FLUSH_INTERVAL_MS=2000
     depends_on:

@@ -44,9 +44,9 @@ func (r *PolicyRepository) Create(ctx context.Context, p *models.Policy) error {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO policies (id, org_id, name, description, type, rules, enabled, created_by, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		`, p.ID, p.OrgID, p.Name, p.Description, p.Type, p.Rules, p.Enabled, p.CreatedBy, p.CreatedAt, p.UpdatedAt)
+			INSERT INTO policies (id, org_id, name, description, type, action, resource, rules, enabled, created_by, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		`, p.ID, p.OrgID, p.Name, p.Description, p.Type, p.Action, p.Resource, p.Rules, p.Enabled, p.CreatedBy, p.CreatedAt, p.UpdatedAt)
 		if err != nil {
 			return err
 		}
@@ -65,9 +65,9 @@ func (r *PolicyRepository) Update(ctx context.Context, p *models.Policy) error {
 		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE policies
-			SET name=$1, description=$2, type=$3, rules=$4, enabled=$5, updated_at=$6
-			WHERE id=$7 AND org_id=$8
-		`, p.Name, p.Description, p.Type, p.Rules, p.Enabled, p.UpdatedAt, p.ID, p.OrgID)
+			SET name=$1, description=$2, type=$3, action=$4, resource=$5, rules=$6, enabled=$7, updated_at=$8
+			WHERE id=$9 AND org_id=$10
+		`, p.Name, p.Description, p.Type, p.Action, p.Resource, p.Rules, p.Enabled, p.UpdatedAt, p.ID, p.OrgID)
 		if err != nil {
 			return err
 		}
@@ -106,7 +106,7 @@ func (r *PolicyRepository) GetByID(ctx context.Context, orgID, policyID string) 
 			return err
 		}
 		row := tx.QueryRow(ctx, `
-			SELECT id, org_id, name, description, type, rules, enabled, created_by, created_at, updated_at
+			SELECT id, org_id, name, description, type, action, resource, rules, enabled, created_by, created_at, updated_at
 			FROM policies WHERE id=$1 AND org_id=$2
 		`, policyID, orgID)
 		var scanErr error
@@ -124,7 +124,7 @@ func (r *PolicyRepository) ListByOrg(ctx context.Context, orgID string) ([]*mode
 			return err
 		}
 		rows, err := tx.Query(ctx, `
-			SELECT id, org_id, name, description, type, rules, enabled, created_by, created_at, updated_at
+			SELECT id, org_id, name, description, type, action, resource, rules, enabled, created_by, created_at, updated_at
 			FROM policies WHERE org_id=$1 ORDER BY created_at DESC
 		`, orgID)
 		if err != nil {
@@ -152,7 +152,7 @@ func (r *PolicyRepository) ListEnabledForOrg(ctx context.Context, orgID string) 
 			return err
 		}
 		rows, err := tx.Query(ctx, `
-			SELECT id, org_id, name, description, type, rules, enabled, created_by, created_at, updated_at
+			SELECT id, org_id, name, description, type, action, resource, rules, enabled, created_by, created_at, updated_at
 			FROM policies WHERE org_id=$1 AND enabled=TRUE ORDER BY created_at
 		`, orgID)
 		if err != nil {
@@ -243,7 +243,7 @@ func scanPolicy(row policyScanner) (*models.Policy, error) {
 	var p models.Policy
 	var rules []byte
 	err := row.Scan(
-		&p.ID, &p.OrgID, &p.Name, &p.Description, &p.Type, &rules,
+		&p.ID, &p.OrgID, &p.Name, &p.Description, &p.Type, &p.Action, &p.Resource, &rules,
 		&p.Enabled, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

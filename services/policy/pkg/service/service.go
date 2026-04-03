@@ -83,7 +83,14 @@ func (s *Service) Create(ctx context.Context, p *models.Policy) error {
 	if p.OrgID == "" {
 		return fmt.Errorf("%w: org_id is required", models.ErrBadRequest)
 	}
-	return s.repo.Create(ctx, p)
+	if err := s.repo.Create(ctx, p); err != nil {
+		return err
+	}
+	
+	// Synchronous local cache invalidation for immediate consistency
+	s.logger.Info("invalidating cache after create", "org_id", p.OrgID)
+	_ = s.InvalidateCacheForOrg(ctx, p.OrgID)
+	return nil
 }
 
 func (s *Service) Get(ctx context.Context, orgID, policyID string) (*models.Policy, error) {
@@ -98,11 +105,25 @@ func (s *Service) Update(ctx context.Context, p *models.Policy) error {
 	if p.Name == "" {
 		return fmt.Errorf("%w: policy name is required", models.ErrBadRequest)
 	}
-	return s.repo.Update(ctx, p)
+	if err := s.repo.Update(ctx, p); err != nil {
+		return err
+	}
+
+	// Synchronous local cache invalidation for immediate consistency
+	s.logger.Info("invalidating cache after update", "org_id", p.OrgID)
+	_ = s.InvalidateCacheForOrg(ctx, p.OrgID)
+	return nil
 }
 
 func (s *Service) Delete(ctx context.Context, orgID, policyID string) error {
-	return s.repo.Delete(ctx, orgID, policyID)
+	if err := s.repo.Delete(ctx, orgID, policyID); err != nil {
+		return err
+	}
+
+	// Synchronous local cache invalidation for immediate consistency
+	s.logger.Info("invalidating cache after delete", "org_id", orgID)
+	_ = s.InvalidateCacheForOrg(ctx, orgID)
+	return nil
 }
 
 // ── Evaluation Methods ───────────────────────────────────────────────────────
@@ -198,8 +219,8 @@ func (s *Service) Evaluate(ctx context.Context, req EvalRequest) (*EvalResponse,
 // Default is DENY if no policy explicitly permits.
 func (s *Service) evaluate(req EvalRequest, policies []*models.Policy) *EvalResponse {
 	if len(policies) == 0 {
-		// No policies means implicit allow (no restrictions configured)
-		return &EvalResponse{Permitted: true, Reason: "no policies configured"}
+		// Fail-closed: No policies means implicit deny
+		return &EvalResponse{Permitted: false, Reason: "no policies configured"}
 	}
 
 	var matchedIDs []string
@@ -211,8 +232,9 @@ func (s *Service) evaluate(req EvalRequest, policies []*models.Policy) *EvalResp
 			continue
 		}
 
-		matched, deny, reason := applyPolicy(req, p)
+		matched, deny, reason := applyPolicy(s.logger, req, p)
 		if matched {
+			s.logger.Debug("policy matched", "policy_id", p.ID, "deny", deny, "reason", reason)
 			matchedIDs = append(matchedIDs, p.ID)
 			if deny {
 				denied = true
@@ -238,7 +260,17 @@ func (s *Service) evaluate(req EvalRequest, policies []*models.Policy) *EvalResp
 
 // applyPolicy evaluates a single policy against the request.
 // Returns (matched bool, deny bool, reason string).
-func applyPolicy(req EvalRequest, p *models.Policy) (matched bool, deny bool, reason string) {
+func applyPolicy(logger *slog.Logger, req EvalRequest, p *models.Policy) (matched bool, deny bool, reason string) {
+	// 1. Match Resource and Action (Empty string matches all)
+	if p.Action != "" && p.Action != "*" && p.Action != req.Action {
+		return false, false, ""
+	}
+	if p.Resource != "" && p.Resource != "*" && p.Resource != req.Resource {
+		return false, false, ""
+	}
+
+	logger.Debug("applying rules for policy", "policy_id", p.ID, "type", p.Type)
+
 	var rules map[string]interface{}
 	if err := json.Unmarshal(p.Rules, &rules); err != nil {
 		return false, false, ""
@@ -246,32 +278,34 @@ func applyPolicy(req EvalRequest, p *models.Policy) (matched bool, deny bool, re
 
 	switch models.PolicyType(p.Type) {
 	case models.PolicyTypeIPAllowlist:
-		return applyIPAllowlist(req, rules)
+		return applyIPAllowlist(logger, req, rules)
 
 	case models.PolicyTypeRBAC:
-		return applyRBAC(req, rules)
+		return applyRBAC(logger, req, rules)
+
+	case models.PolicyTypeDataExport:
+		return applyDataExportPolicy(logger, req, rules)
+
+	case models.PolicyTypeAnonAccess:
+		return applyAnonAccessPolicy(logger, req, rules)
 
 	case models.PolicyTypeSessionLimit:
 		// Session limits are enforced at login time, not at evaluation time.
 		// Return not matched so we don't block API calls.
 		return false, false, ""
 
-	case models.PolicyTypeDataExport:
-		return applyDataExportPolicy(req, rules)
-
-	case models.PolicyTypeAnonAccess:
-		return applyAnonAccessPolicy(req, rules)
-
 	default:
 		return false, false, ""
 	}
 }
 
-func applyIPAllowlist(req EvalRequest, rules map[string]interface{}) (bool, bool, string) {
+func applyIPAllowlist(logger *slog.Logger, req EvalRequest, rules map[string]interface{}) (bool, bool, string) {
 	allowedIPs, ok := rules["allowed_ips"].([]interface{})
 	if !ok || len(allowedIPs) == 0 {
 		return false, false, ""
 	}
+
+	logger.Debug("checking IP allowlist", "request_ip", req.IPAddress, "allowed_ips", allowedIPs)
 
 	for _, ip := range allowedIPs {
 		if ip == req.IPAddress {
@@ -282,13 +316,19 @@ func applyIPAllowlist(req EvalRequest, rules map[string]interface{}) (bool, bool
 	return true, true, fmt.Sprintf("ip %q not in allowlist", req.IPAddress)
 }
 
-func applyDataExportPolicy(req EvalRequest, rules map[string]interface{}) (bool, bool, string) {
+func applyDataExportPolicy(logger *slog.Logger, req EvalRequest, rules map[string]interface{}) (bool, bool, string) {
 	if req.Action != "data.export" {
 		return false, false, ""
 	}
 
 	// Extract allowed roles/groups from rule
-	allowedRoles, _ := rules["allowed_roles"].([]interface{})
+	allowedRoles, ok := rules["allowed_roles"].([]interface{})
+	if !ok || len(allowedRoles) == 0 {
+		return false, false, ""
+	}
+
+	logger.Debug("checking data export policy", "user_groups", req.UserGroups, "allowed_roles", allowedRoles)
+
 	for _, role := range allowedRoles {
 		for _, group := range req.UserGroups {
 			if role == group {
@@ -300,9 +340,10 @@ func applyDataExportPolicy(req EvalRequest, rules map[string]interface{}) (bool,
 	return true, true, "data export not permitted for user's roles"
 }
 
-func applyAnonAccessPolicy(req EvalRequest, rules map[string]interface{}) (bool, bool, string) {
+func applyAnonAccessPolicy(logger *slog.Logger, req EvalRequest, rules map[string]interface{}) (bool, bool, string) {
 	allowed, _ := rules["allow_anonymous"].(bool)
 	if req.UserID == "" && !allowed {
+		logger.Debug("anonymous access denied by policy")
 		return true, true, "anonymous access not permitted"
 	}
 	return false, false, ""
@@ -311,12 +352,13 @@ func applyAnonAccessPolicy(req EvalRequest, rules map[string]interface{}) (bool,
 // applyRBAC checks whether the user belongs to at least one of the allowed_roles
 // defined in the RBAC policy rules. If the user has no matching role, access is denied.
 // Rules shape: { "allowed_roles": ["admin", "editor"] }
-func applyRBAC(req EvalRequest, rules map[string]interface{}) (bool, bool, string) {
+func applyRBAC(logger *slog.Logger, req EvalRequest, rules map[string]interface{}) (bool, bool, string) {
 	allowedRoles, ok := rules["allowed_roles"].([]interface{})
 	if !ok || len(allowedRoles) == 0 {
-		// No roles configured means RBAC policy is a no-op for this request.
 		return false, false, ""
 	}
+	
+	logger.Debug("checking RBAC", "user_groups", req.UserGroups, "allowed_roles", allowedRoles)
 
 	allowedSet := make(map[string]struct{}, len(allowedRoles))
 	for _, r := range allowedRoles {

@@ -1,76 +1,113 @@
-# OpenGuard Todo App: Real-World Integration Guide
+# OpenGuard Todo App — Secure Integration Specimen
 
-This guide walks you through a complete, end-to-end integration of a real product (the Todo App) into the OpenGuard ecosystem using the **Control Plane SDK model**.
+> [!NOTE] 
+> This is a reference implementation of a multi-tenant web application integrated with the OpenGuard Security Control Plane. It demonstrates best practices for Identity (OIDC), Centralized Authorization (Policy Engine), and Continuous Audit.
 
-## Prerequisites
+## 🏗️ Architecture & Security Lifecycle
 
-1. **OpenGuard Stack Running**: 
-   Ensure the core services are running via Docker:
+The Todo App delegates the "Heavy Lifting" of security to OpenGuard. Every request undergoes a zero-trust verification cycle before any data is touched.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant App as Todo App
+    participant DB as Postgres (RLS)
+    participant OG as OpenGuard CP
+
+    User->>App: GET /api/v1/todos (JWT)
+    App->>App: Validate JWT Signature
+    App->>OG: POST /policy/evaluate (Can User Read?)
+    OG-->>App: decision: PERMIT
+    App->>DB: SET app.org_id = '...'
+    App->>DB: SELECT * FROM todos
+    DB-->>App: Filtered Result
+    App->>OG: Ingest Audit Event (BATCHED)
+    App-->>User: 200 OK (Tasks)
+```
+
+### Core Security Patterns
+- **Identity Federation**: Authenticates via OpenGuard IAM (OIDC). No passwords are stored in the app.
+- **Fail-Closed Policy**: Evaluates permissions via the Policy Engine. If the service is down, it uses a 60s cache before defaulting to `DENY`.
+- **Infrastructure-Level Isolation**: Uses Row-Level Security (RLS) in PostgreSQL, tied to the `org_id` claims in the JWT.
+- **Async Audit Batching**: High-performance audit event shipping via the OpenGuard SDK to prevent latency overhead.
+
+---
+
+## 🚀 Quick Start
+
+### 1. Requirements
+Ensure the core [OpenGuard Services](file:///services/docker-compose.yml) are running:
+```bash
+cd services && docker-compose up -d
+```
+
+### 2. Run with Docker Compose
+The Todo App includes a dedicated `docker-compose.yml` that initializes both the application and its private PostgreSQL instance. It is pre-configured to join the `services_default` network.
+
+```bash
+cd examples/todoapp
+
+# Start the app and database
+docker-compose up -d
+```
+The Todo App will be accessible at [http://localhost:8083](http://localhost:8083).
+
+---
+
+## ⚙️ Configuration Reference
+
+All settings can be updated via Environment Variables. Default values in the `docker-compose.yml` are optimized for integration with the core OpenGuard stack.
+
+| Variable | Description | Default (Compose) |
+| :--- | :--- | :--- |
+| `PORT` | Listening port for the HTTP server | `8083` |
+| `POSTGRES_URL` | PostgreSQL connection string | `postgres://postgres:postgres@todo-db:5432/todoapp?sslmode=disable` |
+| `OPENGUARD_URL` | URL for the OpenGuard Control Plane | `http://openguard-controlplane:8080` |
+| `TODO_OPENGUARD_API_KEY` | Connector API Key for Audit/Policy | `${TODO_OPENGUARD_API_KEY}` |
+| `OPENGUARD_WEBHOOK_SECRET` | Secret used to verify OpenGuard webhooks | `test-webhook-secret` |
+| `OPENGUARD_OIDC_ISSUER` | OpenGuard IAM Issuer Discovery URL | `http://openguard-iam:8081` |
+| `OPENGUARD_OIDC_CLIENT_ID` | Client ID registered in OpenGuard IAM | `todo-app` |
+| `OPENGUARD_OIDC_CLIENT_SECRET`| Client Secret for OIDC exchange | `todo-app-secret` |
+| `FRONTEND_URL` | Public-facing URL for the Todo App UI | `http://localhost:8083` |
+| `SDK_EVENT_BATCH_SIZE` | Max audit events to buffer before flush | `100` |
+| `SDK_EVENT_FLUSH_INTERVAL_MS`| Max time to wait before flushing audit buffer | `2000` |
+| `SDK_POLICY_CACHE_SIZE` | Number of policy decisions to cache | `1000` |
+| `SKIP_TLS_VERIFY` | Disable TLS check for internal dev traffic | `false` |
+
+
+---
+
+## 🛡️ Security Implementation Details
+
+### Row-Level Security (RLS)
+The Todo App repository layer enforces multi-tenancy at the database level. Even if a bug exists in the application logic, a user cannot access data from another tenant.
+```go
+// From pkg/repository/todo.go
+return r.db.ExecuteWithRLS(ctx, orgID, func(tx pgx.Tx) error {
+    query := `SELECT * FROM todos WHERE user_id = $1`
+    // The Postgres RLS policy automatically appends: AND org_id = current_setting('app.org_id')
+    return tx.Query(ctx, query, userID)
+})
+```
+
+### Webhook Handling
+The app exposes a signed endpoint at `/webhooks/openguard` to respond to lifecycle events such as:
+- **`user.deleted`**: Triggers immediate cleanup of user tokens and sessions.
+- **`threat.alert.created`**: Receives security alerts from the Threat Engine to lock compromised accounts.
+
+---
+
+## 🛠️ Local Development
+
+1. **Initialize Database**
    ```bash
-   cd services
-   docker-compose up -d
+   psql $POSTGRES_URL -f examples/todoapp/migrations/schema.sql
    ```
-2. **Todo App Running**:
 
-   *The Todo App starts on `http://localhost:8083`.*
-   # Build the image
-   docker build -t todoapp:latest examples/todoapp/
+2. **Run Backend (Go)**
+   ```bash
+   go run examples/todoapp/main.go
+   ```
 
-   # Run the container
-   # Use port 8083 to avoid conflict with 'policy' on 8082
-   docker rm -f todoapp-container 2>/dev/null || true
-   docker run -d \
-   --name todoapp-container \
-   --network services_default \
-  -p 8083:8082 \
-  -e CONTROLPLANE_URL=http://openguard-controlplane:8080/v1/policy/evaluate \
-  todoapp:latest
-
-
----
-
-## Step 1: Create your User (Signup & Login)
-
-To access your Todo App, you need a valid identity governed by OpenGuard.
-
-1. Visit the **OpenGuard Dashboard**: `http://localhost:3000`.
-2. **Sign Up**: Create a new account. This stores your credentials securely in the OpenGuard IAM database.
-3. **Login**: Sign in to receive your **JWT (JSON Web Token)**.
-4. **Copy your Token**: You will need this to authenticate your requests.
-
----
-
-## Step 2: Define the Security Policy
-
-Even with a valid login, the Todo App will ask the Control Plane if you are allowed to read or write tasks.
-
-1. In the **Dashboard**, navigate to **Policies**.
-2. Create a new **Access Rule**:
-   - **Service**: `todoapp`
-   - **Resource**: `todos`
-   - **Action**: `read`, `write`
-   - **Subject**: Your User ID or Role.
-3. Save the Policy. The Policy Engine now has a dynamic database record allowing your access.
-
----
-
-## Step 3: Use the Protected Product
-
-Now, interact with your Todo App as a fully secured, enterprise-grade user.
-
-1. Open the **Todo App UI**: `http://localhost:8083`.
-2. The UI natively talks to the Todo App API at `http://localhost:8083/api/v1/todos`.
-3. Paste your **JWT Token** into the Bearer field.
-4. **Add a Task**:
-   - The Todo App parses your JWT to identify you.
-   - The Todo App makes a REST/SDK call to the Control Plane (`http://localhost:8080/v1/policy/evaluate`) to verify if you have the `write` permission on the `todos` resource.
-   - The Control Plane checks the dynamic Policy Engine and returns `true`.
-   - Your Todo App proceeds with the request and saves the task.
-
----
-
-## Summary of Protection
-When you follow this flow, OpenGuard is doing the heavy lifting via centralized governance:
-- **IAM** manages your password and issues standards-compliant JWTs.
-- **Todo App Middleware** secures its own edge, blindly trusting the Control Plane answer.
-- **Policy Engine** ensures only approved users can "write" new tasks through centralized RBAC.
+3. **Explore the UI**
+   Open [http://localhost:8082](http://localhost:8082) in your browser.

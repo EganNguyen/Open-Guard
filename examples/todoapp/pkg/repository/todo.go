@@ -34,7 +34,7 @@ func (r *Repository) Create(ctx context.Context, orgID string, todo *Todo) error
 }
 
 func (r *Repository) List(ctx context.Context, orgID string, userID string) ([]Todo, error) {
-	var todos []Todo
+	todos := []Todo{} // initialize to empty slice so JSON encodes as [] not null
 	err := r.db.ExecuteWithRLS(ctx, orgID, func(tx pgx.Tx) error {
 		query := `SELECT id, org_id, user_id, title, completed, created_at FROM todos WHERE user_id = $1`
 		rows, err := tx.Query(ctx, query, userID)

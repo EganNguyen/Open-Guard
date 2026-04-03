@@ -96,7 +96,7 @@ func main() {
 	)
 
 	// Handlers
-	authHandler := handlers.NewAuthHandler(iamService)
+	authHandler := handlers.NewAuthHandler(iamService, cfg.PublicWebURL)
 	userHandler := handlers.NewUserHandler(iamService)
 	mfaHandler := handlers.NewMFAHandler()
 	scimHandler := handlers.NewSCIMHandler()

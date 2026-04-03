@@ -24,7 +24,7 @@ export default function Shell({ children, title, crumbs }: ShellProps) {
         <header className="h-16 border-b border-border bg-card/50 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-20">
           <div className="flex items-center gap-4 text-[13px]">
             <div className="flex items-center gap-2 text-muted-foreground">
-              <span data-testid="page-title">OpenGuard</span>
+              <span data-testid="page-title">OpenGuard {title && `| ${title}`}</span>
               {crumbs?.map((crumb, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <ChevronRight className="w-3.5 h-3.5" />

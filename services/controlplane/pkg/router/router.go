@@ -33,6 +33,7 @@ type Config struct {
 	AuditAddr      string
 	AlertingAddr   string
 	ComplianceAddr string
+	PublicBaseURL  string
 }
 
 func New(cfg Config) (*chi.Mux, error) {
@@ -77,6 +78,22 @@ func New(cfg Config) (*chi.Mux, error) {
 	iamStripHandler := http.StripPrefix("/api/v1", iamProxy)
 
 	r.Group(func(r chi.Router) {
+		r.Get("/api/v1/auth/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"issuer":                                cfg.PublicBaseURL + "/api/v1/auth",
+				"authorization_endpoint":                cfg.PublicBaseURL + "/api/v1/auth/oidc/login",
+				"token_endpoint":                        cfg.PublicBaseURL + "/api/v1/auth/oidc/token",
+				"jwks_uri":                              cfg.PublicBaseURL + "/api/v1/auth/.well-known/jwks.json",
+				"response_types_supported":              []string{"code"},
+				"subject_types_supported":               []string{"public"},
+				"id_token_signing_alg_values_supported": []string{"HS256"},
+			})
+		})
+		r.Get("/api/v1/auth/.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"keys": []interface{}{}})
+		})
 		r.Handle("/api/v1/auth/*", iamStripHandler) // Public IAM routes
 	})
 

@@ -19,6 +19,7 @@ type ControlPlaneConfig struct {
 	PostgresDB   string
 	AppEnv       string
 	LogLevel     string
+	PublicBaseURL string
 }
 
 func (c *ControlPlaneConfig) PostgresDSN() string {
@@ -43,5 +44,6 @@ func Load() *ControlPlaneConfig {
 		PostgresDB:   sharedcfg.Default("POSTGRES_DB", "openguard"),
 		AppEnv:       sharedcfg.Default("APP_ENV", "development"),
 		LogLevel:     sharedcfg.Default("LOG_LEVEL", "info"),
+		PublicBaseURL: sharedcfg.Default("CONTROL_PLANE_PUBLIC_BASE_URL", "http://localhost:8080"),
 	}
 }

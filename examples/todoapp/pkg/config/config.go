@@ -18,6 +18,7 @@ type Config struct {
 	BatchSize         int
 	FlushIntervalMS   int
 	PolicyCacheSize   int
+	SkipTLSVerify     bool
 }
 
 func MustLoad() Config {
@@ -34,6 +35,7 @@ func MustLoad() Config {
 		BatchSize:       getEnvInt("SDK_EVENT_BATCH_SIZE", 100),
 		FlushIntervalMS: getEnvInt("SDK_EVENT_FLUSH_INTERVAL_MS", 2000),
 		PolicyCacheSize: getEnvInt("SDK_POLICY_CACHE_SIZE", 1000),
+		SkipTLSVerify:   getEnvBool("SKIP_TLS_VERIFY", false),
 	}
 }
 
@@ -48,6 +50,14 @@ func getEnvInt(key string, fallback int) int {
 	if value, ok := os.LookupEnv(key); ok {
 		if i, err := strconv.Atoi(value); err == nil {
 			return i
+		}
+	}
+	return fallback
+}
+func getEnvBool(key string, fallback bool) bool {
+	if value, ok := os.LookupEnv(key); ok {
+		if b, err := strconv.ParseBool(value); err == nil {
+			return b
 		}
 	}
 	return fallback

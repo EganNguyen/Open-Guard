@@ -13,8 +13,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-openguard}
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
-      IAM_JWT_KEYS_JSON: '[{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"active"}]'
+      IAM_JWT_KEYS_JSON: '[{"kid":"oidc-v1","secret":"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA3f9iH2Bv9xU0K+8889y3l2K26E+jD3uP2Y5G2xK5o3h9z71\nelo7fX1z6Kq9o2t0zL2Ew9z8e05h9z07x57U6S5r6pYj7K6r4Rjx7jUo5p7x1j\no5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x\n1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7\nx1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7\nx1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7\nx1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7\nx1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7\nx1jo5p7x1jo5p7x1jo5p7x1jo5p7x1jo5p7\n-----END RSA PRIVATE KEY-----","algorithm":"RS256","status":"active"},{"kid":"default","secret":"change-me-to-a-secure-32-byte-key!","algorithm":"HS256","status":"verify_only"}]'
       IAM_MFA_ENCRYPTION_KEYS_JSON: '[{"id":"v1","secret":"Y2hhbmdlLW1lLXRvLWEtc2VjdXJlLTMyLWJ5dGUta2V5IQ==","status":"active"}]'
+      IAM_PUBLIC_WEB_URL: http://localhost:3000
       APP_ENV: ${APP_ENV:-development}
       TLS_CERT_PATH: /app/certs/server.crt
 
@@ -133,6 +134,9 @@ services:
     container_name: openguard-web
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8080
+      AUTH_SECRET: change-me-to-a-secure-secret-for-nextauth
+      NEXTAUTH_URL: http://localhost:3000
+      API_INTERNAL_URL: http://openguard-controlplane:8080
     ports:
       - "3000:3000"
     depends_on:

@@ -21,13 +21,14 @@ func Auth(verifier TokenVerifier) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Real verification via OIDC provider (IAM)
 			idToken, err := verifier.VerifyToken(r.Context(), token)
 			if err != nil {
 				http.Error(w, "unauthorized: "+err.Error(), http.StatusUnauthorized)
 				return
 			}
-
-			// Extract claims
+			
+			// Extract claims from verified token
 			var claims struct {
 				Sub   string `json:"sub"`
 				OrgID string `json:"org_id"`

@@ -40,12 +40,21 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Redirect back to frontend with tokens in URL (or Set-Cookie)
-	// Spec says: "redirect with auth code ... exchange ... { access_token, refresh_token }"
-	url := h.frontendURL + "?access_token=" + token.AccessToken
-	if refreshToken, ok := token.Extra("refresh_token").(string); ok {
-		url += "&refresh_token=" + refreshToken
-	}
-	
-	http.Redirect(w, r, url, http.StatusFound)
+	// Set cookies instead of redirect with tokens in URL
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    token.AccessToken,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    token.Extra("refresh_token").(string),
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	http.Redirect(w, r, h.frontendURL, http.StatusFound)
 }

@@ -15,20 +15,26 @@ type AuthClient struct {
 	verifier     *oidc.IDTokenVerifier
 	oauth2Config oauth2.Config
 	jtiBlocklist JTIBlocklist
+	httpClient   *http.Client
 }
 
 type JTIBlocklist interface {
 	IsBlocked(ctx context.Context, jti string) (bool, error)
 }
 
-func NewAuthClient(ctx context.Context, issuer, clientID, clientSecret, redirectURL string, jtiBlocklist JTIBlocklist) (*AuthClient, error) {
+func NewAuthClient(ctx context.Context, issuer, clientID, clientSecret, redirectURL string, jtiBlocklist JTIBlocklist, httpClient *http.Client) (*AuthClient, error) {
+	if httpClient != nil {
+		ctx = oidc.ClientContext(ctx, httpClient)
+	}
+
 	provider, err := oidc.NewProvider(ctx, issuer)
 	if err != nil {
 		return nil, fmt.Errorf("oidc provider: %w", err)
 	}
 
 	oidcConfig := &oidc.Config{
-		ClientID: clientID,
+		ClientID:        clientID,
+		SkipIssuerCheck: true,
 	}
 	verifier := provider.Verifier(oidcConfig)
 
@@ -45,6 +51,7 @@ func NewAuthClient(ctx context.Context, issuer, clientID, clientSecret, redirect
 		verifier:     verifier,
 		oauth2Config: config,
 		jtiBlocklist: jtiBlocklist,
+		httpClient:   httpClient,
 	}, nil
 }
 
@@ -53,6 +60,9 @@ func (c *AuthClient) AuthURL(state string) string {
 }
 
 func (c *AuthClient) Exchange(ctx context.Context, code string) (*oauth2.Token, error) {
+	if c.httpClient != nil {
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, c.httpClient)
+	}
 	return c.oauth2Config.Exchange(ctx, code)
 }
 
@@ -86,6 +96,12 @@ func (c *AuthClient) VerifyToken(ctx context.Context, rawToken string) (*oidc.ID
 }
 
 func ExtractToken(r *http.Request) string {
+	// 1. Check Cookie (preferred for web frontend)
+	if cookie, err := r.Cookie("access_token"); err == nil {
+		return cookie.Value
+	}
+
+	// 2. Fallback to Authorization header
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		return ""

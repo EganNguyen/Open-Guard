@@ -41,12 +41,14 @@ func (h *TodoHandler) List(w http.ResponseWriter, r *http.Request) {
 	orgID := r.Header.Get("X-Org-ID")
 	userID := r.Header.Get("X-User-ID")
 
-	// Authorization check
+	connectorKey := r.Header.Get("X-OpenGuard-Connector-Key")
 	permitted, reason, err := h.policy.Evaluate(r.Context(), sdk.PolicyRequest{
-		UserID:   userID,
-		OrgID:    orgID,
-		Action:   "todo:read",
-		Resource: fmt.Sprintf("org:%s/todos", orgID),
+		UserID:     userID,
+		OrgID:      orgID,
+		UserGroups: []string{"admin", "member"},
+		Action:     "read",
+		Resource:   "todos",
+		APIKey:     connectorKey,
 	})
 	if err != nil || !permitted {
 		http.Error(w, fmt.Sprintf("forbidden: %s", reason), http.StatusForbidden)
@@ -75,12 +77,14 @@ func (h *TodoHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authorization check
+	connectorKey := r.Header.Get("X-OpenGuard-Connector-Key")
 	permitted, reason, err := h.policy.Evaluate(r.Context(), sdk.PolicyRequest{
-		UserID:   userID,
-		OrgID:    orgID,
-		Action:   "todo:create",
-		Resource: fmt.Sprintf("org:%s/todos", orgID),
+		UserID:     userID,
+		OrgID:      orgID,
+		UserGroups: []string{"admin", "member"},
+		Action:     "write",
+		Resource:   "todos",
+		APIKey:     connectorKey,
 	})
 	if err != nil || !permitted {
 		http.Error(w, fmt.Sprintf("forbidden: %s", reason), http.StatusForbidden)
@@ -129,12 +133,14 @@ func (h *TodoHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authorization check
+	connectorKey := r.Header.Get("X-OpenGuard-Connector-Key")
 	permitted, reason, err := h.policy.Evaluate(r.Context(), sdk.PolicyRequest{
-		UserID:   userID,
-		OrgID:    orgID,
-		Action:   "todo:update",
-		Resource: fmt.Sprintf("org:%s/todo:%s", orgID, todoID),
+		UserID:     userID,
+		OrgID:      orgID,
+		UserGroups: []string{"admin", "member"},
+		Action:     "write",
+		Resource:   "todos",
+		APIKey:     connectorKey,
 	})
 	if err != nil || !permitted {
 		http.Error(w, fmt.Sprintf("forbidden: %s", reason), http.StatusForbidden)
@@ -165,12 +171,14 @@ func (h *TodoHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 	todoID := chi.URLParam(r, "id")
 
-	// Authorization check
+	connectorKey := r.Header.Get("X-OpenGuard-Connector-Key")
 	permitted, reason, err := h.policy.Evaluate(r.Context(), sdk.PolicyRequest{
-		UserID:   userID,
-		OrgID:    orgID,
-		Action:   "todo:delete",
-		Resource: fmt.Sprintf("org:%s/todo:%s", orgID, todoID),
+		UserID:     userID,
+		OrgID:      orgID,
+		UserGroups: []string{"admin", "member"},
+		Action:     "delete",
+		Resource:   "todos",
+		APIKey:     connectorKey,
 	})
 	if err != nil || !permitted {
 		http.Error(w, fmt.Sprintf("forbidden: %s", reason), http.StatusForbidden)

@@ -31,6 +31,9 @@ type IAMConfig struct {
 
 	// Kafka
 	KafkaBrokers string
+
+	// Public Web URL (for OIDC redirects)
+	PublicWebURL string
 }
 
 func Load() *IAMConfig {
@@ -61,6 +64,7 @@ func Load() *IAMConfig {
 		PostgresSSLMode:  sharedcfg.Default("POSTGRES_SSLMODE", "disable"),
 
 		KafkaBrokers: sharedcfg.Default("KAFKA_BROKERS", "localhost:9094"),
+		PublicWebURL: sharedcfg.Default("IAM_PUBLIC_WEB_URL", "http://localhost:3000"),
 	}
 }
 

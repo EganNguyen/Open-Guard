@@ -12,6 +12,9 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
   const registered = searchParams.get("registered");
+  const oidcClientId = searchParams.get("oidc_client_id");
+  const redirectUri = searchParams.get("redirect_uri");
+  const oidcState = searchParams.get("state");
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -33,6 +36,34 @@ function LoginContent() {
       if (result?.error) {
         setError("Invalid credentials. Access denied.");
       } else {
+        if (oidcClientId && redirectUri) {
+          // NEW: Call our real OIDC bridge to get a proper authorization code from IAM
+          try {
+            const authRes = await fetch("/api/oidc/authorize", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                client_id: oidcClientId,
+                redirect_uri: redirectUri,
+                state: oidcState,
+                scope: searchParams.get("scope") || "openid profile email",
+              }),
+            });
+
+            if (!authRes.ok) {
+              const { error: authError } = await authRes.json();
+              setError(`OIDC Authorization Error: ${authError}`);
+              return;
+            }
+
+            const { code } = await authRes.json();
+            window.location.href = `${redirectUri}?code=${code}&state=${oidcState}`;
+            return;
+          } catch (err) {
+            setError("Failed to complete OIDC handshake. Connection error.");
+            return;
+          }
+        }
         router.push(callbackUrl);
         router.refresh();
       }
