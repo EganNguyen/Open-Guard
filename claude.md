@@ -38,7 +38,7 @@ TanStack Query, Zustand, NextAuth.js v5, SSE for real-time data.
 
 | Task type | Skill file to read first |
 |---|---|
-| Any Go backend code (new service, handler, repository, outbox, migration) | `.claude/skills/openguard-golang-backend/SKILL.md` |
+| Any Go backend code (new service, handler, repository, outbox, migration) | `.claude/skills/openguard-golangbackend/SKILL.md` |
 | Any Next.js frontend code (component, page, hook, API route, middleware) | `.claude/skills/openguard-nextjs-frontend/SKILL.md` |
 | Both at once (e.g. a new feature end-to-end) | Read **both** skill files before writing anything |
 
@@ -304,7 +304,7 @@ openguard/
 ├── claude.md                          ← YOU ARE HERE
 ├── .claude/
 │   └── skills/
-│       ├── openguard-golang-backend/SKILL.md    ← read for ALL Go work
+│       ├── openguard-golangbackend/SKILL.md    ← read for ALL Go work
 │       └── openguard-nextjs-frontend/SKILL.md  ← read for ALL FE work
 ├── be_open_guard/                     ← Backend spec (22 files)
 │   ├── README.md                      ← BE doc index
