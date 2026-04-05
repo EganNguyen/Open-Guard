@@ -103,6 +103,12 @@ TanStack Query, Zustand, NextAuth.js v5, SSE for real-time data.
 | Full-system E2E acceptance checklist | `19-acceptance-criteria.md` |
 | Frontend trade-offs, out-of-scope features for v1 | `20-appendix-trade-offs.md` |
 
+### 2.3 Test Cases
+
+| Question / Task | Spec file |
+|---|---|
+| All test cases for phases 1–10 | `test_cases/test_cases.md` |
+
 ---
 
 ## 3. Development Phases — What to Build in Order
