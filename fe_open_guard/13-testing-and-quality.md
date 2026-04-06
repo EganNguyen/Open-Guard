@@ -7,7 +7,7 @@
 | Layer | Tool | Scope | Threshold |
 |---|---|---|---|
 | Unit (utils, validators, hooks) | Vitest | Pure functions, custom hooks | 80% coverage |
-| Component tests | Vitest + Testing Library | UI behavior, not implementation | 70% coverage |
+| Component tests | Vitest + Testing Library | UI behavior, not implementation | 80% coverage |
 | Integration (API client layer) | Vitest + MSW | Request/response contracts | 100% of API modules |
 | E2E (critical paths) | Playwright | Full user journeys | All flows in §13.5 |
 | Accessibility | axe-playwright | Every E2E page | 0 WCAG AA violations |
@@ -250,7 +250,7 @@ jobs:
 
   fe-test:
     run: npx vitest run --coverage
-    # Coverage gate: 70% statements per file
+    # Coverage gate: 80% statements per file
 
   fe-build:
     run: npm run build

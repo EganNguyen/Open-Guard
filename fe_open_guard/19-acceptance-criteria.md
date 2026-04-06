@@ -140,7 +140,7 @@ The frontend acceptance criteria mirror the 45-step BE scenario (BE spec §20) f
 - [ ] `npm run build` completes with zero TypeScript errors and zero Next.js warnings.
 - [ ] `npx tsc --noEmit` exits 0.
 - [ ] `npm run lint` exits 0 (ESLint + Prettier).
-- [ ] `npx vitest run --coverage` exits 0 with ≥ 70% coverage per package.
+- [ ] `npx vitest run --coverage` exits 0 with ≥ 80% coverage per package.
 - [ ] `npx playwright test` (all 11 critical path specs) passes in CI.
 - [ ] Lighthouse CI: Performance ≥ 85, Accessibility ≥ 95, on `/overview`, `/audit`, `/threats` pages.
 - [ ] `axe-playwright` reports 0 WCAG AA violations on all E2E page loads.

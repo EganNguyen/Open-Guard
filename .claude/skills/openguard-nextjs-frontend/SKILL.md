@@ -851,6 +851,7 @@ NEXT_PUBLIC_API_URL=https://api.openguard.example.com
 
 # Server-only (never exposed to browser)
 INTERNAL_API_URL=http://control-plane:8080      # direct internal URL
+INTERNAL_IAM_URL=http://iam:8081                # Used by NextAuth for server-side OIDC token exchange. Do not conflate with INTERNAL_API_URL.
 IAM_OIDC_ISSUER=https://iam.openguard.example.com
 IAM_OIDC_CLIENT_ID=dashboard
 IAM_OIDC_CLIENT_SECRET=<secret>

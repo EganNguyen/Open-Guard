@@ -278,11 +278,16 @@ func (s *Service) CreateUser(ctx context.Context, u *models.User) error {
         }
         // 3. Outbox record (same transaction)
         evt := kafka.EventEnvelope{
-            EventID:   uuid.NewString(),
-            EventType: "user.created",
-            OrgID:     u.OrgID,
-            ActorID:   u.ID,
-            Payload:   mustMarshal(u),
+            ID:          uuid.NewString(),
+            Type:        "user.created",
+            OrgID:       u.OrgID,
+            ActorID:     u.ID,
+            ActorType:   "user",
+            OccurredAt:  time.Now(),
+            Source:      "iam",
+            EventSource: "internal",
+            SchemaVer:   "1.0",
+            Payload:     mustMarshal(u),
         }
         return s.outboxWriter.WriteTx(ctx, tx, models.TopicUserEvents, u.ID, evt)
     })
@@ -315,18 +320,7 @@ const relayQuery = `
 
 ### 5.1 Kafka Envelope (canonical schema)
 
-```go
-// shared/kafka/envelope.go
-type EventEnvelope struct {
-    EventID       string          `json:"event_id"`        // UUID, idempotency key
-    EventType     string          `json:"event_type"`      // e.g. "user.created"
-    OrgID         string          `json:"org_id"`
-    ActorID       string          `json:"actor_id"`
-    Timestamp     time.Time       `json:"timestamp"`
-    SchemaVersion int             `json:"schema_version"`  // bump on breaking change
-    Payload       json.RawMessage `json:"payload"`
-}
-```
+> The canonical EventEnvelope is defined in be_open_guard/03-shared-contracts.md §4.1. Do not redefine it here.
 
 ### 5.2 Manual offset commit — non-negotiable
 
@@ -355,18 +349,7 @@ s.processMessage(ctx, msg)  // crash here = permanently lost message
 
 ### 5.3 Topic registry (canonical names — rename = major version bump)
 
-```go
-const (
-    TopicUserEvents      = "user.events"
-    TopicAuditTrail      = "audit.trail"
-    TopicSagaOrchestrate = "saga.orchestration"
-    TopicWebhookDelivery = "webhook.delivery"
-    TopicPolicyEvents    = "policy.events"
-    TopicThreatEvents    = "threat.events"
-    TopicAlertEvents     = "alert.events"
-    TopicDLPEvents       = "dlp.events"
-)
-```
+> The canonical Kafka Topic Registry is defined in be_open_guard/03-shared-contracts.md §4.4. Do not redefine it here.
 
 ### 5.4 Consumer group naming
 
@@ -376,7 +359,6 @@ openguard-audit-v1
 openguard-policy-v1
 openguard-threat-v1
 openguard-saga-v1
-openguard-relay-v1
 ```
 
 ---

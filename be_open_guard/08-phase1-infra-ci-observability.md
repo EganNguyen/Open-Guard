@@ -26,6 +26,8 @@ jobs:
   security-scan:  # govulncheck ./..., trivy --severity CRITICAL,HIGH, go mod verify
 ```
 
+*Note: Phase 1 uses raw CLI commands explicitly (e.g. `go test`, `golangci-lint`); the uniform `Makefile` wrapper targets are an output deliverable of Phase 2.*
+
 ---
 
 ## 9.3 Prometheus Metrics

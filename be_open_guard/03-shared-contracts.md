@@ -146,6 +146,7 @@ const (
     UserStatusSuspended          UserStatus = "suspended"
     UserStatusDeprovisioned      UserStatus = "deprovisioned"
     UserStatusProvisioningFailed UserStatus = "provisioning_failed"
+    UserStatusInitializing       UserStatus = "initializing"
 )
 ```
 

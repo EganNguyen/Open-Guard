@@ -19,6 +19,12 @@ All detectors consume from `TopicAuthEvents`, `TopicPolicyChanges`, or `TopicCon
 
 **Composite scoring:** `max(individual_scores)` weighted by recency. Score ≥ 0.5 → alert. Score ≥ 0.8 → HIGH. Score ≥ 0.95 → CRITICAL.
 
+### 13.1.1 GeoLite2 DB Acquisition
+The Impossible Travel detector requires the MaxMind GeoLite2 City database.
+- Obtain a free license key from maxmind.com
+- Provide the key via the `MAXMIND_LICENSE_KEY` environment variable.
+- Use the `make geo-db` target (which invokes `scripts/download-geolite2.sh`) to download and provision the `.mmdb` file for local, CI, and load test environments. 
+
 ---
 
 ## 13.2 Alert Lifecycle Saga
