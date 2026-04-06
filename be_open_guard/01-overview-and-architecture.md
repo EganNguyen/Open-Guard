@@ -61,6 +61,9 @@ These are hard targets. Phase 8 must verify each one with k6 load tests. A phase
 | **Exactly-once Kafka delivery** | Idempotent Kafka producer. Consumer commits offsets only after successful downstream write. |
 | **Cache-first connector auth** | Fast-hash prefix → Redis; PBKDF2 only on cache miss → DB. Sustains 20,000 req/s event ingest. |
 
+### 1.4 [System Design](system-design.md)
+
+
 ---
 
 ## 2. Architecture Principles
