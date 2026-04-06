@@ -1017,6 +1017,23 @@ The release pipeline must not publish until all 45 steps pass in a single CI run
 
 ---
 
+## Task Management App Integration Tests
+
+**Goal:** Verify end-to-end integration constraints between the Simple Task Management App and the OpenGuard centralized security control plane.
+
+### End-to-End Tests
+
+**E2E-TM-01 — Task Management end-to-end auth flow**  
+Launch the OpenGuard stack and the Task Management frontend/backend. Navigate to the Task Management frontend and initiate login. Assert redirection to OpenGuard OIDC. Authenticate using pre-seeded test credentials. Assert redirection back to the Task Application containing a valid JWT. Call the Task creation API with the JWT. Assert successful task creation corresponding to the authenticated user.
+
+**E2E-TM-02 — Task Management policy integration fail-closed**  
+With the user logged in, call the Task deletion API endpoint. Assert the Go backend evaluates the deletion policy via the OpenGuard SDK. Shut down the OpenGuard policy service. Wait for the local SDK cache to expire. Call the Task deletion API again. Assert the Go backend returns `403 Forbidden` demonstrating fail-closed behavior when policy evaluation fails.
+
+**E2E-TM-03 — Task Management audit ingestion**  
+Create, update, and delete different tasks via the Task Management application. Poll OpenGuard's `GET /audit/events` using an administrative API Key. Assert the presence of `task.created`, `task.updated`, and `task.deleted` audit events mapped correctly to the logged-in user's identity and showing the Task Management Backend as the source.
+
+---
+
 > **Claude Code reminder:** After implementing all tests through Phase 10, run the
 > full-system acceptance scenario end-to-end. All 45 steps must pass in a single
 > uninterrupted CI run before the system is considered production-ready. Record
