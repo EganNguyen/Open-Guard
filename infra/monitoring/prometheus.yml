@@ -1,0 +1,47 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'control-plane'
+    static_configs:
+      - targets: ['control-plane:8080']
+        
+  - job_name: 'iam'
+    static_configs:
+      - targets: ['iam:8080']
+
+  - job_name: 'policy'
+    static_configs:
+      - targets: ['policy:8080']
+
+  - job_name: 'threat'
+    static_configs:
+      - targets: ['threat:8080']
+
+  - job_name: 'audit'
+    static_configs:
+      - targets: ['audit:8080']
+
+  - job_name: 'alerting'
+    static_configs:
+      - targets: ['alerting:8080']
+
+  - job_name: 'webhook-delivery'
+    static_configs:
+      - targets: ['webhook-delivery:8080']
+
+  - job_name: 'compliance'
+    static_configs:
+      - targets: ['compliance:8080']
+
+  - job_name: 'dlp'
+    static_configs:
+      - targets: ['dlp:8080']
+
+  - job_name: 'connector-registry'
+    static_configs:
+      - targets: ['connector-registry:8080']
