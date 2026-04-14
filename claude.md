@@ -1,7 +1,7 @@
 # OpenGuard — Claude Code Master Index
 
 > **Purpose:** Central router for Claude Code. Read this file first on every task.
-> It tells you which spec document, skill, and rules apply to the work at hand.
+> It tells you which spec document, rule, and rules apply to the work at hand.
 > Never skip this file — it prevents contradictions between FE and BE and keeps
 > all generated code CI-compliant from the first commit.
 
@@ -34,16 +34,16 @@ TanStack Query, Zustand, NextAuth.js v5, SSE for real-time data.
 
 ---
 
-## 1. Skill Router — Read the Skill Before Writing Any Code
+## 1. Rule Router — Read the Rule Before Writing Any Code
 
-| Task type | Skill file to read first |
+| Task type | Rule file to read first |
 |---|---|
-| Any Go backend code (new service, handler, repository, outbox, migration) | `.claude/skills/openguard-golangbackend/SKILL.md` |
-| Any Next.js frontend code (component, page, hook, API route, middleware) | `.claude/skills/openguard-nextjs-frontend/SKILL.md` |
-| Both at once (e.g. a new feature end-to-end) | Read **both** skill files before writing anything |
+| Any Go backend code (new service, handler, repository, outbox, migration) | `.claude/rules/openguard-golangbackend/rules.md` |
+| Any Next.js frontend code (component, page, hook, API route, middleware) | `.claude/rules/openguard-nextjs-frontend/rules.md` |
+| Both at once (e.g. a new feature end-to-end) | Read **both** rule files before writing anything |
 
-> **Rule:** If Claude Code starts writing code without reading the relevant skill
-> file first, stop and read it. The skill files encode CI-enforced patterns —
+> **Rule:** If Claude Code starts writing code without reading the relevant rule
+> file first, stop and read it. The rule files encode CI-enforced patterns —
 > deviating from them blocks the PR.
 
 ---
@@ -285,7 +285,7 @@ migration of all consumers.**
 ```
 1. Read this file (claude.md) — you are here.
 2. Identify task type: Backend Go? Frontend Next.js? Both?
-3. Read the relevant SKILL.md file(s) from .claude/skills/.
+3. Read the relevant rules.md file(s) from .claude/rules/.
 4. Identify which spec file(s) answer the specific question (§2 above).
 5. Read those spec sections before writing any code.
 6. Apply the absolute rules (§4, §5) — treat them as pre-flight checks.
@@ -303,9 +303,9 @@ migration of all consumers.**
 openguard/
 ├── claude.md                          ← YOU ARE HERE
 ├── .claude/
-│   └── skills/
-│       ├── openguard-golangbackend/SKILL.md    ← read for ALL Go work
-│       └── openguard-nextjs-frontend/SKILL.md  ← read for ALL FE work
+│   └── rules/
+│       ├── openguard-golangbackend/rules.md    ← read for ALL Go work
+│       └── openguard-nextjs-frontend/rules.md  ← read for ALL FE work
 ├── be_open_guard/                     ← Backend spec (22 files)
 │   ├── README.md                      ← BE doc index
 │   └── 00-*.md … 21-*.md

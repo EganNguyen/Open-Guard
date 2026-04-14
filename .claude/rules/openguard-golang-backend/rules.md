@@ -1,7 +1,7 @@
 ---
 name: openguard-golang-backend
 description: >
-  Use this skill whenever writing, reviewing, or extending any Golang backend
+  Use this rule whenever writing, reviewing, or extending any Golang backend
   service in the OpenGuard project. Covers all mandatory patterns: Transactional
   Outbox, RLS-enforced multi-tenancy, Circuit Breakers, Kafka manual-commit
   consumers, bcrypt worker pool, JWT keyring, SCIM v2, mTLS, CQRS, and
@@ -9,7 +9,7 @@ description: >
 license: Internal — OpenGuard Engineering
 ---
 
-# OpenGuard — Golang Backend Skill
+# OpenGuard — Golang Backend Rule
 
 > Read §0–§4 of the BE spec before writing any service code.
 > Every code pattern here is canonical and CI-enforced.

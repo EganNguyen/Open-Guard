@@ -1,7 +1,7 @@
 ---
 name: openguard-nextjs-frontend
 description: >
-  Use this skill whenever writing, reviewing, or extending any Next.js frontend
+  Use this rule whenever writing, reviewing, or extending any Next.js frontend
   code in the OpenGuard Admin Dashboard (web/). Covers all mandatory patterns:
   App Router RSC-first architecture, typed API client layer, TanStack Query for
   server state, Zustand for UI state, NextAuth.js v5 OIDC + MFA gate, SSE
@@ -11,7 +11,7 @@ description: >
 license: Internal — OpenGuard Engineering
 ---
 
-# OpenGuard — Next.js Frontend Skill
+# OpenGuard — Next.js Frontend Rule
 
 > Read files 00–03 of the FE spec before any feature work.
 > Every pattern here is canonical and CI-enforced.
