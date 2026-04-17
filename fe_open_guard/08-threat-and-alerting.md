@@ -40,7 +40,7 @@ Each badge is a filter shortcut.
 
 **Cursor-based pagination** (newest first).
 
-**Real-time new alerts:** SSE stream `/api/stream/threats` prepends new alerts with a subtle slide-in animation. Badge count in the sidebar increments.
+**Real-time new alerts:** `SseService` connects to `/v1/threats/stream` and prepends new alerts to a Signal-based buffer with a subtle slide-in animation. The badge count in the sidebar increments automatically via a shared `ThreatStore` service.
 
 ---
 
@@ -61,9 +61,8 @@ Status: OPEN
 [Acknowledge]  [Resolve]
 ```
 
-### Risk score gauge
-
-```tsx
+```typescript
+// src/app/features/threats/risk-gauge/risk-gauge.component.ts
 // Circular gauge showing risk score 0.0–1.0
 // Color: ≥0.95=critical, ≥0.80=high, ≥0.50=medium, <0.50=low
 // Score breakdown table:
@@ -75,17 +74,17 @@ Status: OPEN
 
 ### Saga Timeline
 
-Visualizes the alert lifecycle saga steps (BE spec §13.2):
+Visualizes the alert lifecycle saga steps using a vertical stepper component.
 
-```tsx
-// components/domain/alert-saga-timeline.tsx
+```typescript
+// src/app/features/threats/saga-timeline/saga-timeline.component.ts
 //
 // Step 1: Alert created        ✅  14:23:07
 // Step 2: Notification queued  ✅  14:23:08
 // Step 3: SIEM webhook fired   ✅  14:23:09  HTTP 200, 142ms
 // Step 4: Audit event written  ✅  14:23:09
 //
-// Status icons: ✅ completed | ⏳ in-progress (spinner) | ❌ failed | ○ pending
+// Status icons: completed | in-progress (spinner) | failed | pending
 // Failed steps show error detail expandable.
 ```
 

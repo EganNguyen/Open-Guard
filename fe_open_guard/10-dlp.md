@@ -100,15 +100,11 @@ Rules section:
 
 **Mode toggle — block mode warning:**
 
-```tsx
+```typescript
 // When switching from Monitor → Block, show ConfirmDialog:
+// [ConfirmDialogComponent properties]:
 // Title: "Enable block mode?"
-// Description:
-//   "Block mode will synchronously scan every incoming event and reject those
-//    matching this policy. This adds up to 30ms of latency to event ingestion.
-//    If the DLP service is unavailable, events will be rejected to protect data.
-//    Make sure you have at least 3 DLP pods running before enabling."
-// [Cancel]  [Enable block mode]
+// Description: "Block mode will synchronously scan every incoming event..."
 ```
 
 **Form submission:**

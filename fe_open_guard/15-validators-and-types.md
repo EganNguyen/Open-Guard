@@ -1,13 +1,13 @@
 # §15 — Zod Validators & TypeScript Types
 
-All domain types and form validators live in `lib/validators/` and `types/`. They are the frontend's single source of truth for data shapes — derived from the BE's `shared/models` package (BE spec §4).
+All domain types and form validators live in `src/app/core/models/` and `src/app/core/validators/`. They are the frontend's single source of truth for data shapes.
 
 ---
 
 ## 15.1 Domain Model Types
 
 ```ts
-// types/models.ts
+// src/app/core/models/models.ts
 // These types mirror the Go structs in shared/models/*.go (BE spec §4).
 // When the BE shared module has a breaking change (major version bump),
 // these types MUST be updated in the same PR.
@@ -247,7 +247,7 @@ export interface OutboxStats {
 ## 15.2 API Response Types
 
 ```ts
-// types/api.ts
+// src/app/core/models/api.ts
 import type {
   User, Connector, Policy, AuditEvent, ThreatAlert,
   ComplianceReport, DLPFinding, DLPPolicy, WebhookDelivery
@@ -369,7 +369,7 @@ export interface SystemStatus {
 ## 15.3 Zod Form Validators
 
 ```ts
-// lib/validators/connector.ts
+// src/app/core/validators/connector.validator.ts
 import { z } from 'zod'
 
 const CONNECTOR_SCOPES = [
@@ -506,7 +506,7 @@ export type EvaluateRequest = z.infer<typeof evaluateRequestSchema>
 ## 15.4 SSE Event Types
 
 ```ts
-// types/events.ts
+// src/app/core/models/events.ts
 // Shapes of EventEnvelope payloads received via SSE streams.
 // These match the BE's models.EventEnvelope (BE spec §4.1).
 
@@ -546,8 +546,7 @@ export interface SSEMessage<T> {
 ## 15.5 Type Guards
 
 ```ts
-// lib/utils/type-guards.ts
-import type { APIErrorBody } from '@/types/api'
+import type { APIErrorBody } from '../models/api';
 
 export function isAPIError(value: unknown): value is { error: APIErrorBody } {
   return (

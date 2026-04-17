@@ -66,22 +66,21 @@ fontFamily: {
 }
 ```
 
-**Load via `next/font/google`:**
+**Load via standard CSS or Angular CLI `styles.css`:**
 
-```tsx
-// app/layout.tsx
-import { JetBrains_Mono, IBM_Plex_Sans } from 'next/font/google'
+```css
+/* src/styles.css */
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/700.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
 
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  variable: '--font-display',
-  weight: ['400', '500', '700'],
-})
-const ibmPlexSans = IBM_Plex_Sans({
-  subsets: ['latin'],
-  variable: '--font-body',
-  weight: ['400', '500', '600'],
-})
+:root {
+  --font-display: "JetBrains Mono", monospace;
+  --font-body: "IBM Plex Sans", sans-serif;
+}
 ```
 
 **Type scale (Tailwind classes only — no arbitrary values):**
@@ -116,34 +115,29 @@ Use Tailwind's default 4px base. All internal padding/margin uses the scale; no 
 
 ## 1.4 Core UI Primitives (`components/ui/`)
 
-These are Radix UI primitives styled to the OpenGuard design language. Each is a standalone file.
+These are Angular components styled to the OpenGuard design language. Each is a standalone component.
 
 ### Button
 
-```tsx
-// components/ui/button.tsx
+```typescript
+// src/app/ui/button/button.ts
+// Selector: button[og-button], a[og-button]
 // Variants: 'default' | 'destructive' | 'outline' | 'ghost' | 'link'
 // Sizes: 'sm' | 'md' | 'lg' | 'icon'
 //
-// 'default'     → accent background, dark text
-// 'destructive' → danger background
-// 'outline'     → border only, no background fill
-// 'ghost'       → no border, hover fill
-//
-// Loading state: accepts `loading` prop → shows spinner, disables interaction
-// All buttons use a 150ms transition on background-color and box-shadow.
+// Loading state: [loading]="true" → shows spinner, disables interaction
 ```
 
 ### Badge
 
-```tsx
-// components/ui/badge.tsx
+```typescript
+// src/app/ui/badge/badge.ts
+// Selector: og-badge
 // Variants: 'success' | 'warning' | 'danger' | 'critical' | 'info' | 'muted'
-// Used for: connector status, user status, alert severity, policy version
 //
-// Renders: colored dot + label in monospace uppercase
-// <Badge variant="danger">SUSPENDED</Badge>
-// <Badge variant="critical">CRITICAL</Badge>
+// Usage:
+// <og-badge variant="danger">SUSPENDED</og-badge>
+// <og-badge variant="critical">CRITICAL</og-badge>
 ```
 
 ### StatusDot
@@ -232,28 +226,27 @@ These are Radix UI primitives styled to the OpenGuard design language. Each is a
 
 ---
 
-## 1.5 Motion System
+All animation uses Angular Animations. Use sparingly — only for interactions that carry meaningful state transitions.
 
-All animation uses Framer Motion. Use sparingly — only for interactions that carry meaningful state transitions.
+```typescript
+// src/app/shared/animations.ts — shared animation triggers
 
-```tsx
-// lib/motion.ts — shared animation variants
+export const fadeIn = trigger('fadeIn', [
+  transition(':enter', [
+    style({ opacity: 0 }),
+    animate('150ms', style({ opacity: 1 }))
+  ]),
+  transition(':leave', [
+    animate('100ms', style({ opacity: 0 }))
+  ])
+]);
 
-export const fadeIn = {
-  initial: { opacity: 0 },
-  animate: { opacity: 1, transition: { duration: 0.15 } },
-  exit:    { opacity: 0, transition: { duration: 0.1 } },
-}
-
-export const slideUp = {
-  initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.2, ease: 'easeOut' } },
-  exit:    { opacity: 0, y: 8, transition: { duration: 0.1 } },
-}
-
-export const staggerChildren = {
-  animate: { transition: { staggerChildren: 0.05 } },
-}
+export const slideUp = trigger('slideUp', [
+  transition(':enter', [
+    style({ opacity: 0, transform: 'translateY(8px)' }),
+    animate('200ms ease-out', style({ opacity: 1, transform: 'translateY(0)' }))
+  ])
+]);
 ```
 
 **Permitted uses:**
@@ -272,22 +265,25 @@ export const staggerChildren = {
 
 ## 1.6 Iconography
 
-Use Lucide React exclusively. All icons rendered via a typed wrapper:
+Use Lucide Angular exclusively. All icons rendered via the `lucide-angular` library or a custom wrapper:
 
-```tsx
-// components/ui/icon.tsx
-import { LucideIcon } from 'lucide-react'
+```typescript
+// src/app/ui/icon/icon.ts
+import { Component, Input } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 
-interface IconProps {
-  icon: LucideIcon
-  size?: 'sm' | 'md' | 'lg'
-  className?: string
-}
+@Component({
+  selector: 'og-icon',
+  standalone: true,
+  imports: [LucideAngularModule],
+  template: `<i-lucide [name]="name" [size]="sizeMap[size]" [class]="className" [strokeWidth]="1.5"></i-lucide>`
+})
+export class IconComponent {
+  @Input() name!: string;
+  @Input() size: 'sm' | 'md' | 'lg' = 'md';
+  @Input() className = '';
 
-const sizes = { sm: 14, md: 16, lg: 20 }
-
-export function Icon({ icon: LIcon, size = 'md', className }: IconProps) {
-  return <LIcon size={sizes[size]} className={className} strokeWidth={1.5} />
+  sizeMap = { sm: 14, md: 16, lg: 20 };
 }
 ```
 

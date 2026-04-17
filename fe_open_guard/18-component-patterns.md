@@ -8,65 +8,48 @@ Canonical patterns for building the most complex and reused component types in t
 
 The pattern for all paginated list pages (connectors, users, policies, etc.):
 
-```tsx
-// components/data/paginated-table.tsx — generic wrapper
-'use client'
+```typescript
+// src/app/shared/components/paginated-table/paginated-table.ts
+import { Component, Input, signal, inject, effect } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 
-import { useQuery } from '@tanstack/react-query'
-import { useSearchParams, useRouter, usePathname } from 'next/navigation'
-import { DataTable } from '@/components/data/data-table'
-import { PaginationControls } from '@/components/data/pagination-controls'
-import type { ColumnDef } from '@tanstack/react-table'
-import type { OffsetPage } from '@/lib/api/pagination'
+@Component({
+  selector: 'og-paginated-table',
+  templateUrl: './paginated-table.html'
+})
+export class PaginatedTableComponent<T> {
+  @Input() queryKey!: string;
+  @Input() fetcher!: (page: number) => Observable<OffsetPage<T>>;
+  @Input() columns!: ColumnDef<T>[];
 
-interface PaginatedTableProps<T> {
-  queryKey:    unknown[]
-  fetcher:     (page: number) => Promise<OffsetPage<T>>
-  columns:     ColumnDef<T>[]
-  emptyMessage?: string
-}
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  
+  data = signal<OffsetPage<T> | null>(null);
+  isLoading = signal(false);
 
-export function PaginatedTable<T extends { id: string }>({
-  queryKey, fetcher, columns, emptyMessage,
-}: PaginatedTableProps<T>) {
-  const searchParams = useSearchParams()
-  const router = useRouter()
-  const pathname = usePathname()
-  const page = Number(searchParams.get('page') ?? '1')
-
-  const { data, isLoading, isError } = useQuery({
-    queryKey: [...queryKey, page],
-    queryFn:  () => fetcher(page),
-  })
-
-  function setPage(p: number) {
-    const params = new URLSearchParams(searchParams.toString())
-    params.set('page', String(p))
-    router.push(`${pathname}?${params.toString()}`)
+  constructor() {
+    effect(() => {
+      const page = this.route.snapshot.queryParams['page'] ?? 1;
+      this.loadData(page);
+    });
   }
 
-  if (isError) {
-    return <div className="text-og-danger text-sm p-4">Failed to load data. Please refresh.</div>
+  loadData(page: number) {
+    this.isLoading.set(true);
+    this.fetcher(page).subscribe(res => {
+      this.data.set(res);
+      this.isLoading.set(false);
+    });
   }
 
-  return (
-    <div className="space-y-4">
-      <DataTable
-        columns={columns}
-        data={data?.data ?? []}
-        isLoading={isLoading}
-        emptyMessage={emptyMessage}
-      />
-      {data && (
-        <PaginationControls
-          page={data.meta.page}
-          totalPages={data.meta.total_pages}
-          total={data.meta.total}
-          onPageChange={setPage}
-        />
-      )}
-    </div>
-  )
+  setPage(page: number) {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { page },
+      queryParamsHandling: 'merge'
+    });
+  }
 }
 ```
 
@@ -125,49 +108,36 @@ export function CursorTable<T extends { id: string }>({
 
 ## 18.2 Real-Time SSE Table (Audit Stream)
 
-```tsx
-// app/(dashboard)/audit/page.tsx (client section)
-'use client'
+```typescript
+// src/app/features/audit/audit-stream.ts
+import { Component, signal, inject, OnInit, OnDestroy } from '@angular/core';
+import { SseService } from '@/app/core/sse/sse.service';
+import { UiService } from '@/app/core/state/ui.service';
 
-import { useState, useCallback } from 'react'
-import { useSSE } from '@/lib/hooks/use-sse'
-import { useUIStore } from '@/lib/store/ui'
-import type { SSEAuditEvent } from '@/types/events'
-import { auditColumns } from './columns'
-import { DataTable } from '@/components/data/data-table'
+@Component({
+  selector: 'og-audit-stream',
+  templateUrl: './audit-stream.html'
+})
+export class AuditStreamComponent implements OnInit, OnDestroy {
+  private sse = inject(SseService);
+  private ui = inject(UiService);
+  
+  events = signal<SSEAuditEvent[]>([]);
+  private disconnect?: () => void;
 
-const MAX_LIVE_EVENTS = 200
+  ngOnInit() {
+    this.disconnect = this.sse.connect('/api/stream/audit', (event) => {
+      this.events.update(prev => [event, ...prev].slice(0, 200));
+    });
+  }
 
-export function AuditStreamTable() {
-  const [events, setEvents] = useState<SSEAuditEvent[]>([])
-  const paused = useUIStore(s => s.auditStreamPaused)
+  ngOnDestroy() {
+    this.disconnect?.();
+  }
 
-  const handleMessage = useCallback((event: SSEAuditEvent) => {
-    setEvents(prev => {
-      const next = [event, ...prev]
-      // Cap buffer at 200 — newest N retained (FIFO eviction of oldest)
-      return next.slice(0, MAX_LIVE_EVENTS)
-    })
-  }, [])
-
-  const { connected } = useSSE<SSEAuditEvent>({
-    url:       '/api/stream/audit',
-    onMessage: handleMessage,
-    enabled:   !paused,
-  })
-
-  return (
-    <div>
-      <StreamStatusBar connected={connected} paused={paused} eventCount={events.length} />
-      <DataTable
-        columns={auditColumns}
-        data={events}
-        isLoading={false}
-        emptyMessage={paused ? 'Stream paused. Apply filters to view historical events.' : 'Waiting for events…'}
-        onRowClick={(row) => useUIStore.getState().openDrawer('audit', row.id)}
-      />
-    </div>
-  )
+  handleRowClick(id: string) {
+    this.ui.openDrawer('audit', id);
+  }
 }
 ```
 
@@ -175,81 +145,37 @@ export function AuditStreamTable() {
 
 ## 18.3 Optimistic Status Toggle
 
-Used for connector suspend/activate, DLP policy enable/disable — all status toggles that need immediate UI feedback:
+Used for connector suspend/activate, DLP policy enable/disable:
 
-```tsx
-// components/domain/status-toggle.tsx
-'use client'
-
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useConfirm } from '@/lib/hooks/use-confirm'
-import { toast } from '@/lib/store/notification'
-import type { Connector } from '@/types/models'
-import type { OffsetPage } from '@/lib/api/pagination'
-
-interface ConnectorStatusToggleProps {
-  connector: Connector
-  queryKey:  unknown[]
-}
-
-export function ConnectorStatusToggle({ connector, queryKey }: ConnectorStatusToggleProps) {
-  const qc = useQueryClient()
-  const confirm = useConfirm()
-
-  const toggle = useMutation({
-    mutationFn: async () => {
-      if (connector.status === 'active') {
-        return connectorsApi.suspend(connector.org_id, connector.id)
-      }
-      return connectorsApi.activate(connector.org_id, connector.id)
-    },
-
-    onMutate: async () => {
-      await qc.cancelQueries({ queryKey })
-      const prev = qc.getQueryData<OffsetPage<Connector>>(queryKey)
-      // Optimistic update — flip status immediately
-      qc.setQueryData(queryKey, (old: OffsetPage<Connector>) => ({
-        ...old,
-        data: old.data.map(c =>
-          c.id === connector.id
-            ? { ...c, status: connector.status === 'active' ? 'suspended' : 'active' }
-            : c
-        ),
-      }))
-      return { prev }
-    },
-
-    onError: (_err, _vars, ctx) => {
-      qc.setQueryData(queryKey, ctx?.prev)
-      toast.error(`Failed to ${connector.status === 'active' ? 'suspend' : 'activate'} connector`)
-    },
-
-    onSettled: () => qc.invalidateQueries({ queryKey }),
-  })
-
-  const handleToggle = async () => {
-    if (connector.status === 'active') {
-      const ok = await confirm({
-        title:        `Suspend ${connector.name}?`,
-        description:  'This connector will immediately lose API access. Cached auth tokens will be invalidated within 30 seconds.',
-        confirmLabel: 'Suspend',
-        variant:      'destructive',
-        requireTyped: connector.name,
-      })
-      if (!ok) return
-    }
-    toggle.mutate()
-  }
-
-  return (
-    <button
-      onClick={handleToggle}
-      disabled={toggle.isPending}
-      className={connector.status === 'active' ? 'text-og-danger' : 'text-og-success'}
-    >
-      {connector.status === 'active' ? 'Suspend' : 'Activate'}
+```typescript
+// src/app/features/connectors/status-toggle.ts
+@Component({
+  selector: 'og-status-toggle',
+  template: `
+    <button (click)="handleToggle()" [disabled]="isPending()">
+      {{ status() === 'active' ? 'Suspend' : 'Activate' }}
     </button>
-  )
+  `
+})
+export class StatusToggleComponent {
+  connector = input.required<Connector>();
+  isPending = signal(false);
+
+  async handleToggle() {
+    if (this.connector().status === 'active') {
+      const ok = await this.ui.confirm({ ... });
+      if (!ok) return;
+    }
+
+    this.isPending.set(true);
+    this.service.toggleStatus(this.connector().id).subscribe({
+      next: () => this.isPending.set(false),
+      error: () => {
+        this.isPending.set(false);
+        this.toast.error('Failed to toggle status');
+      }
+    });
+  }
 }
 ```
 

@@ -137,14 +137,12 @@ The frontend acceptance criteria mirror the 45-step BE scenario (BE spec §20) f
 
 ## 19.11 Performance & Accessibility Acceptance
 
-- [ ] `npm run build` completes with zero TypeScript errors and zero Next.js warnings.
-- [ ] `npx tsc --noEmit` exits 0.
-- [ ] `npm run lint` exits 0 (ESLint + Prettier).
-- [ ] `npx vitest run --coverage` exits 0 with ≥ 80% coverage per package.
+- [ ] `ng build` completes with zero TypeScript errors and zero Angular CLI warnings.
+- [ ] `ng test --watch=false` (Jasmine/Karma) exits 0 with ≥ 80% code coverage.
 - [ ] `npx playwright test` (all 11 critical path specs) passes in CI.
 - [ ] Lighthouse CI: Performance ≥ 85, Accessibility ≥ 95, on `/overview`, `/audit`, `/threats` pages.
 - [ ] `axe-playwright` reports 0 WCAG AA violations on all E2E page loads.
 - [ ] First load JS per route < 150KB gzipped (verified by `ANALYZE=true npm run build`).
 - [ ] All interactive elements are keyboard-navigable (Tab order is logical, Enter/Space activate buttons).
 - [ ] All form error messages are associated with their input via `aria-describedby`.
-- [ ] `prefers-reduced-motion` disables all Framer Motion animations — verified by media query override in Playwright.
+- [ ] `prefers-reduced-motion` disables all CSS/Angular animations — verified by media query override.

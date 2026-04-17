@@ -77,25 +77,25 @@ Scope descriptions rendered from a static map. Dangerous scopes (scim:write) sho
 
 Summary of name, webhook URL, scopes. "Create connector" button.
 
-```tsx
+```typescript
 // On submit:
-// 1. Generate idempotencyKey (useState, initialized once)
+// 1. Generate idempotencyKey (Signal, initialized once)
 // 2. POST /v1/admin/connectors → { connector, api_key_plaintext }
 // 3. Navigate to the API key reveal screen
 ```
 
 ### API Key Reveal Screen
 
-This is the most security-critical UI in the entire dashboard (mirrors BE spec §2.6: "one-time; never stored"):
+This is the most security-critical UI in the entire dashboard:
 
-```tsx
-// app/(dashboard)/connectors/[id]/key-reveal.tsx
-// Shown immediately after connector creation — NOT on subsequent visits.
-// The plaintext key is passed via route state (not URL, not localStorage).
+```typescript
+// src/app/features/connectors/key-reveal/key-reveal.component.ts
+// Shown immediately after connector creation.
+// The plaintext key is passed via router state (not URL, not localStorage).
 
 // UI:
 //   ┌─────────────────────────────────────────────────────┐
-//   │  ⚠️  Save this API key — it won't be shown again    │
+2: //   │  ⚠️  Save this API key — it won't be shown again    │
 //   │                                                     │
 //   │  sk_og_[MASKED — click to reveal]    [👁] [Copy]   │
 //   │                                                     │
@@ -104,10 +104,9 @@ This is the most security-critical UI in the entire dashboard (mirrors BE spec �
 //   │  [ I've saved the key securely ]  ← must click     │
 //   └─────────────────────────────────────────────────────┘
 //
-// The key is hidden by default (asterisks). "Reveal" button shows it once.
-// The "I've saved the key securely" button is the only way to proceed.
-// Navigating away without clicking it shows a browser beforeunload warning.
-// The plaintext key is NEVER stored in React state beyond this screen.
+// The key is hidden by default. "Reveal" button shows it once.
+// Navigating away without acknowledging shows a browser 'beforeunload' warning.
+// The plaintext key is NEVER stored in Signal state beyond this screen.
 ```
 
 ---

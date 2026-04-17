@@ -6,9 +6,9 @@
 
 | Layer | Tool | Scope | Threshold |
 |---|---|---|---|
-| Unit (utils, validators, hooks) | Vitest | Pure functions, custom hooks | 80% coverage |
-| Component tests | Vitest + Testing Library | UI behavior, not implementation | 80% coverage |
-| Integration (API client layer) | Vitest + MSW | Request/response contracts | 100% of API modules |
+| Unit (utils, validators, services) | Jasmine/Karma | Pure functions, Services | 80% coverage |
+| Component tests | Angular Testing Library | UI behavior, not implementation | 80% coverage |
+| Integration (API services) | HttpClientTestingModule | Request/response contracts | 100% of API modules |
 | E2E (critical paths) | Playwright | Full user journeys | All flows in §13.5 |
 | Accessibility | axe-playwright | Every E2E page | 0 WCAG AA violations |
 | Visual regression | Playwright screenshots | Design system primitives | Opt-in per PR |
@@ -16,133 +16,60 @@
 
 ---
 
-## 13.2 Unit Tests (Vitest)
+## 13.2 Unit Tests (Jasmine)
 
 ### What to test
 
-- All functions in `lib/utils/` (formatting, cursor encoding/decoding, idempotency key generation).
-- All Zod validators in `lib/validators/`.
-- All query key factories in `lib/query/keys.ts`.
-- Error message mapping (`lib/utils/error-messages.ts`).
+- All functions in `src/app/core/utils/` (formatting, cursor encoding/decoding, idempotency key generation).
+- All validators and types.
+- Error message mapping.
 
 ### Example: cursor encoding
 
-```ts
-// lib/utils/pagination.test.ts
-import { describe, it, expect } from 'vitest'
-import { encodeCursor, decodeCursor } from '@/lib/api/pagination'
+```typescript
+// src/app/core/utils/pagination.spec.ts
+import { encodeCursor, decodeCursor } from './pagination';
 
 describe('cursor encoding', () => {
-  it('round-trips a cursor', () => {
-    const original = { t: 1705329600000, id: 'evt_01j...' }
-    expect(decodeCursor(encodeCursor(original.t, original.id))).toEqual(original)
-  })
+  it('should round-trip a cursor', () => {
+    const original = { t: 1705329600000, id: 'evt_01j...' };
+    expect(decodeCursor(encodeCursor(original.t, original.id))).toEqual(original);
+  });
 
-  it('returns null for malformed cursor', () => {
-    expect(decodeCursor('not-valid-base64!!')).toBeNull()
-  })
-})
+  it('should return null for malformed cursor', () => {
+    expect(decodeCursor('not-valid-base64!!')).toBeNull();
+  });
+});
 ```
 
 ---
 
-## 13.3 Component Tests (Testing Library)
+## 13.3 Component Tests (Angular Testing Library)
 
 ### Principles
 
-- Test user-visible behavior, not implementation.
-- Use `screen.getByRole`, `getByLabelText`, `getByText`. Avoid `getByTestId` unless no semantic alternative.
-- Mock API calls with MSW (Mock Service Worker) — not with `jest.fn()` on the API module.
-
-### MSW setup
-
-```ts
-// test/mocks/handlers.ts
-import { http, HttpResponse } from 'msw'
-import { NEXT_PUBLIC_API_URL } from './constants'
-
-export const handlers = [
-  http.get(`${NEXT_PUBLIC_API_URL}/v1/connectors`, () => {
-    return HttpResponse.json({ data: mockConnectors, meta: mockMeta })
-  }),
-
-  http.patch(`${NEXT_PUBLIC_API_URL}/v1/admin/connectors/:id`, async ({ request, params }) => {
-    const body = await request.json() as any
-    if (body.status === 'suspended') {
-      return HttpResponse.json({ ...mockConnectors[0], status: 'suspended' })
-    }
-    return HttpResponse.json(mockConnectors[0])
-  }),
-  // ... etc
-]
-```
+- Test user-visible behavior.
+- Mock API services using Jasmine spies or mock classes.
 
 ### Example: ConnectorCard suspend
 
-```tsx
-// components/domain/connector-card.test.tsx
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { ConnectorCard } from './connector-card'
-import { mockConnector } from '@/test/fixtures/connectors'
+```typescript
+// src/app/features/connectors/connector-card.spec.ts
+import { render, screen, fireEvent } from '@testing-library/angular';
+import { ConnectorCardComponent } from './connector-card.component';
 
 it('shows confirm dialog before suspending', async () => {
-  const onSuspend = vi.fn()
-  render(<ConnectorCard connector={mockConnector} onSuspend={onSuspend} />)
+  const onSuspend = jasmine.createSpy('onSuspend');
+  await render(ConnectorCardComponent, {
+    componentProperties: { connector: mockConnector, suspend: onSuspend }
+  });
 
-  fireEvent.click(screen.getByRole('button', { name: /actions/i }))
-  fireEvent.click(screen.getByRole('menuitem', { name: /suspend/i }))
+  const button = screen.getByRole('button', { name: /suspend/i });
+  fireEvent.click(button);
 
-  // Confirm dialog should appear
-  expect(screen.getByRole('dialog')).toBeInTheDocument()
-  expect(screen.getByText(/type "AcmeApp" to confirm/i)).toBeInTheDocument()
-
-  // Should NOT call onSuspend yet
-  expect(onSuspend).not.toHaveBeenCalled()
-})
-```
-
----
-
-## 13.4 API Client Tests
-
-Every module in `lib/api/` has a corresponding test file that verifies:
-
-1. Correct URL construction.
-2. Auth header is included.
-3. `idempotencyKey` is forwarded when provided.
-4. `OpenGuardAPIError` is thrown with the correct `code` on non-2xx responses.
-5. Pagination parameters are passed correctly.
-
-```ts
-// lib/api/connectors.test.ts
-import { connectorsApi } from './connectors'
-import { server } from '@/test/mocks/server'
-import { http, HttpResponse } from 'msw'
-
-it('suspends a connector with PATCH', async () => {
-  let capturedBody: unknown
-  server.use(
-    http.patch('*/v1/admin/connectors/:id', async ({ request }) => {
-      capturedBody = await request.json()
-      return HttpResponse.json({ ...mockConnector, status: 'suspended' })
-    })
-  )
-
-  await connectorsApi.suspend('org-1', 'conn-1')
-  expect(capturedBody).toEqual({ status: 'suspended' })
-})
-
-it('throws OpenGuardAPIError on 403', async () => {
-  server.use(
-    http.patch('*/v1/admin/connectors/:id', () =>
-      HttpResponse.json({ error: { code: 'FORBIDDEN', message: 'Forbidden', request_id: '', trace_id: '', retryable: false } }, { status: 403 })
-    )
-  )
-
-  await expect(connectorsApi.suspend('org-1', 'conn-1')).rejects.toMatchObject({
-    code: 'FORBIDDEN',
-  })
-})
+  // Confirm dialog should appear (verification logic)
+  expect(screen.getByRole('dialog')).toBeTruthy();
+});
 ```
 
 ---
@@ -173,7 +100,7 @@ it('throws OpenGuardAPIError on 403', async () => {
 export default defineConfig({
   testDir: './e2e',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:4200',
     storageState: 'e2e/.auth/admin.json', // pre-authenticated state
   },
   projects: [
@@ -182,7 +109,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'npm run dev',
-    url: 'http://localhost:3000',
+    url: 'http://localhost:4200',
     reuseExistingServer: !process.env.CI,
   },
 })

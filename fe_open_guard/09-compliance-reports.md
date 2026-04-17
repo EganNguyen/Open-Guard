@@ -100,47 +100,33 @@ Route: /compliance/reports
 
 **Status polling:**
 
-```tsx
-// useQuery for each in-progress job:
-// refetchInterval: (query) => {
-//   const status = query.state.data?.status
-//   return (status === 'pending' || status === 'processing') ? 3000 : false
-// }
+```typescript
+// src/app/features/compliance/reports/report-list.component.ts
+// The component subscribes to the report progress signal.
+// Polling is handled within the ComplianceService using RxJS timer and switchMap.
 //
 // Status transitions: pending → processing → completed | failed
 //
-// On completion: toast.success('GDPR report ready', {
-//   action: { label: 'Download', onClick: () => downloadReport(jobId) }
-// })
+// On completion, a notification is dispatched to the GlobalNotificationService.
 ```
 
 **Download flow:**
 
-```tsx
-// "Download" action calls GET /v1/compliance/reports/:id/download
-// Returns a pre-signed S3 URL (TTL: 1 hour per BE spec §14.3)
-// Opens URL in new tab (browser triggers PDF download)
-// Does NOT go through apiFetch — streamed binary
+```typescript
+// "Download" action calls ComplianceService.getReportDownloadUrl(id)
+// Returns a pre-signed S3 URL.
+// Browser navigation to URL triggers PDF download.
 ```
 
 ---
 
-## 9.4 PDF Preview Panel
+### PDF Preview Panel
 
-```
-Accessible from report detail page → "Preview" button
-```
+An embedded PDF viewer using the browser's native `<iframe>` or a specialized PDF viewer component.
 
-An embedded PDF viewer using the browser's native `<iframe>` + `<embed>` with the pre-signed S3 URL:
-
-```tsx
-// components/domain/pdf-preview.tsx
-// Shows only when report.status === 'completed'
-//
-// The preview URL expires in 1 hour (pre-signed S3).
-// If the URL has expired (detected by iframe load error):
-// auto-refresh the URL via GET /v1/compliance/reports/:id
-// and retry the preview.
+```typescript
+// src/app/features/compliance/reports/preview/pdf-preview.component.ts
+// The preview URL is managed as a signal and refreshed if expiration is detected.
 ```
 
 ---

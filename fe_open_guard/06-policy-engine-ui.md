@@ -43,9 +43,8 @@ Each policy contains one or more rules. A rule is:
 IF  [Subject]  [Action]  [Resource]  →  [Effect: Allow | Deny]
 ```
 
-```tsx
-// components/domain/policy-rule-builder.tsx
-// "use client"
+```typescript
+// src/app/features/policies/rule-builder/rule-builder.component.ts
 //
 // Subject options:  role, user_id, group, "*" (anyone)
 // Action options:   read, write, delete, execute, "*"
@@ -53,12 +52,12 @@ IF  [Subject]  [Action]  [Resource]  →  [Effect: Allow | Deny]
 // Effect:           Allow (default) | Deny
 //
 // Multiple rules in a policy are evaluated top-to-bottom (explicit deny wins).
-// UI shows rules as a vertical list of cards, each with drag-to-reorder handle.
+// UI shows rules using Angular CDK Drag and Drop for reordering.
 ```
 
 **Add rule button** → inserts a new empty rule card at the bottom.
 
-**Drag to reorder:** Uses `@dnd-kit/core` for accessible keyboard-navigable drag and drop.
+**Drag to reorder:** Uses `@angular/cdk/drag-drop` for accessible keyboard-navigable drag and drop.
 
 ### Policy form
 
@@ -99,19 +98,19 @@ Context         expandable JSON editor (key-value pairs)
 ```
 
 **Result panel (right):**
-```tsx
+```typescript
 // After "Evaluate" button press:
 //
-// Permitted: ✅ YES   (green)  or  ❌ NO   (red)
+// Permitted: YES (green) or NO (red)
 //
 // Matched policies:
 //   └ [Policy Name] (v2)  → Rule 1: Allow
 //
-// Cache layer: "DB" | "Redis" | "SDK"  (from cache_hit field)
+// Cache layer: "DB" | "Redis" | "SDK" (from cache_hit field)
 // Latency: 4ms
 // Evaluated at: [ISO timestamp]
 //
-// Raw response: expandable JSON block
+// Raw response: expandable JSON block (using a JSON highlighting component)
 ```
 
 **Cache hit indicator colors:**
@@ -169,11 +168,11 @@ This helps operators understand if cache TTL adjustments are needed.
 
 When the policy service circuit breaker is open (detected via system health or a `503 UPSTREAM_UNAVAILABLE` response):
 
-```tsx
+```typescript
 // Display a non-dismissible warning banner on the Policies section:
 // "⚡ Policy service is degraded. The SDK is serving cached decisions
 //  (up to 60s TTL). After TTL expiry, all evaluations will be denied.
 //  Check System Health for details."
 ```
 
-The banner is driven by `useQuery` on `/admin/system/status` — not by intercepting API errors per page.
+The banner is driven by the `SystemService` health signal.

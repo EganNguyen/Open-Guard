@@ -12,9 +12,10 @@ Route: /admin/system
 
 **Service status grid:**
 
-```tsx
+```typescript
+// src/app/features/admin/system-health/service-card/service-card.component.ts
 // One status card per service, 3-column grid
-// Data from GET /admin/system/status (aggregates health check results)
+// Data from SystemService health signal (aggregates health check results)
 //
 // Card layout:
 // ┌───────────────────────────────┐
@@ -24,7 +25,7 @@ Route: /admin/system
 // │ Last check: 8s ago            │
 // └───────────────────────────────┘
 //
-// Status colors: HEALTHY=green, DEGRADED=amber (some checks failing), DOWN=red
+// Status colors: HEALTHY=green, DEGRADED=amber, DOWN=red
 //
 // Services shown:
 // IAM, Control Plane, Policy, Threat, Audit, Alerting,
@@ -40,24 +41,12 @@ Route: /admin/system
 
 ## 12.2 Circuit Breaker Status Panel
 
-```tsx
-// components/domain/circuit-breaker-panel.tsx
+```typescript
+// src/app/features/admin/system-health/circuit-breaker-panel/circuit-breaker-panel.component.ts
 //
 // Shows current state of all circuit breakers (from openguard_circuit_breaker_state metric)
 //
-// Circuit breakers:
-//   cb-policy     CLOSED   ● (green)    consecutive_failures: 0
-//   cb-iam        CLOSED   ● (green)    consecutive_failures: 0
-//   cb-dlp        CLOSED   ● (green)    consecutive_failures: 0
-//   cb-audit      OPEN     ● (red, animated)  opened: 2 minutes ago
-//                          → "Policy evaluations will deny after SDK cache TTL expires."
-//
 // State colors: CLOSED=green | HALF_OPEN=amber (pulse) | OPEN=red (pulse)
-// Numeric state: 0=closed, 1=half-open, 2=open (per BE spec §9.3)
-//
-// When OPEN: show the impact description (from BE spec §8.3 failure mode table):
-//   cb-policy OPEN → "SDK uses cached decisions. After 60s TTL: all evaluations denied."
-//   cb-iam OPEN    → "All login attempts are being rejected (503)."
 ```
 
 ---
@@ -133,15 +122,12 @@ The DLQ inspector (matches BE spec §10.5 CLI tool, but as a UI):
 | Actions | Replay / Discard |
 
 **Replay action:**
-```tsx
-// "Replay" → ConfirmDialog:
-// "Replay this message to [target_topic]?
-//  This will re-publish the message to the Kafka topic.
-//  The consumer must be idempotent (event_id dedup) to handle this safely."
-// [Cancel]  [Replay]
+```typescript
+// src/app/features/admin/dlq/dlq-inspector.component.ts
 //
-// Calls POST /admin/dlq/:topic/:id/replay
-// On success: message removed from DLQ table.
+// "Replay" → ConfirmDialogComponent:
+// "Replay this message to [target_topic]?"
+// Calls AdminApiService.replayDlqMessage(topic, id)
 ```
 
 **Webhook DLQ table:** Similar structure. Replay re-queues the delivery attempt.

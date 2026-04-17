@@ -1,47 +1,48 @@
-# §14 — Environment Variables & Next.js Configuration
+# §14 — Environment & Angular Configuration
 
-Mirrors BE spec §5 (Environment & Configuration). All environment variables the frontend requires are defined here. The `next.config.js` enforces security headers and CSP.
+In Angular, configuration is managed via `src/environments/environment.ts` (build-time) or a runtime config service.
 
 ---
 
-## 14.1 Environment Variables
+## 14.1 Environment Configuration
 
-```dotenv
-# ── Public (exposed to browser via NEXT_PUBLIC_ prefix) ──────────────
-# Base URL for the control plane — used by the browser for API calls
-NEXT_PUBLIC_API_URL=http://localhost:8080
+```typescript
+// src/environments/environment.ts
+export const environment = {
+  production: false,
+  apiUrl: 'http://localhost:8080',
+  appUrl: 'http://localhost:4200',
+  iamIssuer: 'http://localhost:8081',
+  iamClientId: 'openguard-dashboard',
+  
+  features: {
+    dlpBlockMode: true,
+    webauthn: true,
+    scim: true
+  }
+};
+```
 
-# Auth
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+### Runtime Configuration (Preferred for Production)
 
-# Feature flags (safe to expose)
-NEXT_PUBLIC_DLP_BLOCK_MODE_ENABLED=true
-NEXT_PUBLIC_WEBAUTHN_ENABLED=true
-NEXT_PUBLIC_SCIM_ENABLED=true
+For production, we use a `config.json` fetched at startup to avoid re-building for different environments.
 
-# ── Server-only (never prefixed with NEXT_PUBLIC_) ────────────────────
-# Internal API URL — used by Next.js server-side (RSCs, route handlers)
-# Points directly to the control plane inside the cluster (bypasses public ingress)
-INTERNAL_API_URL=http://control-plane:8080
+```typescript
+// src/app/core/config/config.service.ts
+@Injectable({ providedIn: 'root' })
+export class ConfigService {
+  private config = signal<AppConfig | null>(null);
 
-# Internal IAM URL — used by NextAuth.js server-side for OIDC flows
-INTERNAL_IAM_URL=http://iam:8081
+  loadConfig() {
+    return this.http.get<AppConfig>('/assets/config.json').pipe(
+      tap(cfg => this.config.set(cfg))
+    );
+  }
 
-# NextAuth.js
-NEXTAUTH_URL=http://localhost:3000
-NEXTAUTH_SECRET=change-me-32-bytes-min
-
-# OIDC (IAM service)
-IAM_OIDC_ISSUER=http://iam:8081
-IAM_OIDC_CLIENT_ID=openguard-dashboard
-IAM_OIDC_CLIENT_SECRET=change-me
-
-# Observability
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
-
-# ── Development only ─────────────────────────────────────────────────
-# Disable HTTPS check on webhook URLs in dev
-NEXT_PUBLIC_DEV_MODE=false
+  get<K extends keyof AppConfig>(key: K): AppConfig[K] {
+    return this.config()![key];
+  }
+}
 ```
 
 ### Validation at startup
@@ -72,133 +73,49 @@ const clientEnvSchema = z.object({
 
 // Server-side validation (runs in Node.js process)
 export const serverEnv = serverEnvSchema.parse(process.env)
-
-// Client-side validation (runs in browser — only NEXT_PUBLIC_ vars)
-export const clientEnv = clientEnvSchema.parse({
-  NEXT_PUBLIC_API_URL:  process.env.NEXT_PUBLIC_API_URL,
-  NEXT_PUBLIC_APP_URL:  process.env.NEXT_PUBLIC_APP_URL,
-})
 ```
 
 ---
 
-## 14.2 `next.config.js`
+## 14.2 `angular.json` & Proxy
 
-```js
-// next.config.js
-const { INTERNAL_API_URL, INTERNAL_IAM_URL } = process.env
+In development, we use `proxy.conf.json` to route API calls to the local backend.
 
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  // ── Security headers ────────────────────────────────────────────────
-  // Applied to every response (matches BE spec §15.1 HTTP security headers)
-  async headers() {
-    return [
-      {
-        source: '/(.*)',
-        headers: [
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=63072000; includeSubDomains; preload',
-          },
-          {
-            key: 'X-Content-Type-Options',
-            value: 'nosniff',
-          },
-          {
-            key: 'X-Frame-Options',
-            value: 'DENY',
-          },
-          {
-            key: 'Referrer-Policy',
-            value: 'no-referrer',
-          },
-          {
-            // CSP: no inline scripts. All scripts must be from same origin or CDN.
-            // 'nonce' is injected per-request by the middleware for RSC script tags.
-            key: 'Content-Security-Policy',
-            value: [
-              "default-src 'self'",
-              "script-src 'self' 'nonce-{nonce}'",
-              "style-src 'self' 'unsafe-inline'",    // Tailwind requires this
-              "img-src 'self' data: blob:",
-              "font-src 'self' https://fonts.gstatic.com",
-              "connect-src 'self' https://fonts.googleapis.com",
-              "frame-ancestors 'none'",
-              "form-action 'self'",
-            ].join('; '),
-          },
-          {
-            key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=()',
-          },
-        ],
-      },
-    ]
-  },
-
-  // ── Rewrites: proxy API calls through Next.js in development ───────
-  // In production, requests go directly to NEXT_PUBLIC_API_URL from the browser.
-  // In development, this avoids CORS issues when running locally.
-  async rewrites() {
-    if (process.env.NODE_ENV !== 'development') return []
-    return [
-      {
-        source: '/api/proxy/:path*',
-        destination: `${INTERNAL_API_URL}/:path*`,
-      },
-    ]
-  },
-
-  // ── Image domains ───────────────────────────────────────────────────
-  images: {
-    domains: [], // no external image domains — all avatars are initials-based
-  },
-
-  // ── Bundle analysis ─────────────────────────────────────────────────
-  // Run: ANALYZE=true npm run build
-  ...(process.env.ANALYZE === 'true' && {
-    webpack(config) {
-      const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer')
-      config.plugins.push(new BundleAnalyzerPlugin({ analyzerMode: 'static' }))
-      return config
-    },
-  }),
-
-  // ── TypeScript strict ───────────────────────────────────────────────
-  typescript: {
-    ignoreBuildErrors: false,
-  },
-
-  // ── ESLint ──────────────────────────────────────────────────────────
-  eslint: {
-    ignoreDuringBuilds: false,
-  },
-
-  // ── Experimental ────────────────────────────────────────────────────
-  experimental: {
-    // Server Actions are used for form submissions that need server-side logic
-    serverActions: { allowedOrigins: [process.env.NEXTAUTH_URL ?? 'http://localhost:3000'] },
-  },
+```json
+// proxy.conf.json
+{
+  "/v1": {
+    "target": "http://localhost:8080",
+    "secure": false,
+    "changeOrigin": true
+  }
 }
+```
 
-module.exports = nextConfig
+### Security Headers (SSR)
+
+If using Angular SSR, security headers are configured in the Node.js server wrapper (`server.ts`).
+
+```typescript
+// server.ts
+server.get('*', (req, res, next) => {
+  res.setHeader('Strict-Transport-Security', 'max-age=63072000');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; ...");
+  next();
+});
 ```
 
 ---
 
 ## 14.3 Tailwind Configuration
 
-```ts
+```typescript
 // tailwind.config.ts
-import type { Config } from 'tailwindcss'
-import { fontFamily } from 'tailwindcss/defaultTheme'
-
-const config: Config = {
+export default {
   content: [
-    './app/**/*.{ts,tsx}',
-    './components/**/*.{ts,tsx}',
-    './lib/**/*.{ts,tsx}',
+    "./src/**/*.{html,ts}",
   ],
   darkMode: 'class',  // OpenGuard is always dark; class="dark" set on <html>
   theme: {
@@ -266,32 +183,18 @@ export default config
 
 ## 14.4 `tsconfig.json`
 
+Angular projects use a standard `tsconfig.json` with strict mode enabled.
+
 ```json
 {
   "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": false,
-    "skipLibCheck": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "plugins": [{ "name": "next" }],
-    "paths": {
-      "@/*": ["./*"]
-    }
-  },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+    "target": "ES2022"
+  }
 }
 ```
 

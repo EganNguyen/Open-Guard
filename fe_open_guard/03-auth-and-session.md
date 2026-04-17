@@ -4,111 +4,89 @@ Mirrors the IAM service (BE spec §10.3). All auth is OIDC-based, with TOTP and 
 
 ---
 
-## 3.1 NextAuth.js v5 Configuration
+## 3.1 Angular Auth Service (OIDC)
 
-```ts
-// lib/auth/config.ts
-import NextAuth from 'next-auth'
-import type { NextAuthConfig } from 'next-auth'
+In Angular, we use a custom `AuthService` (often wrapping `angular-auth-oidc-client` or similar) to manage the OIDC flow, tokens, and session state.
 
-export const config: NextAuthConfig = {
-  providers: [
-    {
-      id: 'openguard-iam',
-      name: 'OpenGuard IAM',
-      type: 'oidc',
-      issuer: process.env.IAM_OIDC_ISSUER,
-      clientId: process.env.IAM_OIDC_CLIENT_ID,
-      clientSecret: process.env.IAM_OIDC_CLIENT_SECRET,
-      authorization: {
-        params: {
-          scope: 'openid email profile',
-          // PKCE is required per BE spec §10.3.8 OIDC Security Requirements
-          code_challenge_method: 'S256',
-        },
-      },
-    },
-  ],
+```typescript
+// src/app/core/auth/auth.service.ts
+import { Injectable, signal, computed } from '@angular/core';
 
-  callbacks: {
-    // Attach access_token and org_id to the session
-    async jwt({ token, account, profile }) {
-      if (account?.access_token) {
-        token.accessToken = account.access_token
-        token.refreshToken = account.refresh_token
-        token.accessTokenExpires = account.expires_at
-        token.orgId = (profile as any)?.org_id
-        token.mfaRequired = (profile as any)?.mfa_required ?? false
-        token.mfaVerified = false
-      }
-      // Proactive token refresh (BE spec: IAM_JWT_EXPIRY_SECONDS=900)
-      if (Date.now() < (token.accessTokenExpires as number) * 1000 - 60_000) {
-        return token
-      }
-      return refreshAccessToken(token)
-    },
-
-    async session({ session, token }) {
-      session.accessToken = token.accessToken as string
-      session.orgId = token.orgId as string
-      session.mfaRequired = token.mfaRequired as boolean
-      session.mfaVerified = token.mfaVerified as boolean
-      session.error = token.error as string | undefined
-      return session
-    },
-
-    // Guard: if MFA is required but not yet verified, redirect to /mfa
-    authorized({ auth, request }) {
-      const isAuthPage = request.nextUrl.pathname.startsWith('/(auth)')
-      if (!auth) return isAuthPage ? true : Response.redirect(new URL('/login', request.nextUrl))
-      if (auth.mfaRequired && !auth.mfaVerified && !isAuthPage) {
-        return Response.redirect(new URL('/mfa/totp', request.nextUrl))
-      }
-      return true
-    },
-  },
-
-  pages: {
-    signIn: '/login',
-    error:  '/login',
-  },
-
-  session: { strategy: 'jwt' },
+export interface AuthSession {
+  accessToken: string;
+  orgId: string;
+  mfaRequired: boolean;
+  mfaVerified: boolean;
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth(config)
+@Injectable({ providedIn: 'root' })
+export class AuthService {
+  // Signals for reactive session state
+  readonly session = signal<AuthSession | null>(null);
+  readonly isAuthenticated = computed(() => !!this.session());
+  readonly accessToken = computed(() => this.session()?.accessToken);
+  readonly orgId = computed(() => this.session()?.orgId);
+
+  login() {
+    // Initiate OIDC PKCE redirect flow
+  }
+
+  handleCallback() {
+    // Exchange code for tokens, update session signal
+  }
+
+  logout() {
+    this.session.set(null);
+    // Call revocation endpoint, redirect to login
+  }
+}
 ```
 
-### Token refresh
+### Auth Guard
 
-```ts
-// lib/auth/refresh.ts
-async function refreshAccessToken(token: JWT): Promise<JWT> {
-  try {
-    const res = await fetch(`${process.env.IAM_OIDC_ISSUER}/oauth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: token.refreshToken as string,
-        client_id: process.env.IAM_OIDC_CLIENT_ID!,
-      }),
-    })
+Angular Guards protect routes based on the session state.
 
-    if (!res.ok) throw new Error('RefreshFailed')
+```typescript
+// src/app/core/auth/auth.guard.ts
+import { inject } from '@angular/core';
+import { Router } from '@angular/router';
+import { AuthService } from './auth.service';
 
-    const data = await res.json()
-    return {
-      ...token,
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token ?? token.refreshToken,
-      accessTokenExpires: Math.floor(Date.now() / 1000) + data.expires_in,
-      error: undefined,
-    }
-  } catch {
-    // On refresh failure — mark session as expired; middleware redirects to /login
-    return { ...token, error: 'RefreshAccessTokenError' }
+export const authGuard = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+
+  if (!auth.isAuthenticated()) {
+    return router.parseUrl('/login');
   }
+
+  const session = auth.session();
+  if (session?.mfaRequired && !session?.mfaVerified) {
+    return router.parseUrl('/mfa/totp');
+  }
+
+  return true;
+};
+```
+
+### Token Refresh
+
+Refresh is handled within the `AuthService` or via an `HttpInterceptor`.
+
+```typescript
+// src/app/core/auth/auth.service.ts (continued)
+private refreshToken() {
+  return this.http.post(`${environment.iamIssuer}/oauth/token`, {
+    grant_type: 'refresh_token',
+    refresh_token: this.currentRefreshToken,
+    client_id: environment.iamClientId
+  }).pipe(
+    tap(data => this.updateSession(data)),
+    catchError(() => {
+      this.logout();
+      return EMPTY;
+    })
+  );
 }
 ```
 
@@ -189,18 +167,15 @@ Route: /mfa/webauthn  (app/(auth)/mfa/webauthn/page.tsx)
 
 ---
 
-## 3.5 useOrg Hook
+## 3.5 useOrg Replacement
 
-```ts
-// lib/hooks/use-org.ts
-import { useSession } from 'next-auth/react'
+In Angular, components inject the `AuthService` and use its `orgId` signal.
 
-export function useOrg(): { orgId: string; isLoading: boolean } {
-  const { data: session, status } = useSession()
-  return {
-    orgId: session?.orgId ?? '',
-    isLoading: status === 'loading',
-  }
+```typescript
+// src/app/features/dashboard/dashboard.component.ts
+export class DashboardComponent {
+  private auth = inject(AuthService);
+  orgId = this.auth.orgId; // Computed Signal
 }
 ```
 

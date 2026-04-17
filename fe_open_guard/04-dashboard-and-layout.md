@@ -4,30 +4,32 @@
 
 ## 4.1 App Shell
 
-```
-app/(dashboard)/layout.tsx
-```
+In Angular, the App Shell is a standalone component that wraps the main `router-outlet`. Access control is handled via the `authGuard`.
 
-The app shell renders for all authenticated, MFA-verified users. It is a **Server Component** that fetches the current org and user from the session. The sidebar and topbar are Client Components (interactive elements).
+```typescript
+// src/app/layout/app-shell/app-shell.component.ts
+import { Component, inject } from '@angular/core';
+import { RouterOutlet } from '@angular/router';
+import { SidebarComponent } from '../sidebar/sidebar-component';
+import { TopbarComponent } from '../topbar/topbar-component';
 
-```tsx
-// app/(dashboard)/layout.tsx
-import { auth } from '@/lib/auth'
-import { redirect } from 'next/navigation'
-import { AppShell } from '@/components/layout/app-shell'
-
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const session = await auth()
-
-  if (!session) redirect('/login')
-  if (session.mfaRequired && !session.mfaVerified) redirect('/mfa/totp')
-
-  return (
-    <AppShell orgId={session.orgId} user={session.user}>
-      {children}
-    </AppShell>
-  )
-}
+@Component({
+  selector: 'og-app-shell',
+  standalone: true,
+  imports: [RouterOutlet, SidebarComponent, TopbarComponent],
+  template: `
+    <div class="flex h-screen overflow-hidden">
+      <og-sidebar />
+      <div class="relative flex flex-1 flex-col overflow-y-auto overflow-x-hidden">
+        <og-topbar />
+        <main class="mx-auto max-w-screen-2xl p-4 md:p-6 2xl:p-10">
+          <router-outlet />
+        </main>
+      </div>
+    </div>
+  `
+})
+export class AppShellComponent {}
 ```
 
 **AppShell structure:**
@@ -110,12 +112,9 @@ ADMIN  ← only if user has admin role
 
 ## 4.4 Global Search
 
-```tsx
-// components/layout/global-search.tsx
-// "use client"
-// Radix UI Command (cmdk pattern)
-// Keyboard shortcut: ⌘K opens command palette
-```
+A command palette component. Uses keyboard shortcut `⌘K` to open.
+
+**Implementation:** A standalone Angular component that uses a debounced (300ms) input signal to trigger search across multiple services.
 
 **Search scopes:**
 - Users (by email, display name)
@@ -184,53 +183,35 @@ For users with admin access to multiple organizations (super-admins only):
 
 ## 4.7 Breadcrumbs
 
-```tsx
-// components/layout/breadcrumbs.tsx
-// Auto-generated from usePathname() + route segment config.
-// Each segment maps to a label via a static route map:
-const ROUTE_LABELS: Record<string, string> = {
-  'connectors':  'Connectors',
-  'new':         'New',
-  'deliveries':  'Delivery Log',
-  'policies':    'Policies',
-  'playground':  'Evaluate Playground',
-  'audit':       'Audit Log',
-  'exports':     'Exports',
-  'threats':     'Threats & Alerts',
-  'compliance':  'Compliance',
-  'reports':     'Reports',
-  'dlp':         'DLP',
-  'users':       'Users',
-  'org':         'Organization',
-  'settings':    'Settings',
-  'admin':       'Admin',
-  'system':      'System Health',
+The `<Breadcrumbs />` component subscribes to `Router` events to extract segment labels from the route configuration.
+
+```typescript
+// src/app/layout/breadcrumbs/breadcrumbs.component.ts
+export class BreadcrumbsComponent {
+  private router = inject(Router);
+  private route = inject(ActivatedRoute);
+
+  breadcrumbs = signal<string[]>([]);
+
+  // Subscription logic to extract breadcrumbs from nested ActivatedRoute
 }
-// Dynamic segments ([id]) resolve to the resource name via useQuery.
-// E.g. /connectors/abc-123 → "Connectors / AcmeApp"
-// Shows skeleton placeholder while the name query loads.
 ```
 
 ---
 
-## 4.8 Error Boundary
+## 4.8 Error Handling
 
-```tsx
-// app/error.tsx  (Next.js global error boundary)
-'use client'
+Angular handles global errors via an `ErrorHandler` provider.
 
-export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen gap-6 p-8">
-      <div className="font-display text-og-danger text-lg">Something went wrong</div>
-      <p className="text-og-text-secondary text-sm max-w-md text-center">{error.message}</p>
-      {error.digest && (
-        <p className="font-mono text-xs text-og-text-muted">Error ID: {error.digest}</p>
-      )}
-      <button onClick={reset} className="...">Try again</button>
-    </div>
-  )
+```typescript
+// src/app/core/errors/global-error-handler.ts
+import { ErrorHandler, Injectable } from '@angular/core';
+
+@Injectable()
+export class GlobalErrorHandler implements ErrorHandler {
+  handleError(error: any): void {
+    console.error('Global Error:', error);
+    // Surface to UI via NotificationService or redirect to 500
+  }
 }
 ```
-
-**Per-section error boundaries:** Each major page section (`<Suspense>` boundary) wraps in an `<ErrorBoundary>` that shows a section-level error state (not a full page takeover). This allows the rest of the dashboard to remain functional when one data source fails.

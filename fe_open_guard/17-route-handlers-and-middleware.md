@@ -1,222 +1,95 @@
-# §17 — Route Handlers & Middleware
+# §17 — Guards & Interceptors
 
-Next.js route handlers serve two purposes: proxying SSE streams from the backend (so auth tokens stay server-side), and providing thin API shims where the frontend needs to aggregate or transform BE responses.
+In Angular, we use **Guards** for navigation control and **Interceptors** for request-level logic (auth, headers, error normalization).
 
 ---
 
-## 17.1 Middleware
+## 17.1 Navigation Guards
 
-```ts
-// middleware.ts
-// Runs on every request before it reaches a page or route handler.
-// Responsibilities:
-//   1. Auth guard — redirect unauthenticated users to /login
-//   2. MFA guard — redirect un-verified MFA users to /mfa/totp or /mfa/webauthn
-//   3. Session refresh — detect expired tokens and trigger refresh before page load
-//   4. CSP nonce injection — per-request nonce for script-src
+```typescript
+// src/app/core/auth/auth.guard.ts
+import { inject } from '@angular/core';
+import { Router, CanActivateFn } from '@angular/router';
+import { AuthService } from './auth.service';
 
-import { auth } from '@/lib/auth/config'
-import { NextResponse, type NextRequest } from 'next/server'
+export const authGuard: CanActivateFn = (route, state) => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
 
-const PUBLIC_PATHS = ['/login', '/api/auth', '/_next', '/favicon.ico']
-
-export default auth(async function middleware(req: NextRequest & { auth?: any }) {
-  const pathname = req.nextUrl.pathname
-  const isPublic = PUBLIC_PATHS.some(p => pathname.startsWith(p))
-
-  if (isPublic) return NextResponse.next()
-
-  const session = req.auth
-
-  // 1. Not authenticated → /login
-  if (!session) {
-    return NextResponse.redirect(new URL(`/login?callbackUrl=${encodeURIComponent(pathname)}`, req.url))
+  // 1. Not authenticated -> /login
+  if (!auth.isAuthenticated()) {
+    return router.parseUrl(`/login?returnUrl=${encodeURIComponent(state.url)}`);
   }
 
-  // 2. Session error (e.g. refresh token expired) → /login
-  if (session.error === 'RefreshAccessTokenError') {
-    return NextResponse.redirect(new URL('/login?reason=session_expired', req.url))
+  const session = auth.session();
+
+  // 2. Session error -> /login
+  if (session?.error === 'RefreshAccessTokenError') {
+    return router.parseUrl('/login?reason=session_expired');
   }
 
-  // 3. MFA required but not yet verified → /mfa
-  const isMFAPage = pathname.startsWith('/mfa')
-  if (session.mfaRequired && !session.mfaVerified && !isMFAPage) {
-    const mfaRoute = session.user?.mfaMethod === 'webauthn' ? '/mfa/webauthn' : '/mfa/totp'
-    return NextResponse.redirect(new URL(mfaRoute, req.url))
+  // 3. MFA required but not yet verified -> /mfa
+  if (session?.mfaRequired && !session?.mfaVerified && !state.url.startsWith('/mfa')) {
+    const mfaRoute = session.user?.mfaMethod === 'webauthn' ? '/mfa/webauthn' : '/mfa/totp';
+    return router.parseUrl(mfaRoute);
   }
 
-  // 4. Inject CSP nonce
-  const nonce = Buffer.from(crypto.randomUUID()).toString('base64')
-  const res = NextResponse.next({
-    request: {
-      headers: new Headers({ ...Object.fromEntries(req.headers), 'x-nonce': nonce }),
-    },
-  })
-  // Update CSP header with nonce (replaces {nonce} placeholder from next.config.js)
-  const csp = res.headers.get('Content-Security-Policy')
-  if (csp) {
-    res.headers.set('Content-Security-Policy', csp.replace('{nonce}', nonce))
-  }
-  return res
-})
-
-export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
-}
+  return true;
+};
 ```
 
----
+## 17.2 HTTP Interceptor
 
-## 17.2 SSE Route Handlers
+```typescript
+// src/app/core/api/api.interceptor.ts
+import { HttpInterceptorFn } from '@angular/common/http';
+import { inject } from '@angular/core';
+import { AuthService } from '../auth/auth.service';
 
-### Audit Stream
-
-```ts
-// app/api/stream/audit/route.ts
-// Proxies the audit event SSE stream from the audit service.
-// Auth token is added server-side — never exposed to the browser.
-
-import { auth } from '@/lib/auth/config'
-import { NextRequest } from 'next/server'
-
-export const runtime = 'nodejs'    // SSE requires Node.js runtime (not Edge)
-export const dynamic = 'force-dynamic'
-
-export async function GET(req: NextRequest) {
-  const session = await auth()
-
-  if (!session?.accessToken) {
-    return new Response('Unauthorized', { status: 401 })
-  }
-
-  // Forward org_id from session (not from URL params — security boundary)
-  const orgId = session.orgId
-
-  const upstream = await fetch(
-    `${process.env.INTERNAL_API_URL}/audit/stream?org_id=${orgId}`,
-    {
-      headers: {
-        Authorization:  `Bearer ${session.accessToken}`,
-        Accept:         'text/event-stream',
-        'Cache-Control': 'no-cache',
-      },
-      // AbortController tied to request lifecycle
-      signal: req.signal,
+export const apiInterceptor: HttpInterceptorFn = (req, next) => {
+  const auth = inject(AuthService);
+  
+  const apiReq = req.clone({
+    setHeaders: {
+      Authorization: `Bearer ${auth.accessToken()}`,
+      'X-Org-ID': auth.orgId() ?? '',
     }
-  )
+  });
 
-  if (!upstream.ok) {
-    return new Response(upstream.statusText, { status: upstream.status })
-  }
-
-  return new Response(upstream.body, {
-    headers: {
-      'Content-Type':  'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection:      'keep-alive',
-      'X-Accel-Buffering': 'no',    // disable nginx buffering (important for SSE)
-    },
-  })
-}
+  return next(apiReq);
+};
 ```
 
-### Threat Alert Stream
+---
 
-```ts
-// app/api/stream/threats/route.ts
-// Same pattern as audit stream — proxies the threat alerting SSE stream.
-// Forwards only new 'open' alerts (server-side filter).
+## 17.3 SSE Subscriptions (Direct to BE)
 
-export async function GET(req: NextRequest) {
-  const session = await auth()
-  if (!session?.accessToken) return new Response('Unauthorized', { status: 401 })
+In Angular, the `SseService` connects directly to the backend. To handle authentication (since `EventSource` doesn't support headers), we use a short-lived **SSE session token** or a query parameter pattern.
 
-  const upstream = await fetch(
-    `${process.env.INTERNAL_API_URL}/v1/threats/stream`,
-    {
-      headers: {
-        Authorization:  `Bearer ${session.accessToken}`,
-        Accept:         'text/event-stream',
-      },
-      signal: req.signal,
-    }
-  )
-
-  return new Response(upstream.body, {
-    headers: {
-      'Content-Type':  'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection:      'keep-alive',
-      'X-Accel-Buffering': 'no',
-    },
-  })
+```typescript
+// src/app/core/api/sse.service.ts
+connectToAuditStream(orgId: string) {
+  const token = this.auth.accessToken();
+  // Authorization via query param (Standard for EventSource)
+  const url = `${environment.apiUrl}/audit/stream?org_id=${orgId}&token=${token}`;
+  return new EventSource(url);
 }
 ```
 
 ---
 
-## 17.3 Aggregation Route Handlers
+## 17.4 Client-Side Aggregation
 
-Some dashboard views need data from multiple BE services. These are composed server-side to avoid client-side waterfall requests.
+In Angular, we use RxJS `forkJoin` or `combineLatest` within services to aggregate data when a dedicated BE endpoint is not available.
 
-### System Status (aggregates all service health checks)
-
-```ts
-// app/api/admin/system-status/route.ts
-import { auth } from '@/lib/auth/config'
-
-export async function GET() {
-  const session = await auth()
-  if (!session?.accessToken) return Response.json({ error: 'Unauthorized' }, { status: 401 })
-
-  // Parallel fetch from all services
-  const [services, outbox, circuitBreakers] = await Promise.allSettled([
-    fetch(`${process.env.INTERNAL_API_URL}/admin/health/services`, {
-      headers: { Authorization: `Bearer ${session.accessToken}` },
-    }).then(r => r.json()),
-    fetch(`${process.env.INTERNAL_API_URL}/admin/metrics/outbox`, {
-      headers: { Authorization: `Bearer ${session.accessToken}` },
-    }).then(r => r.json()),
-    fetch(`${process.env.INTERNAL_API_URL}/admin/metrics/circuit-breakers`, {
-      headers: { Authorization: `Bearer ${session.accessToken}` },
-    }).then(r => r.json()),
-  ])
-
-  return Response.json({
-    services:         services.status === 'fulfilled' ? services.value : [],
-    outbox:           outbox.status === 'fulfilled' ? outbox.value : [],
-    circuit_breakers: circuitBreakers.status === 'fulfilled' ? circuitBreakers.value : [],
-  })
-}
-```
-
-### Overview Page Data (parallel fetch)
-
-```ts
-// app/api/overview/route.ts
-// Aggregates: alert counts, recent audit events, compliance posture, event stats
-// Returns in a single response to avoid 5 sequential client fetches on page load.
-
-export async function GET() {
-  const session = await auth()
-  if (!session?.accessToken) return Response.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const h = { Authorization: `Bearer ${session.accessToken}` }
-  const base = process.env.INTERNAL_API_URL
-
-  const [alerts, auditStats, posture, eventCounts] = await Promise.allSettled([
-    fetch(`${base}/v1/threats/stats`, { headers: h }).then(r => r.json()),
-    fetch(`${base}/audit/stats`, { headers: h }).then(r => r.json()),
-    fetch(`${base}/v1/compliance/posture`, { headers: h }).then(r => r.json()),
-    fetch(`${base}/v1/compliance/stats`, { headers: h }).then(r => r.json()),
-  ])
-
-  return Response.json({
-    alerts:       alerts.status === 'fulfilled' ? alerts.value : null,
-    audit_stats:  auditStats.status === 'fulfilled' ? auditStats.value : null,
-    posture:      posture.status === 'fulfilled' ? posture.value : null,
-    event_counts: eventCounts.status === 'fulfilled' ? eventCounts.value : null,
-  })
+```typescript
+// src/app/core/api/overview.service.ts
+getOverviewData() {
+  return forkJoin({
+    alerts: this.threatsService.getStats(),
+    audit: this.auditService.getStats(),
+    posture: this.complianceService.getPosture()
+  });
 }
 ```
 

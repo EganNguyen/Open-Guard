@@ -29,8 +29,8 @@ not a proxy.
 | `compliance` | `services/compliance` | Report generation, PDF signing |
 | `dlp` | `services/dlp` | PII / credential scanning |
 
-**Frontend:** Next.js 14 Admin Dashboard at `web/` — TypeScript, App Router,
-TanStack Query, Zustand, NextAuth.js v5, SSE for real-time data.
+**Frontend:** Angular 19+ Admin Dashboard at `web/` — TypeScript, Standalone Components,
+Angular Signals, HttpClient Services, SseService for real-time data.
 
 ---
 
@@ -38,8 +38,8 @@ TanStack Query, Zustand, NextAuth.js v5, SSE for real-time data.
 
 | Task type | Rule file to read first |
 |---|---|
-| Any Go backend code (new service, handler, repository, outbox, migration) | `.claude/rules/openguard-golangbackend/rules.md` |
-| Any Next.js frontend code (component, page, hook, API route, middleware) | `.claude/rules/openguard-nextjs-frontend/rules.md` |
+| Any Go backend code (new service, handler, repository, outbox, migration) | `.claude/rules/openguard-golang-backend/rules.md` |
+| Any Angular frontend code (component, service, guard, signal, interceptor) | `.claude/rules/openguard-angular-frontend/rules.md` |
 | Both at once (e.g. a new feature end-to-end) | Read **both** rule files before writing anything |
 
 > **Rule:** If Claude Code starts writing code without reading the relevant rule
@@ -83,8 +83,8 @@ TanStack Query, Zustand, NextAuth.js v5, SSE for real-time data.
 |---|---|
 | Tech stack, project structure, naming conventions | `00-tech-stack-and-conventions.md` |
 | Design tokens, color palette, typography, dark/light mode | `01-design-system.md` |
-| Typed API client, auth interceptors, SSE client, pagination | `02-api-client-layer.md` |
-| NextAuth.js, OIDC, TOTP/WebAuthn MFA screens, session refresh | `03-auth-and-session.md` |
+| Typed API client, auth interceptors, SSE service, pagination | `02-api-client-layer.md` |
+| OIDC AuthService, TOTP/WebAuthn MFA screens, session refresh | `03-auth-and-session.md` |
 | App shell, sidebar, org switcher, breadcrumbs, global search | `04-dashboard-and-layout.md` |
 | Connector list, registration wizard, API key reveal, webhook log | `05-connectors.md` |
 | Policy list, RBAC rule builder, evaluate playground, eval log | `06-policy-engine-ui.md` |
@@ -94,11 +94,11 @@ TanStack Query, Zustand, NextAuth.js v5, SSE for real-time data.
 | DLP policy editor, findings table, masking, entropy config | `10-dlp.md` |
 | User list, user detail, MFA status, SCIM saga, org settings | `11-user-and-org-management.md` |
 | System health, outbox lag, circuit breaker status, Kafka charts | `12-observability-and-admin.md` |
-| Vitest, Testing Library, Playwright, accessibility, perf budgets | `13-testing-and-quality.md` |
-| All env vars, `next.config.js` (CSP, rewrites), Tailwind, tsconfig | `14-environment-and-config.md` |
+| Jasmine/Karma, Testing Library, Playwright, accessibility, perf | `13-testing-and-quality.md` |
+| All env vars, `angular.json`, `tsconfig`, Tailwind | `14-environment-and-config.md` |
 | TypeScript domain types, Zod validators, SSE event types | `15-validators-and-types.md` |
-| Zustand UI store, TanStack Query setup, URL filter state (nuqs) | `16-state-management.md` |
-| Next.js middleware, SSE proxy routes, MFA server actions | `17-route-handlers-and-middleware.md` |
+| Angular Signals, Reactive Services, Router state | `16-state-management.md` |
+| Angular Router, CanActivate Guards, HttpInterceptors | `17-route-handlers-and-middleware.md` |
 | Canonical patterns: paginated table, SSE table, optimistic toggle | `18-component-patterns.md` |
 | Full-system E2E acceptance checklist | `19-acceptance-criteria.md` |
 | Frontend trade-offs, out-of-scope features for v1 | `20-appendix-trade-offs.md` |
@@ -153,26 +153,26 @@ These are CI-enforced. Violation = PR blocked. No exceptions.
 
 ---
 
-## 5. Absolute Rules — Frontend (Next.js)
+## 5. Absolute Rules — Frontend (Angular)
 
 These are CI-enforced. Violation = PR blocked. No exceptions.
 
 ```
-✗  No raw fetch in components — all API calls through lib/api/* typed client
-✗  No tokens or org_id in localStorage — httpOnly cookies via NextAuth only
-✗  No org-scoped page without withOrgContext HOC / layout wrapper
+✗  No raw fetch in components — all API calls through src/app/core/services/*
+✗  No tokens or org_id in localStorage — secure cookies via AuthService only
+✗  No org-scoped route without AuthGuard + OrgGuard check
 ✗  No org_id interpolated from URL params — always from authenticated session
-✗  No uncontrolled inputs — all forms use React Hook Form + Zod
-✗  No raw WebSocket connections — SSE via /api/stream/* route handlers only
+✗  No uncontrolled inputs — all forms use Angular Reactive Forms + Zod
+✗  No raw WebSocket connections — use SseService for all real-time streams
 ✗  No single-click destructive actions — ConfirmDialog with resource name typed
 ✗  No page without an error boundary
-✗  No sensitive data (email, ip_address, token_prefix) outside <Redactable>
-✗  No inline scripts or inline styles outside CSS Modules / Tailwind
+✗  No sensitive data (email, ip_address, token_prefix) outside RedactableComponent
+✗  No inline scripts or inline styles outside Scoped CSS / Tailwind
 ✗  No any TypeScript type — CI lint failure
 ✗  No console.log in committed code
-✗  No useEffect for data fetching — use TanStack Query useQuery
-✗  No polling with setInterval — use useQuery with refetchInterval
-✗  No hard-coded org_id strings — use useOrg() hook
+✗  No manual subscriptions for data — use async pipe or toSignal()
+✗  No polling with setInterval — use RxJS timer() or signal-based polling
+✗  No hard-coded org_id strings — use AuthService.currentOrgId() signal
 ```
 
 ---
@@ -199,16 +199,16 @@ These are CI-enforced. Violation = PR blocked. No exceptions.
 
 | Pattern | Where to look |
 |---|---|
-| Typed API client + error handling | `fe_open_guard/02-api-client-layer.md`, `lib/api/client.ts` |
-| SSE real-time stream hook | `fe_open_guard/02-api-client-layer.md` §2.5, `lib/api/sse.ts` |
+| Typed API client + error handling | `fe_open_guard/02-api-client-layer.md`, `src/app/core/services/api.service.ts` |
+| SSE real-time stream service | `fe_open_guard/02-api-client-layer.md` §2.5, `src/app/core/services/sse.service.ts` |
 | Cursor-paginated table | `fe_open_guard/18-component-patterns.md` §18.2 |
 | Offset-paginated table | `fe_open_guard/18-component-patterns.md` §18.1 |
 | SSE real-time table | `fe_open_guard/18-component-patterns.md` §18.3 |
 | Optimistic status toggle | `fe_open_guard/18-component-patterns.md` §18.4 |
 | Job-status polling | `fe_open_guard/18-component-patterns.md` §18.5 |
 | API key one-time reveal | `fe_open_guard/18-component-patterns.md` §18.7 |
-| Confirmation modal (destructive actions) | `fe_open_guard/16-state-management.md`, `useConfirm` hook |
-| withOrgContext HOC | `fe_open_guard/04-dashboard-and-layout.md` |
+| Confirmation modal (destructive actions) | `fe_open_guard/16-state-management.md`, `ConfirmService` |
+| AuthGuard | `fe_open_guard/04-dashboard-and-layout.md` |
 | Redactable component | `fe_open_guard/18-component-patterns.md` |
 
 ---
@@ -216,7 +216,7 @@ These are CI-enforced. Violation = PR blocked. No exceptions.
 ## 7. Shared Contracts (Immutable)
 
 Defined in `github.com/openguard/shared/models` (BE) and mirrored in
-`web/lib/types/` (FE). **Rename = major version bump of shared module +
+`src/app/core/models/` (FE). **Rename = major version bump of shared module +
 migration of all consumers.**
 
 | Contract | File |
@@ -241,8 +241,8 @@ migration of all consumers.**
 | Prometheus metrics catalogue | `be_open_guard/08-phase1-infra-ci-observability.md` §9.3 |
 | Alertmanager rules | `be_open_guard/08-phase1-infra-ci-observability.md` §9.4 |
 | Helm chart structure | `be_open_guard/08-phase1-infra-ci-observability.md` §9.5 |
-| All backend env vars | `be_open_guard/04-environment-and-config.md` |
-| All frontend env vars + next.config.js | `fe_open_guard/14-environment-and-config.md` |
+| All background env vars | `be_open_guard/04-environment-and-config.md` |
+| All frontend env vars + angular.json | `fe_open_guard/14-environment-and-config.md` |
 | mTLS cert generation script | `be_open_guard/02-repository-layout.md` (`scripts/gen-mtls-certs.sh`) |
 | Makefile targets | `be_open_guard/09-phase2-foundation-and-auth.md` §10.1 |
 
@@ -284,7 +284,7 @@ migration of all consumers.**
 
 ```
 1. Read this file (claude.md) — you are here.
-2. Identify task type: Backend Go? Frontend Next.js? Both?
+2. Identify task type: Backend Go? Frontend Angular 19? Both?
 3. Read the relevant rules.md file(s) from .claude/rules/.
 4. Identify which spec file(s) answer the specific question (§2 above).
 5. Read those spec sections before writing any code.
@@ -304,8 +304,8 @@ openguard/
 ├── claude.md                          ← YOU ARE HERE
 ├── .claude/
 │   └── rules/
-│       ├── openguard-golangbackend/rules.md    ← read for ALL Go work
-│       └── openguard-nextjs-frontend/rules.md  ← read for ALL FE work
+│       ├── openguard-golang-backend/rules.md    ← read for ALL Go work
+│       └── openguard-angular-frontend/rules.md  ← read for ALL FE work
 ├── be_open_guard/                     ← Backend spec (22 files)
 │   ├── README.md                      ← BE doc index
 │   └── 00-*.md … 21-*.md
@@ -315,7 +315,7 @@ openguard/
 ├── services/                          ← Go microservices (one dir per service)
 ├── sdk/                               ← Go SDK (policy client + event publisher)
 ├── shared/                            ← Shared Go module (contracts, middleware, crypto)
-├── web/                               ← Next.js 14 Admin Dashboard
+├── web/                               ← Angular 19+ Admin Dashboard
 ├── infra/
 │   ├── docker/docker-compose.yml
 │   ├── kafka/topics.json

@@ -6,21 +6,20 @@
 
 | Concern | Choice | Version | Notes |
 |---|---|---|---|
-| Framework | Next.js (App Router) | 14.x | `app/` directory; RSC-first |
+| Framework | Angular (Standalone) | 19.x | Standalone Components; Signals-first |
 | Language | TypeScript | 5.x | `strict: true`; no `any` |
-| Styling | Tailwind CSS + CSS Modules | 3.x | Tailwind for utilities; CSS Modules for component-specific overrides |
-| Component library | Radix UI (headless) + custom | latest | No pre-styled component libraries (shadcn pattern: copy primitives, own the styles) |
-| Forms | React Hook Form + Zod | latest | All forms; no exceptions |
-| State: server | TanStack Query (React Query) | v5 | All server state, background refetch, optimistic updates |
-| State: client | Zustand | v4 | Only for truly global UI state (sidebar open, org switcher, notification bell) |
-| Auth | NextAuth.js v5 (Auth.js) | v5 beta | OIDC provider → IAM service |
-| Real-time | native `EventSource` (SSE) wrapped in a custom hook | — | No socket.io |
-| Charts | Recharts | v2 | Wrapped in typed chart components |
-| Tables | TanStack Table | v8 | All data tables |
-| Testing | Vitest + Testing Library + Playwright | latest | See §13 |
-| Linting | ESLint (Next.js config) + Prettier | — | CI-enforced |
-| Icons | Lucide React | latest | Only icon library permitted |
-| Animation | Framer Motion | v11 | Page transitions and complex UI animations only |
+| Styling | Tailwind CSS | 4.x | Utility-first styling |
+| Component library | Custom (Angular CDK) | latest | No pre-styled component libraries |
+| Forms | Angular Reactive Forms | — | All forms; no exceptions |
+| State | Angular Signals | — | Primary state management mechanism |
+| Auth | Custom OIDC Service | — | OIDC provider → IAM service |
+| Real-time | native `EventSource` (SSE) wrapped in a service | — | No socket.io |
+| Charts | Recharts (or Angular equivalent) | — | Wrapped in typed chart components |
+| Tables | Angular Material Table / Custom | — | All data tables |
+| Testing | Jasmine + Karma / Jest | latest | See §13 |
+| Linting | ESLint (Angular config) + Prettier | — | CI-enforced |
+| Icons | Lucide Angular | latest | Only icon library permitted |
+| Animation | Angular Animations | — | Page transitions and UI animations |
 
 ---
 
@@ -28,96 +27,26 @@
 
 ```
 web/
-├── app/                            # Next.js App Router
-│   ├── (auth)/                     # Auth group — no sidebar layout
-│   │   ├── login/
-│   │   │   └── page.tsx
-│   │   ├── mfa/
-│   │   │   ├── totp/page.tsx
-│   │   │   └── webauthn/page.tsx
-│   │   └── layout.tsx              # Auth shell (centered card)
-│   ├── (dashboard)/                # Authenticated group — app shell layout
-│   │   ├── layout.tsx              # AppShell: sidebar + topbar + org context
-│   │   ├── page.tsx                # /  → redirect to /overview
-│   │   ├── overview/
-│   │   │   └── page.tsx
-│   │   ├── connectors/
-│   │   │   ├── page.tsx            # List
-│   │   │   ├── new/page.tsx        # Registration wizard
-│   │   │   └── [id]/
-│   │   │       ├── page.tsx        # Detail
-│   │   │       └── deliveries/page.tsx
-│   │   ├── policies/
-│   │   │   ├── page.tsx
-│   │   │   ├── new/page.tsx
-│   │   │   ├── [id]/page.tsx
-│   │   │   └── playground/page.tsx  # Evaluate playground
-│   │   ├── audit/
-│   │   │   ├── page.tsx            # Real-time event stream
-│   │   │   ├── [id]/page.tsx       # Event detail
-│   │   │   └── exports/page.tsx
-│   │   ├── threats/
-│   │   │   ├── page.tsx            # Alert list
-│   │   │   └── [id]/page.tsx       # Alert + saga timeline
-│   │   ├── compliance/
-│   │   │   ├── page.tsx            # Posture dashboard
-│   │   │   ├── reports/page.tsx    # Report list + generate
-│   │   │   └── reports/[id]/page.tsx
-│   │   ├── dlp/
-│   │   │   ├── page.tsx            # Findings
-│   │   │   └── policies/
-│   │   │       ├── page.tsx
-│   │   │       └── [id]/page.tsx
-│   │   ├── users/
-│   │   │   ├── page.tsx
-│   │   │   └── [id]/page.tsx
-│   │   ├── org/
-│   │   │   └── settings/page.tsx
-│   │   └── admin/
-│   │       └── system/page.tsx     # Health, outbox, circuit breakers
-│   ├── api/                        # Route handlers
-│   │   ├── auth/[...nextauth]/route.ts
-│   │   └── stream/
-│   │       ├── audit/route.ts      # SSE → audit service
-│   │       └── threats/route.ts    # SSE → threat service
-│   ├── error.tsx                   # Global error boundary
-│   ├── not-found.tsx
-│   └── layout.tsx                  # Root layout (html, body, providers)
-├── components/
-│   ├── ui/                         # Design system primitives (Button, Input, Badge, etc.)
-│   ├── layout/                     # AppShell, Sidebar, Topbar, Breadcrumbs
-│   ├── data/                       # DataTable, Pagination, FilterPanel, Redactable
-│   ├── feedback/                   # Toast, Alert, ConfirmDialog, LoadingSpinner
-│   ├── charts/                     # LineChart, BarChart, GaugeChart (Recharts wrappers)
-│   └── domain/                     # Feature-specific components (ConnectorCard, PolicyRuleBuilder, etc.)
-├── lib/
-│   ├── api/                        # Typed API client (see §02)
-│   │   ├── client.ts               # Base fetch wrapper + auth interceptor
-│   │   ├── connectors.ts
-│   │   ├── policies.ts
-│   │   ├── audit.ts
-│   │   ├── threats.ts
-│   │   ├── compliance.ts
-│   │   ├── dlp.ts
-│   │   ├── users.ts
-│   │   └── admin.ts
-│   ├── hooks/                      # Custom hooks
-│   │   ├── use-sse.ts              # SSE client hook
-│   │   ├── use-org.ts              # Current org from session
-│   │   ├── use-confirm.ts          # Imperative confirm dialog
-│   │   └── use-clipboard.ts
-│   ├── auth/                       # NextAuth config, session helpers
-│   ├── query/                      # TanStack Query client, query key factories
-│   ├── store/                      # Zustand stores (ui.ts, notification.ts)
-│   ├── utils/                      # cn(), formatDate(), truncate(), etc.
-│   └── validators/                 # Zod schemas (mirrors BE models)
-├── types/
-│   ├── api.ts                      # API response types (generated from OpenAPI or hand-maintained)
-│   ├── models.ts                   # Domain model types
-│   └── events.ts                   # Kafka EventEnvelope shape for SSE payloads
-├── public/
-├── next.config.js
-├── tailwind.config.ts
+├── src/
+│   ├── app/                        # Angular Application Core
+│   │   ├── home/                   # Home feature
+│   │   │   ├── home.ts
+│   │   │   ├── home.html
+│   │   │   └── home.css
+│   │   ├── connectors/             # Connectors feature
+│   │   │   ├── connectors.ts
+│   │   │   ├── connectors.html
+│   │   │   └── connectors.css
+│   │   ├── app.ts                 # Root component
+│   │   ├── app.html
+│   │   ├── app.config.ts
+│   │   └── app.routes.ts          # Routing configuration
+│   ├── assets/                     # Static assets
+│   ├── index.html
+│   ├── main.ts
+│   └── styles.css                  # Global styles (Tailwind)
+├── angular.json
+├── tailwind.config.js
 ├── tsconfig.json
 └── package.json
 ```

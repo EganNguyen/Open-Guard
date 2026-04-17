@@ -4,102 +4,46 @@ All communication with the OpenGuard backend goes through `lib/api/`. Components
 
 ---
 
-## 2.1 Base Client
+## 2.1 Base Client & Interceptor
 
-```ts
-// lib/api/client.ts
-import { getSession } from 'next-auth/react'
-import { ERROR_MESSAGES } from '@/lib/utils/error-messages'
+In Angular, we use the built-in `HttpClient` and `HttpInterceptor` to handle authentication, base URLs, and error normalization.
 
-export interface APIError {
-  code: string
-  message: string
-  request_id: string
-  trace_id: string
-  retryable: boolean
-  fields?: { field: string; message: string }[] // VALIDATION_ERROR only
-}
+```typescript
+// src/app/core/api/api.interceptor.ts
+import { HttpInterceptorFn, HttpRequest, HttpHandlerFn, HttpErrorResponse } from '@angular/common/http';
+import { inject } from '@angular/core';
+import { catchError, throwError } from 'rxjs';
+import { AuthService } from '../auth/auth.service';
+import { ERROR_MESSAGES } from '../utils/error-messages';
 
-export class OpenGuardAPIError extends Error {
-  code: string
-  requestId: string
-  traceId: string
-  retryable: boolean
-  fields?: APIError['fields']
+export const apiInterceptor: HttpInterceptorFn = (req, next) => {
+  const auth = inject(AuthService);
+  const baseUrl = environment.apiUrl;
 
-  constructor(body: APIError) {
-    super(ERROR_MESSAGES[body.code] ?? body.message)
-    this.code = body.code
-    this.requestId = body.request_id
-    this.traceId = body.trace_id
-    this.retryable = body.retryable
-    this.fields = body.fields
-  }
-}
+  // 1. Clone request with Base URL and Headers
+  let apiReq = req.clone({
+    url: `${baseUrl}${req.url}`,
+    setHeaders: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${auth.accessToken()}`,
+    }
+  });
 
-interface FetchOptions extends RequestInit {
-  orgId?: string         // injected from session; overrides default
-  idempotencyKey?: string
-}
-
-async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
-  // 1. Resolve base URL — server vs client
-  const base = typeof window === 'undefined'
-    ? process.env.INTERNAL_API_URL   // server: direct to control plane (no hop through browser)
-    : process.env.NEXT_PUBLIC_API_URL
-
-  // 2. Get auth token
-  const session = await getSession()
-  if (!session?.accessToken) {
-    throw new OpenGuardAPIError({
-      code: 'UNAUTHORIZED',
-      message: 'Session expired. Please log in again.',
-      request_id: '',
-      trace_id: '',
-      retryable: false,
+  // 2. Handle request
+  return next(apiReq).pipe(
+    catchError((error: HttpErrorResponse) => {
+      const apiError = error.error?.error ?? error.error;
+      const normalizedError = new OpenGuardAPIError({
+        code: apiError?.code ?? 'UNKNOWN_ERROR',
+        message: ERROR_MESSAGES[apiError?.code] ?? apiError?.message ?? error.message,
+        request_id: error.headers.get('X-Request-ID') ?? '',
+        trace_id: '',
+        retryable: error.status >= 500
+      });
+      return throwError(() => normalizedError);
     })
-  }
-
-  // 3. Build headers
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${session.accessToken}`,
-    ...( options.orgId && { 'X-Org-ID': options.orgId }),  // Admin multi-org override only
-    ...( options.idempotencyKey && { 'Idempotency-Key': options.idempotencyKey }),
-    ...options.headers,
-  }
-
-  // 4. Fetch
-  const res = await fetch(`${base}${path}`, { ...options, headers })
-
-  // 5. Handle non-2xx
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({
-      code: 'UNKNOWN_ERROR',
-      message: res.statusText,
-      request_id: res.headers.get('X-Request-ID') ?? '',
-      trace_id: '',
-      retryable: res.status >= 500,
-    }))
-    throw new OpenGuardAPIError(body.error ?? body)
-  }
-
-  // 204 No Content
-  if (res.status === 204) return undefined as T
-
-  return res.json() as Promise<T>
-}
-
-export const api = {
-  get:    <T>(path: string, opts?: FetchOptions) => apiFetch<T>(path, { ...opts, method: 'GET' }),
-  post:   <T>(path: string, body: unknown, opts?: FetchOptions) =>
-    apiFetch<T>(path, { ...opts, method: 'POST', body: JSON.stringify(body) }),
-  patch:  <T>(path: string, body: unknown, opts?: FetchOptions) =>
-    apiFetch<T>(path, { ...opts, method: 'PATCH', body: JSON.stringify(body) }),
-  put:    <T>(path: string, body: unknown, opts?: FetchOptions) =>
-    apiFetch<T>(path, { ...opts, method: 'PUT', body: JSON.stringify(body) }),
-  delete: <T>(path: string, opts?: FetchOptions) => apiFetch<T>(path, { ...opts, method: 'DELETE' }),
-}
+  );
+};
 ```
 
 ---
@@ -132,71 +76,41 @@ export interface OffsetPage<T> {
     next_cursor: null
   }
 }
-
-// Encode/decode keyset cursors
-export function encodeCursor(t: number, id: string): string {
-  return btoa(JSON.stringify({ t, id }))
-}
-
-export function decodeCursor(cursor: string): { t: number; id: string } | null {
-  try {
-    return JSON.parse(atob(cursor))
-  } catch {
-    return null
-  }
-}
-
-// TanStack Query infinite query helper for cursor-based endpoints
-export function getNextPageParam<T>(lastPage: CursorPage<T>) {
-  return lastPage.meta.next_cursor ?? undefined
-}
 ```
 
 ---
 
-## 2.3 Resource-Specific API Modules
+### `src/app/core/api/connectors.service.ts`
 
-### `lib/api/connectors.ts`
+```typescript
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import type { Connector, ConnectorCreateInput, WebhookDelivery } from '../models';
+import type { OffsetPage, CursorPage } from './pagination';
 
-```ts
-import { api } from './client'
-import type { Connector, ConnectorCreateInput, WebhookDelivery } from '@/types/models'
-import type { OffsetPage } from './pagination'
+@Injectable({ providedIn: 'root' })
+export class ConnectorsService {
+  private http = inject(HttpClient);
 
-export const connectorsApi = {
-  list: (orgId: string, page = 1) =>
-    api.get<OffsetPage<Connector>>(`/v1/connectors?page=${page}&per_page=50`, { orgId }),
+  list(orgId: string, page = 1): Observable<OffsetPage<Connector>> {
+    return this.http.get<OffsetPage<Connector>>(`/v1/connectors`, {
+      params: { page, per_page: 50 },
+      headers: { 'X-Org-ID': orgId }
+    });
+  }
 
-  get: (orgId: string, id: string) =>
-    api.get<Connector>(`/v1/connectors/${id}`, { orgId }),
+  get(orgId: string, id: string): Observable<Connector> {
+    return this.http.get<Connector>(`/v1/connectors/${id}`, {
+      headers: { 'X-Org-ID': orgId }
+    });
+  }
 
-  create: (orgId: string, input: ConnectorCreateInput, idempotencyKey: string) =>
-    api.post<{ connector: Connector; api_key_plaintext: string }>(
-      `/v1/admin/connectors`,
-      input,
-      { orgId, idempotencyKey }
-    ),
-
-  update: (orgId: string, id: string, patch: Partial<ConnectorCreateInput>) =>
-    api.patch<Connector>(`/v1/admin/connectors/${id}`, patch, { orgId }),
-
-  suspend: (orgId: string, id: string) =>
-    api.patch<Connector>(`/v1/admin/connectors/${id}`, { status: 'suspended' }, { orgId }),
-
-  activate: (orgId: string, id: string) =>
-    api.patch<Connector>(`/v1/admin/connectors/${id}`, { status: 'active' }, { orgId }),
-
-  delete: (orgId: string, id: string) =>
-    api.delete<void>(`/v1/admin/connectors/${id}`, { orgId }),
-
-  sendTestWebhook: (orgId: string, id: string) =>
-    api.post<void>(`/v1/admin/connectors/${id}/test`, {}, { orgId }),
-
-  listDeliveries: (orgId: string, id: string, cursor?: string) =>
-    api.get<CursorPage<WebhookDelivery>>(
-      `/v1/admin/connectors/${id}/deliveries${cursor ? `?cursor=${cursor}` : ''}`,
-      { orgId }
-    ),
+  suspend(orgId: string, id: string): Observable<Connector> {
+    return this.http.patch<Connector>(`/v1/admin/connectors/${id}`, { status: 'suspended' }, {
+      headers: { 'X-Org-ID': orgId }
+    });
+  }
 }
 ```
 
@@ -286,58 +200,34 @@ export const threatsApi = {
 
 ---
 
-## 2.4 SSE Client Hook
+## 2.4 SSE Service
 
-Real-time data (audit stream, live threat alerts) uses Server-Sent Events routed through Next.js route handlers (which proxy to the backend and forward the auth token).
+Real-time data uses a dedicated Angular Service that wraps `EventSource`.
 
-```ts
-// lib/hooks/use-sse.ts
-'use client'
+```typescript
+// src/app/core/sse/sse.service.ts
+import { Injectable, signal, NgZone } from '@angular/core';
 
-import { useEffect, useRef, useState } from 'react'
+@Injectable({ providedIn: 'root' })
+export class SseService {
+  connected = signal(false);
 
-interface UseSSEOptions<T> {
-  url: string
-  onMessage: (data: T) => void
-  onError?: (err: Event) => void
-  enabled?: boolean
-}
+  connect<T>(url: string, onMessage: (data: T) => void) {
+    const es = new EventSource(url);
 
-export function useSSE<T>({ url, onMessage, onError, enabled = true }: UseSSEOptions<T>) {
-  const [connected, setConnected] = useState(false)
-  const esRef = useRef<EventSource | null>(null)
-
-  useEffect(() => {
-    if (!enabled) return
-
-    const es = new EventSource(url)
-    esRef.current = es
-
-    es.onopen = () => setConnected(true)
+    es.onopen = () => this.connected.set(true);
 
     es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data) as T
-        onMessage(data)
-      } catch {
-        // malformed JSON — skip silently, log in production
-      }
-    }
+      const data = JSON.parse(e.data) as T;
+      onMessage(data);
+    };
 
-    es.onerror = (err) => {
-      setConnected(false)
-      onError?.(err)
-      // EventSource auto-reconnects on error; no manual retry needed
-    }
+    es.onerror = () => {
+      this.connected.set(false);
+    };
 
-    return () => {
-      es.close()
-      esRef.current = null
-      setConnected(false)
-    }
-  }, [url, enabled])
-
-  return { connected }
+    return () => es.close();
+  }
 }
 ```
 
@@ -374,38 +264,31 @@ export async function GET(req: NextRequest) {
 
 ---
 
-## 2.5 Optimistic Updates
+## 2.5 Reactive State & Optimistic Updates
 
-For low-latency UI (connector status toggle, policy enable/disable), use TanStack Query optimistic updates:
+In Angular, we use **Signals** to handle local state and optimistic updates.
 
-```ts
-// Example: optimistic connector suspend
-const suspendConnector = useMutation({
-  mutationFn: (id: string) => connectorsApi.suspend(orgId, id),
+```typescript
+// src/app/features/connectors/connectors.component.ts
+connectors = signal<Connector[]>([]);
 
-  onMutate: async (id) => {
-    await queryClient.cancelQueries({ queryKey: queryKeys.connectors.all(orgId) })
-    const previous = queryClient.getQueryData<OffsetPage<Connector>>(queryKeys.connectors.all(orgId))
+suspendConnector(id: string) {
+  const previous = this.connectors();
 
-    // Optimistically update
-    queryClient.setQueryData(queryKeys.connectors.all(orgId), (old: OffsetPage<Connector>) => ({
-      ...old,
-      data: old.data.map(c => c.id === id ? { ...c, status: 'suspended' } : c),
-    }))
+  // 1. Optimistic Update
+  this.connectors.update(list =>
+    list.map(c => c.id === id ? { ...c, status: 'suspended' } : c)
+  );
 
-    return { previous }
-  },
-
-  onError: (_err, _id, context) => {
-    // Roll back on error
-    queryClient.setQueryData(queryKeys.connectors.all(orgId), context?.previous)
-    toast.error('Failed to suspend connector')
-  },
-
-  onSettled: () => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.connectors.all(orgId) })
-  },
-})
+  // 2. API Call
+  this.connectorsService.suspend(orgId, id).subscribe({
+    error: () => {
+      // 3. Rollback on failure
+      this.connectors.set(previous);
+      this.toast.error('Failed to suspend connector');
+    }
+  });
+}
 ```
 
 ---

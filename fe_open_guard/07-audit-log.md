@@ -16,17 +16,14 @@ Route: /audit
 
 ### Stream / Pause toggle
 
-```tsx
-// components/domain/audit-stream-toggle.tsx
-// "use client"
-//
+```typescript
 // [● LIVE]  ←→  [⏸ PAUSED | Showing results for: last 24h]
 //
-// When LIVE: useSSE('/api/stream/audit') prepends events to local state buffer.
-//            Buffer capped at 200 events to prevent unbounded memory growth.
-//            Older events beyond 200 are dropped (most recent retained).
+// When LIVE: SseService connects to /v1/audit/stream.
+//            Appends events to a Signal-based local buffer.
+//            Buffer capped at 200 events.
 //
-// When PAUSED: useInfiniteQuery on /audit/events with cursor pagination.
+// When PAUSED: AuditService uses HttpClient to fetch with cursor pagination.
 //              Filter panel becomes active.
 //              "Resume live" button re-connects SSE.
 ```
@@ -44,7 +41,7 @@ Source         Multi-select: iam | policy | control-plane | connector:*
 [Apply filters]  [Clear]
 ```
 
-Filters are synced to the URL via `nuqs` (URL-based state management):
+Filters are synced to the URL via the Angular Router (`queryParams`):
 - `?from=2024-01-01T00:00:00Z&to=2024-01-02T00:00:00Z&type=auth.login.failure&actor_type=user`
 
 ### Event Table
@@ -105,18 +102,13 @@ Related alerts
 
 Displayed in the audit page header:
 
-```tsx
-// components/domain/integrity-badge.tsx
-// useQuery(queryKeys.audit.integrity(orgId), { refetchInterval: 300_000 }) — every 5min
+```typescript
+// src/app/features/audit/integrity-badge/integrity-badge.component.ts
+// Subscribes to the integrity status signal, refreshed every 5 minutes.
 //
 // Results:
 //   ok: true   → [🔒 Chain integrity verified]  (green)
 //   ok: false  → [⚠ Chain integrity failure]   (red, pulsing)
-//               "Gap detected at chain_seq 4820. Contact your security team."
-//               Link → /audit/integrity-report
-//
-// NOTE: This endpoint uses MongoDB primary (BE spec §2.4 CQRS exception).
-// Slightly higher latency is expected and acceptable — show a loading state.
 ```
 
 When integrity fails: automatically create a HIGH threat alert via `POST /v1/threats/alerts` (server-side, from the background verification job in the BE — not client-side). The frontend simply reflects the alert.
