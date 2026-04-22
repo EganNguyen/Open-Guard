@@ -1,0 +1,71 @@
+<div class="flex h-screen bg-[#F4F5F7] text-[#172B4D]">
+  <!-- Sidebar -->
+  <aside class="w-64 bg-[#0747A6] text-white flex flex-col shadow-xl">
+    <div class="p-6 flex items-center space-x-3">
+      <div class="w-8 h-8 bg-white rounded flex items-center justify-center">
+        <span class="text-[#0747A6] font-bold text-xl">O</span>
+      </div>
+      <h1 class="text-xl font-bold tracking-tight">OpenGuard</h1>
+    </div>
+
+    <nav class="flex-1 mt-4 px-3 space-y-1">
+      @for (item of navItems; track item.path) {
+        <a [routerLink]="item.path" 
+           routerLinkActive="bg-[#0052CC] text-white"
+           [routerLinkActiveOptions]="{exact: true}"
+           class="flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-[#0052CC] hover:text-white group">
+          <span class="material-symbols-outlined mr-3 text-lg opacity-80 group-hover:opacity-100">{{ item.icon }}</span>
+          {{ item.label }}
+        </a>
+      }
+    </nav>
+
+    <div class="p-4 border-t border-[#0052CC]">
+      <div class="flex items-center p-2 rounded-md bg-[#0052CC] mb-4">
+        <div class="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-xs font-bold mr-3">
+          {{ user()?.display_name?.charAt(0) || 'U' }}
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-xs font-semibold truncate">{{ user()?.display_name || 'Admin' }}</p>
+          <p class="text-[10px] text-blue-200 truncate">{{ user()?.email || 'admin@openguard.io' }}</p>
+        </div>
+      </div>
+      <button (click)="onLogout()" 
+              class="w-full flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-red-600 hover:text-white">
+        <span class="material-symbols-outlined mr-3 text-lg">logout</span>
+        Sign out
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="flex-1 flex flex-col overflow-hidden">
+    <!-- Header -->
+    <header class="h-14 bg-white border-b border-[#DFE1E6] flex items-center justify-between px-6 shadow-sm">
+      <div class="flex items-center space-x-4 text-sm">
+        <span class="text-[#6B778C]">Organizations</span>
+        <span class="text-[#DFE1E6]">/</span>
+        <span class="font-semibold">Acme Corp</span>
+        <span class="material-symbols-outlined text-sm text-[#6B778C]">expand_more</span>
+      </div>
+      
+      <div class="flex items-center space-x-6">
+        <div class="relative">
+          <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-[#6B778C]">
+            <span class="material-symbols-outlined text-lg">search</span>
+          </span>
+          <input type="text" 
+                 class="block w-64 pl-10 pr-3 py-1.5 border border-[#DFE1E6] rounded-md leading-5 bg-[#FAFBFC] text-sm placeholder-[#6B778C] focus:outline-none focus:ring-2 focus:ring-[#4C9AFF] focus:border-[#4C9AFF]" 
+                 placeholder="Search policies, users...">
+        </div>
+        <span class="material-symbols-outlined text-[#6B778C] cursor-pointer hover:text-[#0747A6]">help_outline</span>
+        <span class="material-symbols-outlined text-[#6B778C] cursor-pointer hover:text-[#0747A6]">notifications</span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <div class="flex-1 overflow-y-auto p-8">
+      <router-outlet />
+    </div>
+  </main>
+</div>

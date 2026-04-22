@@ -39,12 +39,21 @@ app.use(
  * Handle all other requests by rendering the Angular application.
  */
 app.use((req, res, next) => {
+  console.log('SSR Request:', req.url);
   angularApp
     .handle(req)
-    .then((response) =>
-      response ? writeResponseToNodeResponse(response, res) : next(),
-    )
-    .catch(next);
+    .then((response) => {
+      if (response) {
+        console.log('SSR Response OK for:', req.url);
+        return writeResponseToNodeResponse(response, res);
+      }
+      console.log('SSR Response NULL for:', req.url);
+      return next();
+    })
+    .catch((err) => {
+      console.error('SSR Error:', err);
+      next(err);
+    });
 });
 
 /**

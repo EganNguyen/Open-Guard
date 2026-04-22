@@ -9,7 +9,7 @@ OpenGuard is architected as a highly scalable set of Go microservices managed by
 ### Core Components
 
 *   **Backend (`services/`)**: A suite of robust Go microservices responsible for IAM, policy evaluation, threat detection, alerting, compliance reporting, and DLP. The backend utilizes Kafka for asynchronous event propagation (via the Transactional Outbox pattern), taking advantage of PostgreSQL for relational state and strict Row-Level Security (RLS) for multi-tenancy.
-*   **Frontend (`web/`)**: A Next.js 14 Admin Dashboard utilizing the App Router, TypeScript, TanStack Query, and Zustand. It serves as the visual command center for system administrators to configure access policies, review audit streams, and manage threat-alerting sagas in real time.
+*   **Frontend (`web/`)**: An Angular 21+ Admin Dashboard utilizing Standalone Components, Angular Signals, and Tailwind CSS. It serves as the visual command center for system administrators to configure access policies, review audit streams, and manage threat-alerting sagas in real time.
 *   **Shared Contract (`shared/`)**: Immutable Go models and utilities (middleware, crypto) shared across backend services to ensure strongly typed communication and schema enforcement.
 *   **SDK (`sdk/`)**: Client libraries designed to help downstream applications integrate seamlessly with OpenGuard's policy decisions and event ingestion.
 
@@ -24,20 +24,75 @@ OpenGuard is architected as a highly scalable set of Go microservices managed by
 
 This repository embraces a specification-driven development model. Documentation is rigorously structured to guide development, ensuring consistent CI-compliance.
 
-### For AI/Claude Agents
-**Start Here ➔** [`claude.md`](claude.md): The absolute master index for AI coding assistants. **Do not begin any task without reading it.** It acts as the core routing layer pointing to specific SKILL files and architectural documents to guarantee alignment with CI rules.
+### For AI Agents
+**Start Here ➔** [`ai-spec/project.md`](ai-spec/project.md): The absolute master index for AI coding assistants. **Do not begin any task without reading it.** It acts as the core routing layer pointing to specific SKILL files and architectural documents to guarantee alignment with CI rules.
 
 ### For Human Engineers
-- [**Backend Documentation Index**](be_open_guard/README.md) — Comprehensive breakdown of architecture choices, phase planning, data models, error handling, and strict backend coding rules.
-- [**Frontend Documentation Index**](fe_open_guard/README.md) — Detailed mapping of the UI architecture, canonical component patterns, state management, and stringent frontend conventions.
+- [**Backend Documentation Index**](ai-spec/be_open_guard/README.md) — Comprehensive breakdown of architecture choices, phase planning, data models, error handling, and strict backend coding rules.
+- [**Frontend Documentation Index**](ai-spec/fe_open_guard/README.md) — Detailed mapping of the UI architecture, canonical component patterns, state management, and stringent frontend conventions.
 
-## 🚀 Getting Started
+## 🚀 Quick Start (Phase 1)
 
-The platform's progression is tracked across tightly governed iterative **Phases**. 
+Follow these steps to spin up the environment and verify the Phase 1 implementation.
 
-1. **Bootstrap the Ecosystem**: Review the [Infrastructure & CI constraints](be_open_guard/08-phase1-infra-ci-observability.md) to instantiate the local development stack via Docker Compose (`infra/docker/`).
-2. **Launch the Dashboard**: Delve into the [Frontend Tech Stack](fe_open_guard/00-tech-stack-and-conventions.md) before initializing the Next.js `web/` application.
-3. **Core Development**: Utilize the `Makefile` as the entry point for all major operations (e.g., testing, linting, code generation, database migrations, and load-testing).
+### 1. Prerequisites
+- Docker & Docker Compose
+- Go 1.22+
+- Node.js 20+ & npm
+
+### 2. Infrastructure Setup
+Spin up the core infrastructure (PostgreSQL, MongoDB, Kafka, etc.):
+```bash
+cd infra/docker
+docker compose up -d
+```
+
+```bash
+docker compose up -d --build
+```
+
+Verify all services are healthy:
+```bash
+docker compose ps
+```
+
+To clean all docker services:
+```bash
+docker compose down --volumes --remove-orphans
+```
+
+### 3. Backend Verification
+Run tests and security scans:
+```bash
+# Run all tests with race detection
+go test ./... -race
+
+# Check for vulnerabilities
+govulncheck ./...
+```
+
+### 4. Frontend Dashboard
+Initialize and start the Angular dashboard:
+```bash
+cd web
+npm install
+npm start
+```
+The dashboard will be available at `http://localhost:4200`.
+
+### 5. Connected App
+```bash
+cd examples/task-management-app
+npm install
+npm run dev
+```
+
+### 6. Manual Verification Checklist
+To confirm Phase 1 is complete, verify the following:
+- [ ] **Infrastructure**: All containers in `docker compose ps` show as `healthy`.
+- [ ] **Metrics**: Access Prometheus at `http://localhost:9090` and verify `openguard_*` metrics are present.
+- [ ] **Logs**: Access Grafana at `http://localhost:3000` (default credentials: `admin/admin`).
+- [ ] **Dashboard**: Navigate to `http://localhost:4200/connectors` and ensure you can view the Connected Apps registration flow.
 
 ---
 *OpenGuard — Enterprise Grade Security, Open Source Freedom.*

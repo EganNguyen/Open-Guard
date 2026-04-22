@@ -1,43 +1,99 @@
-<div class="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-sans">
-  <main class="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-    <div class="flex items-center gap-4">
-      <div class="w-12 h-12 bg-black dark:bg-white rounded-lg flex items-center justify-center">
-        <span class="text-white dark:text-black font-bold text-2xl">O</span>
+<div class="space-y-8">
+  <!-- Page Title -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-2xl font-bold text-[#172B4D]">Overview</h2>
+      <p class="text-[#6B778C]">Monitor security posture and system activity across your organization.</p>
+    </div>
+    <button class="bg-[#0052CC] hover:bg-[#0747A6] text-white px-4 py-2 rounded-md text-sm font-medium shadow-sm flex items-center transition-all">
+      <span class="material-symbols-outlined mr-2 text-lg">download</span>
+      Generate Report
+    </button>
+  </div>
+
+  @if (loading()) {
+    <div class="flex items-center justify-center p-12">
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0052CC]"></div>
+      <span class="ml-3 text-[#6B778C]">Fetching system metrics...</span>
+    </div>
+  } @else {
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      @for (stat of stats(); track stat.label) {
+        <div class="bg-white p-6 rounded-lg border border-[#DFE1E6] shadow-sm hover:shadow-md transition-shadow">
+          <div class="flex items-center justify-between mb-4">
+            <div class="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center">
+              <span class="material-symbols-outlined {{ stat.color }}">{{ stat.icon }}</span>
+            </div>
+            <span class="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-gray-100 text-[#6B778C]">
+              {{ stat.trend }}
+            </span>
+          </div>
+          <h3 class="text-3xl font-bold text-[#172B4D]">{{ stat.value }}</h3>
+          <p class="text-sm text-[#6B778C] font-medium">{{ stat.label }}</p>
+        </div>
+      }
+    </div>
+
+    <!-- Content Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <!-- Recent Activity -->
+      <div class="lg:col-span-2 bg-white rounded-lg border border-[#DFE1E6] shadow-sm flex flex-col">
+        <div class="p-6 border-b border-[#DFE1E6] flex items-center justify-between">
+          <h3 class="font-bold text-[#172B4D]">Recent Security Events</h3>
+          <button class="text-[#0052CC] hover:underline text-sm font-medium">View all events</button>
+        </div>
+        <div class="flex-1 overflow-y-auto min-h-[300px]">
+          @if (recentActivities().length === 0) {
+            <div class="p-12 text-center text-[#6B778C]">
+              <span class="material-symbols-outlined text-4xl mb-2 opacity-20">history</span>
+              <p>No recent security events detected</p>
+            </div>
+          }
+          @for (item of recentActivities(); track $index) {
+            <div class="p-4 border-b border-[#F4F5F7] last:border-0 flex items-center hover:bg-[#FAFBFC] transition-colors">
+              <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mr-4">
+                <span class="material-symbols-outlined text-lg text-[#6B778C]">{{ item.icon }}</span>
+              </div>
+              <div class="flex-1">
+                <p class="text-sm font-medium text-[#172B4D]">{{ item.action }}</p>
+                <p class="text-xs text-[#6B778C]">{{ item.user }}</p>
+              </div>
+              <div class="text-xs text-[#6B778C]">{{ item.time }}</div>
+            </div>
+          }
+        </div>
       </div>
-      <h1 class="text-4xl font-bold tracking-tight">Open Guard</h1>
-    </div>
 
-    <ol class="list-inside list-decimal text-sm text-center sm:text-left font-mono">
-      <li class="mb-2">
-        Get started by editing
-        <code class="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-          src/app/home/home.ts
-        </code>
-        .
-      </li>
-      <li>Save and see your changes instantly.</li>
-    </ol>
+      <!-- Quick Actions / Status -->
+      <div class="space-y-8">
+        <div class="bg-white p-6 rounded-lg border border-[#DFE1E6] shadow-sm">
+          <h3 class="font-bold text-[#172B4D] mb-4">System Health</h3>
+          <div class="space-y-4">
+            @for (service of systemHealth(); track service.name) {
+              <div class="flex items-center justify-between">
+                <span class="text-sm text-[#6B778C]">{{ service.name }}</span>
+                <span class="flex items-center text-xs font-bold {{ service.color }}">
+                  <span class="w-2 h-2 rounded-full {{ service.dot }} mr-2"></span>
+                  {{ service.status }}
+                </span>
+              </div>
+            }
+            @if (systemHealth().length === 0 && !loading()) {
+              <p class="text-xs text-[#6B778C]">No service status available</p>
+            }
+          </div>
+        </div>
 
-    <div class="flex gap-4 items-center flex-col sm:flex-row">
-      <a
-        class="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-black dark:bg-white text-white dark:text-black gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-        href="/connectors"
-      >
-        View Connectors
-      </a>
-      <a
-        class="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-        href="https://angular.dev"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        Read Angular Docs
-      </a>
+        <div class="bg-[#DEEBFF] p-6 rounded-lg border border-[#B3D4FF]">
+          <h3 class="font-bold text-[#0747A6] mb-2">Security Posture</h3>
+          <p class="text-sm text-[#0747A6] opacity-80 mb-4">Your organization's security score is 92/100.</p>
+          <div class="w-full bg-white/50 rounded-full h-2 mb-4">
+            <div class="bg-[#0052CC] h-2 rounded-full" style="width: 92%"></div>
+          </div>
+          <button class="text-[#0052CC] hover:underline text-xs font-bold">View recommendations</button>
+        </div>
+      </div>
     </div>
-  </main>
-  <footer class="row-start-3 flex gap-6 flex-wrap items-center justify-center text-sm text-gray-500">
-    <a class="hover:underline hover:underline-offset-4" href="#">Privacy Policy</a>
-    <a class="hover:underline hover:underline-offset-4" href="#">Terms of Service</a>
-    <a class="hover:underline hover:underline-offset-4" href="#">Documentation</a>
-  </footer>
+  }
 </div>

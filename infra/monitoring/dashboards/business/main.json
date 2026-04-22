@@ -1,0 +1,15 @@
+{
+  "title": "Business Metrics",
+  "uid": "og-business-v1",
+  "panels": [
+    {
+      "title": "Successful Logins",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(increase(http_requests_total{path=\"/auth/login\", code=\"200\"}[24h]))" }
+      ]
+    }
+  ],
+  "schemaVersion": 39
+}

@@ -1,0 +1,83 @@
+import { Injectable, signal, computed, inject, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
+import { Router } from '@angular/router';
+import { ApiService } from './api.service';
+import { Observable, tap } from 'rxjs';
+
+export interface User {
+  id: string;
+  email: string;
+  display_name: string;
+  org_id: string;
+  status: string;
+}
+
+@Injectable({
+  providedIn: 'root'
+})
+export class AuthService {
+  private api = inject(ApiService);
+  private router = inject(Router);
+  private platformId = inject(PLATFORM_ID);
+
+  private currentUser = signal<User | null>(null);
+  user = this.currentUser.asReadonly();
+
+  isAuthenticated = computed(() => !!this.currentUser());
+  currentOrgId = computed(() => this.currentUser()?.org_id);
+
+  constructor() {
+    this.init();
+  }
+
+  private init(): void {
+    if (isPlatformBrowser(this.platformId)) {
+      const savedUser = localStorage.getItem('openguard_user');
+      if (savedUser) {
+        try {
+          this.currentUser.set(JSON.parse(savedUser));
+        } catch (e) {
+          localStorage.removeItem('openguard_user');
+        }
+      }
+    }
+  }
+
+  login(credentials: any, oauthParams?: any): Observable<any> {
+    const { email, password, rememberMe } = credentials;
+    return this.api.post<any>('/auth/login', { email, password }).pipe(
+      tap(res => {
+        if (oauthParams && oauthParams.client_id && oauthParams.redirect_uri) {
+          window.location.href = `${oauthParams.redirect_uri}?code=skeleton-auth-code&state=${oauthParams.state || ''}`;
+          return;
+        }
+
+        if (res.user.email !== 'admin@openguard.io') {
+          throw new Error('Access denied. Open Guard access is restricted to the System Admin only.');
+        }
+
+        this.currentUser.set(res.user);
+        
+        if (rememberMe && isPlatformBrowser(this.platformId)) {
+          localStorage.setItem('openguard_user', JSON.stringify(res.user));
+        }
+
+        this.router.navigate(['/overview']);
+      })
+    );
+  }
+
+  logout(): void {
+    this.api.post('/auth/logout', {}).subscribe(() => {
+      this.currentUser.set(null);
+      if (isPlatformBrowser(this.platformId)) {
+        localStorage.removeItem('openguard_user');
+      }
+      this.router.navigate(['/login']);
+    });
+  }
+
+  setCurrentUser(user: User | null): void {
+    this.currentUser.set(user);
+  }
+}
