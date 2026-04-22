@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/openguard/shared/crypto"
 )
 
 func main() {
@@ -38,7 +39,18 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// Phase 2: Simple OIDC Auth Middleware
+	// Phase 3: Real OpenGuard Auth & Policy Middleware
+	keyringJSON := os.Getenv("OPENGUARD_JWT_KEYS")
+	if keyringJSON == "" {
+		keyringJSON = `[{"kid":"dev-key","secret":"dev-secret-at-least-32-chars-long-!!","algorithm":"HS256","status":"active"}]`
+	}
+	keyring, _ := crypto.LoadKeyring(keyringJSON)
+
+	policyBaseURL := os.Getenv("OPENGUARD_POLICY_URL")
+	if policyBaseURL == "" {
+		policyBaseURL = "http://localhost:8082"
+	}
+
 	authMiddleware := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -47,27 +59,72 @@ func main() {
 				return
 			}
 			token := strings.TrimPrefix(authHeader, "Bearer ")
-			// Simplified token check for Phase 2 demo
-			if token != "skeleton-token" {
-				http.Error(w, "Invalid token", http.StatusUnauthorized)
+			
+			claims := &crypto.StandardClaims{}
+			_, err := crypto.Verify(token, keyring, claims)
+			if err != nil {
+				http.Error(w, "Invalid token: "+err.Error(), http.StatusUnauthorized)
 				return
 			}
-			ctx := context.WithValue(r.Context(), "user_id", "00000000-0000-0000-0000-000000000000")
+
+			ctx := context.WithValue(r.Context(), "user_id", claims.UserID)
+			ctx = context.WithValue(ctx, "org_id", claims.OrgID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
+	}
+
+	policyMiddleware := func(action string) func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				orgID := r.Context().Value("org_id").(string)
+				userID := r.Context().Value("user_id").(string)
+
+				// Call OpenGuard Policy Service
+				evalReq := map[string]interface{}{
+					"org_id":      orgID,
+					"subject_id":  userID,
+					"user_groups": []string{}, // Could be fetched from token if added
+					"action":      action,
+					"resource":    "task:*", // Simple resource scoping
+				}
+				b, _ := json.Marshal(evalReq)
+				
+				resp, err := http.Post(policyBaseURL+"/v1/policy/evaluate", "application/json", strings.NewReader(string(b)))
+				if err != nil {
+					http.Error(w, "Policy service unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				defer resp.Body.Close()
+
+				var evalResp struct {
+					Effect string `json:"effect"`
+				}
+				json.NewDecoder(resp.Body).Decode(&evalResp)
+
+				if evalResp.Effect != "allow" {
+					http.Error(w, "Access Denied by OpenGuard Policy", http.StatusForbidden)
+					return
+				}
+
+				next.ServeHTTP(w, r)
+			})
+		}
 	}
 
 	r.Route("/api/tasks", func(r chi.Router) {
 		r.Use(authMiddleware)
 
-		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		r.With(policyMiddleware("task:list")).Get("/", func(w http.ResponseWriter, r *http.Request) {
 			userID := r.Context().Value("user_id").(string)
+			orgID := r.Context().Value("org_id").(string)
 			var tasks []map[string]interface{}
+			// In production, we'd filter by org_id too
 			rows, err := pool.Query(r.Context(), "SELECT id, title, status FROM tasks WHERE owner_id = $1", userID)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			_ = orgID // use it in queries for multi-tenancy
 			defer rows.Close()
 			for rows.Next() {
 				var id, title, status string
@@ -77,7 +134,7 @@ func main() {
 			json.NewEncoder(w).Encode(tasks)
 		})
 
-		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
+		r.With(policyMiddleware("task:create")).Post("/", func(w http.ResponseWriter, r *http.Request) {
 			userID := r.Context().Value("user_id").(string)
 			var body struct {
 				Title string `json:"title"`
@@ -95,7 +152,7 @@ func main() {
 			json.NewEncoder(w).Encode(map[string]string{"id": id})
 		})
 
-		r.Put("/{id}", func(w http.ResponseWriter, r *http.Request) {
+		r.With(policyMiddleware("task:update")).Put("/{id}", func(w http.ResponseWriter, r *http.Request) {
 			userID := r.Context().Value("user_id").(string)
 			taskID := chi.URLParam(r, "id")
 			var body struct {
@@ -111,7 +168,7 @@ func main() {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		r.Delete("/{id}", func(w http.ResponseWriter, r *http.Request) {
+		r.With(policyMiddleware("task:delete")).Delete("/{id}", func(w http.ResponseWriter, r *http.Request) {
 			userID := r.Context().Value("user_id").(string)
 			taskID := chi.URLParam(r, "id")
 

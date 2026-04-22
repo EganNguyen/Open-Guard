@@ -22,12 +22,12 @@ not a proxy.
 | `iam` | `services/iam` | Auth, OIDC/SAML, SCIM, MFA, JWT |
 | `connector-registry` | `services/connector-registry` | App registration, API credentials |
 | `policy` | `services/policy` | RBAC evaluation, cache, fail-closed |
-| `audit` | `services/audit` | Kafka → MongoDB, HMAC hash chain |
-| `threat` | `services/threat` | Anomaly detection, alert lifecycle |
-| `alerting` | `services/alerting` | Alert delivery, SIEM webhooks |
-| `webhook-delivery` | `services/webhook-delivery` | Outbound signed webhook delivery |
-| `compliance` | `services/compliance` | Report generation, PDF signing |
-| `dlp` | `services/dlp` | PII / credential scanning |
+| `audit` | `services/audit` | Not Implemented (v1 Stub) |
+| `threat` | `services/threat` | Not Implemented (v1 Stub) |
+| `alerting` | `services/alerting` | Not Implemented (v1 Stub) |
+| `webhook-delivery` | `services/webhook-delivery` | Not Implemented (v1 Stub) |
+| `compliance` | `services/compliance` | Not Implemented (v1 Stub) |
+| `dlp` | `services/dlp` | Not Implemented (v1 Stub) |
 
 **Frontend:** Angular 19+ Admin Dashboard at `web/` — TypeScript, Standalone Components,
 Angular Signals, HttpClient Services, SseService for real-time data.

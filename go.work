@@ -13,4 +13,5 @@ use (
 	./services/threat
 	./services/webhook-delivery
 	./shared
+	./examples/task-management-app/backend
 )

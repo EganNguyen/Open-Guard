@@ -85,21 +85,23 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 	// Issue JWT
 	jti := uuid.New().String()
 	ttl := 1 * time.Hour
-	claims := crypto.NewStandardClaims(user["org_id"].(string), user["id"].(string), jti, ttl)
-	
-	token, err := crypto.Sign(claims, s.keyring)
+	token, err := s.SignToken(user["org_id"].(string), user["id"].(string), jti, ttl)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to sign token: %w", err)
+		return nil, "", err
 	}
 
 	// Create session record
-	err = s.repo.CreateSession(ctx, user["org_id"].(string), user["id"].(string), jti, userAgent, ip, claims.ExpiresAt.Time)
+	err = s.repo.CreateSession(ctx, user["org_id"].(string), user["id"].(string), jti, userAgent, ip, time.Now().Add(ttl))
 	if err != nil {
-		// Log error but don't fail login for now? Actually, session is critical.
 		return nil, "", fmt.Errorf("failed to create session: %w", err)
 	}
 
 	return user, token, nil
+}
+
+func (s *Service) SignToken(orgID, userID, jti string, ttl time.Duration) (string, error) {
+	claims := crypto.NewStandardClaims(orgID, userID, jti, ttl)
+	return crypto.Sign(claims, s.keyring)
 }
 
 func (s *Service) Logout(ctx context.Context, jti string, expiresAt time.Time) error {

@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/openguard/services/policy/pkg/handlers"
 )
@@ -17,7 +18,8 @@ func NewRouter(h *handlers.Handler) *chi.Mux {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// Health
+	// Metrics & Health
+	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/health", h.Health)
 
 	// Policy evaluation — path must be /v1/policy/evaluate per spec §11.5

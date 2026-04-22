@@ -62,7 +62,7 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set ETag based on response content for client-side caching
-	etag := fmt.Sprintf(`"%s-%s-%s"`, req.OrgID, req.Action, resp.Effect)
+	etag := fmt.Sprintf(`"%s-v%d"`, req.OrgID, resp.MaxVersion)
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "no-store") // Per spec: decisions must not be cached by intermediaries
 
@@ -118,7 +118,7 @@ func (h *Handler) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	policy, err := h.repo.CreatePolicy(r.Context(), body.OrgID, body.Name, body.Description, body.Logic)
+	policy, err := h.svc.CreatePolicy(r.Context(), body.OrgID, body.Name, body.Description, body.Logic)
 	if err != nil {
 		h.logger.Error("create policy failed", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "failed to create policy")
@@ -176,7 +176,7 @@ func (h *Handler) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	policy, err := h.repo.UpdatePolicy(r.Context(), body.OrgID, policyID, body.Name, body.Description, body.Logic)
+	policy, err := h.svc.UpdatePolicy(r.Context(), body.OrgID, policyID, body.Name, body.Description, body.Logic)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			h.writeError(w, http.StatusNotFound, "policy not found")
@@ -204,7 +204,7 @@ func (h *Handler) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.repo.DeletePolicy(r.Context(), orgID, policyID); err != nil {
+	if err := h.svc.DeletePolicy(r.Context(), orgID, policyID); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			h.writeError(w, http.StatusNotFound, "policy not found")
 			return

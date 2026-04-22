@@ -10,6 +10,7 @@ import (
 	iam_middleware "github.com/openguard/services/iam/pkg/middleware"
 	"github.com/openguard/services/iam/pkg/telemetry"
 	"github.com/openguard/shared/crypto"
+	"golang.org/x/time/rate"
 )
 
 // Router sets up the HTTP routes for the IAM service.
@@ -37,9 +38,13 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) 
 		r.Get("/users/mfa/totp/setup", h.TOTPSetup)
 		r.Post("/users/mfa/totp/enable", h.TOTPEnable)
 	})
-
+	
+	authRateLimiter := iam_middleware.NewRateLimiter(rate.Limit(1), 5) // 1 req/sec, burst 5
 	r.Route("/auth", func(r chi.Router) {
-		r.Post("/login", h.Login)
+		r.Group(func(r chi.Router) {
+			r.Use(authRateLimiter.Limit)
+			r.Post("/login", h.Login)
+		})
 		r.Post("/logout", h.Logout)
 		r.Get("/authorize", h.Authorize)
 		r.Post("/token", h.Token)

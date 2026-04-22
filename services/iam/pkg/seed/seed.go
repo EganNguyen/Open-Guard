@@ -110,6 +110,27 @@ func Seed(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("failed to create task-app connector: %w", err)
 	}
 
+	// 4. Create Default Policies for Task App
+	_, err = pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS policies (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			org_id UUID REFERENCES orgs(id),
+			name TEXT NOT NULL,
+			logic JSONB NOT NULL,
+			version INT NOT NULL DEFAULT 1,
+			status TEXT NOT NULL DEFAULT 'active',
+			created_at TIMESTAMPTZ DEFAULT now(),
+			updated_at TIMESTAMPTZ DEFAULT now()
+		);
+
+		INSERT INTO policies (org_id, name, logic, version)
+		VALUES ($1, $2, $3, 1)
+		ON CONFLICT DO NOTHING
+	`, acmeOrgID, "Allow Task Management", `{"type": "allow_all"}`) // Simple allow all for the demo
+	if err != nil {
+		return fmt.Errorf("failed to seed policies: %w", err)
+	}
+
 	log.Println("Seeding completed successfully")
 	return nil
 }

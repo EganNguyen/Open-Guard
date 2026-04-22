@@ -52,11 +52,6 @@ export class AuthService {
           return;
         }
 
-        // OpenGuard Admin Restriction check (per existing logic)
-        if (res.user.email !== 'admin@openguard.io') {
-          throw new Error('Access denied. Open Guard access is restricted to the System Admin only.');
-        }
-
         this.currentUser.set(res.user);
         this.router.navigate(['/overview']);
       })

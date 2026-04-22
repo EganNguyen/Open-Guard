@@ -35,7 +35,7 @@ type EvalLog struct {
 	Resource         string    `json:"resource"`
 	Effect           string    `json:"effect"`
 	MatchedPolicyIDs []string  `json:"matched_policy_ids"`
-	CacheHit         bool      `json:"cache_hit"`
+	CacheHit         string    `json:"cache_hit"`
 	LatencyMs        int       `json:"latency_ms"`
 	EvaluatedAt      time.Time `json:"evaluated_at"`
 }
@@ -50,9 +50,14 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
+// Pool returns the underlying database pool.
+func (r *Repository) Pool() *pgxpool.Pool {
+	return r.pool
+}
+
 // SetRLS sets the RLS org_id context variable on a connection.
 func SetRLS(ctx context.Context, tx pgx.Tx, orgID string) error {
-	_, err := tx.Exec(ctx, "SELECT set_config('app.org_id', $1, true)", orgID)
+	_, err := tx.Exec(ctx, "SELECT set_config('app.org_id', $1, false)", orgID)
 	return err
 }
 
@@ -210,9 +215,74 @@ func (r *Repository) DeletePolicy(ctx context.Context, orgID, policyID string) e
 	return tx.Commit(ctx)
 }
 
+// CreatePolicyTx inserts a new policy within an existing transaction.
+func (r *Repository) CreatePolicyTx(ctx context.Context, tx pgx.Tx, orgID, name, description string, logic json.RawMessage) (*Policy, error) {
+	if err := SetRLS(ctx, tx, orgID); err != nil {
+		return nil, fmt.Errorf("set rls: %w", err)
+	}
+
+	id := uuid.New().String()
+	var p Policy
+	var logicBytes []byte
+	err := tx.QueryRow(ctx, `
+		INSERT INTO policies (id, org_id, name, description, logic)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, org_id, name, description, logic, version, created_at, updated_at
+	`, id, orgID, name, description, []byte(logic)).Scan(
+		&p.ID, &p.OrgID, &p.Name, &p.Description, &logicBytes, &p.Version, &p.CreatedAt, &p.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create policy: %w", err)
+	}
+	p.Logic = json.RawMessage(logicBytes)
+	return &p, nil
+}
+
+// UpdatePolicyTx updates a policy within an existing transaction.
+func (r *Repository) UpdatePolicyTx(ctx context.Context, tx pgx.Tx, orgID, policyID, name, description string, logic json.RawMessage) (*Policy, error) {
+	if err := SetRLS(ctx, tx, orgID); err != nil {
+		return nil, fmt.Errorf("set rls: %w", err)
+	}
+
+	var p Policy
+	var logicBytes []byte
+	err := tx.QueryRow(ctx, `
+		UPDATE policies
+		SET name = $3, description = $4, logic = $5, version = version + 1, updated_at = NOW()
+		WHERE id = $1 AND org_id = $2
+		RETURNING id, org_id, name, description, logic, version, created_at, updated_at
+	`, policyID, orgID, name, description, []byte(logic)).Scan(
+		&p.ID, &p.OrgID, &p.Name, &p.Description, &logicBytes, &p.Version, &p.CreatedAt, &p.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("update policy: %w", err)
+	}
+	p.Logic = json.RawMessage(logicBytes)
+	return &p, nil
+}
+
+// DeletePolicyTx removes a policy within an existing transaction.
+func (r *Repository) DeletePolicyTx(ctx context.Context, tx pgx.Tx, orgID, policyID string) error {
+	if err := SetRLS(ctx, tx, orgID); err != nil {
+		return fmt.Errorf("set rls: %w", err)
+	}
+
+	ct, err := tx.Exec(ctx, `DELETE FROM policies WHERE id = $1 AND org_id = $2`, policyID, orgID)
+	if err != nil {
+		return fmt.Errorf("delete policy: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // GetMatchingPolicies fetches all policies for an org that could match a given action and resource.
-// The JSONB logic field is returned for evaluation by the service layer.
-func (r *Repository) GetMatchingPolicies(ctx context.Context, orgID string) ([]Policy, error) {
+// It joins with policy_assignments to filter by subject if provided.
+func (r *Repository) GetMatchingPolicies(ctx context.Context, orgID string, subjectID string, userGroups []string) ([]Policy, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
@@ -223,17 +293,55 @@ func (r *Repository) GetMatchingPolicies(ctx context.Context, orgID string) ([]P
 		return nil, fmt.Errorf("set rls: %w", err)
 	}
 
-	rows, err := tx.Query(ctx, `
-		SELECT id, org_id, name, description, logic, version, created_at, updated_at
-		FROM policies
-		WHERE org_id = $1
-		ORDER BY created_at ASC
-	`, orgID)
+	// Fetch policies assigned to the subject OR any of the user's groups OR global policies (no assignments)
+	query := `
+		SELECT DISTINCT p.id, p.org_id, p.name, p.description, p.logic, p.version, p.created_at, p.updated_at
+		FROM policies p
+		LEFT JOIN policy_assignments pa ON p.id = pa.policy_id
+		WHERE p.org_id = $1
+		AND (
+			pa.id IS NULL OR 
+			(pa.subject_id = $2::UUID AND pa.subject_type = 'user') OR 
+			(pa.subject_id = ANY($3::UUID[]) AND pa.subject_type = 'group')
+		)
+		ORDER BY p.created_at ASC
+	`
+
+	// If subjectID is not a valid UUID, we skip the assignment filter and only return global policies
+	// to avoid Postgres error.
+	if _, err := uuid.Parse(subjectID); err != nil {
+		query = `
+			SELECT p.id, p.org_id, p.name, p.description, p.logic, p.version, p.created_at, p.updated_at
+			FROM policies p
+			LEFT JOIN policy_assignments pa ON p.id = pa.policy_id
+			WHERE p.org_id = $1 AND pa.id IS NULL
+			ORDER BY p.created_at ASC
+		`
+		rows, err := tx.Query(ctx, query, orgID)
+		if err != nil {
+			return nil, fmt.Errorf("get global policies: %w", err)
+		}
+		defer rows.Close()
+		return r.scanPolicies(rows)
+	}
+
+	validGroups := []string{}
+	for _, g := range userGroups {
+		if _, err := uuid.Parse(g); err == nil {
+			validGroups = append(validGroups, g)
+		}
+	}
+
+	rows, err := tx.Query(ctx, query, orgID, subjectID, validGroups)
 	if err != nil {
 		return nil, fmt.Errorf("get matching policies: %w", err)
 	}
 	defer rows.Close()
 
+	return r.scanPolicies(rows)
+}
+
+func (r *Repository) scanPolicies(rows pgx.Rows) ([]Policy, error) {
 	var policies []Policy
 	for rows.Next() {
 		var p Policy
@@ -244,7 +352,6 @@ func (r *Repository) GetMatchingPolicies(ctx context.Context, orgID string) ([]P
 		p.Logic = json.RawMessage(logicBytes)
 		policies = append(policies, p)
 	}
-	tx.Commit(ctx)
 	return policies, nil
 }
 
