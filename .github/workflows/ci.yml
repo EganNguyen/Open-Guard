@@ -19,8 +19,8 @@ jobs:
     - name: Run Tests
       run: |
         go work sync
-        # Test all workspace modules
-        go test ./sdk/... ./services/... ./shared/... -race -coverprofile=coverage.out -timeout 5m
+        # Test each module defined in go.work
+        go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && go test ./... -race -coverprofile=coverage.out -timeout 5m'
 
   go-lint:
     runs-on: ubuntu-latest
@@ -36,7 +36,6 @@ jobs:
       with:
         version: v1.59
         args: --timeout=5m
-      continue-on-error: true # Keep non-blocking for now if it's too strict
 
   sql-lint:
     runs-on: ubuntu-latest
@@ -49,9 +48,7 @@ jobs:
     - name: Install sqlfluff
       run: pip install sqlfluff
     - name: Run SQL lint
-      run: |
-        # Lint all migration files found in the repo
-        sqlfluff lint . --dialect postgres --ignore parsing
+      run: sqlfluff lint .
 
   angular-build:
     runs-on: ubuntu-latest
@@ -82,16 +79,11 @@ jobs:
         cache: true
     - name: Run Contract Tests
       run: |
-        # Check if contract tests exist before running, otherwise it might fail the job
-        if grep -r "TestContract" ./shared ./services; then
-          go test ./shared/... ./services/... -run TestContract -v
-        else
-          echo "No contract tests found matching 'TestContract'"
-        fi
+        # Only run if TestContract exists in any module
+        go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if grep -r "TestContract" .; then go test ./... -run TestContract -v; fi'
 
   security-scan:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
     - uses: actions/checkout@v4
     - name: Set up Go
@@ -102,7 +94,8 @@ jobs:
     - name: Govulncheck
       run: |
         go install golang.org/x/vuln/cmd/govulncheck@latest
-        govulncheck ./...
+        # Run govulncheck for each module
+        go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && govulncheck ./...'
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
       with:
