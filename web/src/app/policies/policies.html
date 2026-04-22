@@ -1,0 +1,276 @@
+<div class="space-y-8">
+  <!-- Page Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-2xl font-bold text-[#172B4D]">Policies</h2>
+      <p class="text-[#6B778C]">Define and manage RBAC rules for your organization's resources.</p>
+    </div>
+    <div class="flex space-x-3">
+      <button (click)="openCreateModal()" 
+              class="bg-[#0052CC] hover:bg-[#0747A6] text-white px-4 py-2 rounded-md text-sm font-medium shadow-sm flex items-center transition-all">
+        <span class="material-symbols-outlined mr-2 text-lg">add</span>
+        New Policy
+      </button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <!-- Policy List -->
+    <div class="lg:col-span-2 space-y-4">
+      @if (loading()) {
+        <div class="bg-white p-12 rounded-lg border border-[#DFE1E6] flex flex-col items-center justify-center">
+          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0052CC]"></div>
+          <p class="mt-4 text-[#6B778C]">Loading policies...</p>
+        </div>
+      } @else if (policies().length === 0) {
+        <div class="bg-white p-16 rounded-lg border border-[#DFE1E6] text-center shadow-sm">
+          <div class="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span class="material-symbols-outlined text-3xl text-[#0052CC]">policy</span>
+          </div>
+          <h3 class="text-lg font-bold text-[#172B4D]">No policies found</h3>
+          <p class="text-[#6B778C] max-w-sm mx-auto mt-2">Start by creating your first security policy to protect your resources.</p>
+          <button (click)="openCreateModal()" class="mt-6 text-[#0052CC] font-bold hover:underline">Create first policy</button>
+        </div>
+      } @else {
+        <div class="grid gap-4">
+          @for (policy of policies(); track policy.id) {
+            <div class="bg-white p-6 rounded-lg border border-[#DFE1E6] shadow-sm hover:border-[#4C9AFF] transition-all group">
+              <div class="flex justify-between items-start">
+                <div class="flex-1">
+                  <div class="flex items-center space-x-2">
+                    <h3 class="font-bold text-[#172B4D] group-hover:text-[#0052CC] transition-colors">{{ policy.name }}</h3>
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-gray-100 text-[#6B778C] font-bold uppercase">v{{ policy.version }}</span>
+                  </div>
+                  <p class="text-sm text-[#6B778C] mt-1">{{ policy.description || 'No description provided' }}</p>
+                  
+                  <div class="mt-4 flex flex-wrap gap-2">
+                    <div class="text-[11px] bg-blue-50 text-[#0747A6] px-2 py-1 rounded flex items-center">
+                      <span class="material-symbols-outlined text-[14px] mr-1">person</span>
+                      {{ policy.logic.subjects?.length || 0 }} subjects
+                    </div>
+                    <div class="text-[11px] bg-green-50 text-[#006644] px-2 py-1 rounded flex items-center">
+                      <span class="material-symbols-outlined text-[14px] mr-1">bolt</span>
+                      {{ policy.logic.actions?.length || 0 }} actions
+                    </div>
+                    <div class="text-[11px] bg-purple-50 text-[#403294] px-2 py-1 rounded flex items-center">
+                      <span class="material-symbols-outlined text-[14px] mr-1">inventory_2</span>
+                      {{ policy.logic.resources?.length || 0 }} resources
+                    </div>
+                  </div>
+                </div>
+                <div class="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button (click)="openEditModal(policy)" 
+                          class="p-2 text-[#6B778C] hover:bg-[#EBECF0] hover:text-[#172B4D] rounded-md transition-colors">
+                    <span class="material-symbols-outlined text-lg">edit</span>
+                  </button>
+                  <button (click)="confirmDelete(policy)" 
+                          class="p-2 text-[#6B778C] hover:bg-red-50 hover:text-red-600 rounded-md transition-colors">
+                    <span class="material-symbols-outlined text-lg">delete</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+
+    <!-- Playground Panel -->
+    <div class="space-y-6">
+      <div class="bg-white rounded-lg border border-[#DFE1E6] shadow-sm overflow-hidden">
+        <div class="p-4 bg-[#0747A6] text-white flex items-center">
+          <span class="material-symbols-outlined mr-2">science</span>
+          <h3 class="font-bold">Policy Playground</h3>
+        </div>
+        <div class="p-6 space-y-4">
+          <p class="text-xs text-[#6B778C]">Test your policies in real-time by simulating evaluation requests.</p>
+          
+          <div class="space-y-3">
+            <div>
+              <label class="block text-[11px] font-bold text-[#6B778C] uppercase tracking-wider mb-1">Subject</label>
+              <input type="text" [(ngModel)]="playgroundRequest().subject_id" 
+                     class="w-full px-3 py-2 border border-[#DFE1E6] rounded-md text-sm focus:ring-2 focus:ring-[#4C9AFF] outline-none">
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-[#6B778C] uppercase tracking-wider mb-1">Action</label>
+              <input type="text" [(ngModel)]="playgroundRequest().action" 
+                     class="w-full px-3 py-2 border border-[#DFE1E6] rounded-md text-sm focus:ring-2 focus:ring-[#4C9AFF] outline-none">
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-[#6B778C] uppercase tracking-wider mb-1">Resource</label>
+              <input type="text" [(ngModel)]="playgroundRequest().resource" 
+                     class="w-full px-3 py-2 border border-[#DFE1E6] rounded-md text-sm focus:ring-2 focus:ring-[#4C9AFF] outline-none">
+            </div>
+          </div>
+
+          <button (click)="runTest()" 
+                  [disabled]="evaluating()"
+                  class="w-full py-2 bg-[#0052CC] text-white rounded-md text-sm font-bold shadow-md hover:bg-[#0747A6] transition-all disabled:opacity-50">
+            {{ evaluating() ? 'Evaluating...' : 'Run Test' }}
+          </button>
+
+          @if (playgroundResponse()) {
+            <div class="mt-6 animate-in fade-in slide-in-from-top-2 duration-300">
+              <div class="p-4 rounded-lg flex items-center justify-between" 
+                   [ngClass]="playgroundResponse()?.effect === 'allow' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'">
+                <div class="flex items-center">
+                  <span class="material-symbols-outlined mr-2" 
+                        [ngClass]="playgroundResponse()?.effect === 'allow' ? 'text-green-600' : 'text-red-600'">
+                    {{ playgroundResponse()?.effect === 'allow' ? 'check_circle' : 'cancel' }}
+                  </span>
+                  <span class="font-bold uppercase tracking-widest text-sm"
+                        [ngClass]="playgroundResponse()?.effect === 'allow' ? 'text-green-700' : 'text-red-700'">
+                    {{ playgroundResponse()?.effect }}
+                  </span>
+                </div>
+                <span class="text-[10px] text-[#6B778C]">{{ playgroundResponse()?.latency_ms }}ms</span>
+              </div>
+              
+              @if (playgroundResponse()?.matched_policy_ids?.length) {
+                <div class="mt-4">
+                  <p class="text-[10px] font-bold text-[#6B778C] uppercase mb-2">Matched Policies</p>
+                  <div class="space-y-1">
+                    @for (id of playgroundResponse()?.matched_policy_ids; track id) {
+                      <div class="text-[10px] px-2 py-1 bg-gray-50 border border-gray-100 rounded text-[#172B4D] truncate">
+                        {{ id }}
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create/Edit Modal (RBAC Builder) -->
+  @if (showModal()) {
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+        <div class="px-6 py-4 border-b border-[#DFE1E6] flex items-center justify-between">
+          <h3 class="text-xl font-bold text-[#172B4D]">{{ isEditing() ? 'Edit Policy' : 'Create New Policy' }}</h3>
+          <button (click)="showModal.set(false)" class="text-[#6B778C] hover:text-[#172B4D]">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto p-6 space-y-6">
+          <form [formGroup]="policyForm" class="space-y-6">
+            <div class="grid grid-cols-2 gap-4">
+              <div class="col-span-2">
+                <label class="block text-sm font-bold text-[#172B4D] mb-1">Policy Name</label>
+                <input type="text" formControlName="name" placeholder="e.g. Production Read Only"
+                       class="w-full px-4 py-2 border border-[#DFE1E6] rounded-md focus:ring-2 focus:ring-[#4C9AFF] outline-none transition-all">
+              </div>
+              <div class="col-span-2">
+                <label class="block text-sm font-bold text-[#172B4D] mb-1">Description</label>
+                <textarea formControlName="description" rows="2" placeholder="Brief explanation of this policy..."
+                          class="w-full px-4 py-2 border border-[#DFE1E6] rounded-md focus:ring-2 focus:ring-[#4C9AFF] outline-none transition-all"></textarea>
+              </div>
+            </div>
+
+            <div formGroupName="logic" class="space-y-6 bg-gray-50 p-6 rounded-xl border border-gray-100">
+              <div class="flex items-center justify-between mb-4">
+                <h4 class="font-bold text-[#172B4D] flex items-center">
+                  <span class="material-symbols-outlined mr-2 text-blue-600">tune</span>
+                  RBAC Logic Builder
+                </h4>
+                <select formControlName="type" class="text-xs font-bold bg-white border border-[#DFE1E6] rounded px-2 py-1 outline-none">
+                  <option value="rbac">RBAC Rule</option>
+                  <option value="allow_all">Allow All</option>
+                  <option value="deny_all">Deny All</option>
+                </select>
+              </div>
+
+              @if (policyForm.get('logic.type')?.value === 'rbac') {
+                <!-- Subjects -->
+                <div class="space-y-2">
+                  <div class="flex items-center justify-between">
+                    <label class="text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Subjects</label>
+                    <button type="button" (click)="addValue(subjects)" class="text-[10px] text-[#0052CC] font-bold hover:underline">+ Add Subject</button>
+                  </div>
+                  <div formArrayName="subjects" class="space-y-2">
+                    @for (ctrl of subjects.controls; track $index) {
+                      <div class="flex space-x-2">
+                        <input [formControlName]="$index" placeholder="user:*" 
+                               class="flex-1 px-3 py-1.5 text-sm border border-[#DFE1E6] rounded-md outline-none focus:border-[#4C9AFF]">
+                        <button type="button" (click)="removeValue(subjects, $index)" class="text-[#6B778C] hover:text-red-600">
+                          <span class="material-symbols-outlined text-lg">delete</span>
+                        </button>
+                      </div>
+                    }
+                  </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="space-y-2">
+                  <div class="flex items-center justify-between">
+                    <label class="text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Actions</label>
+                    <button type="button" (click)="addValue(actions)" class="text-[10px] text-[#0052CC] font-bold hover:underline">+ Add Action</button>
+                  </div>
+                  <div formArrayName="actions" class="space-y-2">
+                    @for (ctrl of actions.controls; track $index) {
+                      <div class="flex space-x-2">
+                        <input [formControlName]="$index" placeholder="read:*" 
+                               class="flex-1 px-3 py-1.5 text-sm border border-[#DFE1E6] rounded-md outline-none focus:border-[#4C9AFF]">
+                        <button type="button" (click)="removeValue(actions, $index)" class="text-[#6B778C] hover:text-red-600">
+                          <span class="material-symbols-outlined text-lg">delete</span>
+                        </button>
+                      </div>
+                    }
+                  </div>
+                </div>
+
+                <!-- Resources -->
+                <div class="space-y-2">
+                  <div class="flex items-center justify-between">
+                    <label class="text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Resources</label>
+                    <button type="button" (click)="addValue(resources)" class="text-[10px] text-[#0052CC] font-bold hover:underline">+ Add Resource</button>
+                  </div>
+                  <div formArrayName="resources" class="space-y-2">
+                    @for (ctrl of resources.controls; track $index) {
+                      <div class="flex space-x-2">
+                        <input [formControlName]="$index" placeholder="document:*" 
+                               class="flex-1 px-3 py-1.5 text-sm border border-[#DFE1E6] rounded-md outline-none focus:border-[#4C9AFF]">
+                        <button type="button" (click)="removeValue(resources, $index)" class="text-[#6B778C] hover:text-red-600">
+                          <span class="material-symbols-outlined text-lg">delete</span>
+                        </button>
+                      </div>
+                    }
+                  </div>
+                </div>
+              } @else {
+                <div class="p-8 text-center text-[#6B778C] border-2 border-dashed border-gray-200 rounded-lg">
+                  This policy will {{ policyForm.get('logic.type')?.value === 'allow_all' ? 'globally ALLOW' : 'globally DENY' }} all matching requests.
+                </div>
+              }
+            </div>
+          </form>
+        </div>
+
+        <div class="px-6 py-4 bg-[#F4F5F7] border-t border-[#DFE1E6] flex justify-end space-x-3">
+          <button (click)="showModal.set(false)" 
+                  class="px-4 py-2 text-sm font-medium text-[#172B4D] hover:bg-[#EBECF0] rounded-md transition-colors">
+            Cancel
+          </button>
+          <button (click)="savePolicy()" 
+                  [disabled]="policyForm.invalid"
+                  class="px-4 py-2 text-sm font-bold text-white bg-[#0052CC] hover:bg-[#0747A6] rounded-md shadow-lg transition-all disabled:opacity-50">
+            {{ isEditing() ? 'Update Policy' : 'Create Policy' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Confirm Delete -->
+  @if (showConfirm()) {
+    <app-confirm-dialog 
+      title="Delete Policy"
+      [message]="'Are you sure you want to delete \'' + policyToDelete()?.name + '\'? This action cannot be undone.'"
+      (confirm)="deletePolicy()"
+      (cancel)="showConfirm.set(false)" />
+  }
+</div>

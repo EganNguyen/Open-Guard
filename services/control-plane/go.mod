@@ -1,10 +1,11 @@
 module github.com/openguard/control-plane
 
-go 1.25.0
+go 1.22.0
 
 require (
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/google/uuid v1.6.0
+	github.com/openguard/shared v0.0.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/sony/gobreaker v1.0.0
 	go.opentelemetry.io/otel v1.43.0
@@ -31,3 +32,5 @@ require (
 	golang.org/x/sys v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 )
+
+replace github.com/openguard/shared => ../../shared

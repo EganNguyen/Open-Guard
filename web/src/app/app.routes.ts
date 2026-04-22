@@ -2,6 +2,8 @@ import { Routes } from '@angular/router';
 import { HomeComponent } from './home/home';
 import { ConnectorsComponent } from './connectors/connectors';
 import { UsersComponent } from './users/users';
+import { PoliciesComponent } from './policies/policies';
+import { AuditLogComponent } from './audit-logs/audit-logs';
 import { LoginComponent } from './features/login/login';
 import { LayoutComponent } from './core/layout/layout';
 import { authGuard } from './core/guards/auth.guard';
@@ -16,6 +18,8 @@ export const routes: Routes = [
       { path: '', component: HomeComponent },
       { path: 'connectors', component: ConnectorsComponent },
       { path: 'users', component: UsersComponent },
+      { path: 'policies', component: PoliciesComponent },
+      { path: 'audit', component: AuditLogComponent },
     ]
   },
   { path: '**', redirectTo: '' }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"go.opentelemetry.io/otel"
@@ -87,6 +88,32 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	// Extract JTI and expiry injected by auth middleware
+	jti := middleware.GetJTI(r.Context())
+	expiresAt := middleware.GetExpiresAt(r.Context())
+
+	if jti != "" {
+		if err := h.svc.Logout(r.Context(), jti, expiresAt); err != nil {
+			log := middleware.GetLogger(r.Context())
+			log.Error("failed to revoke session", zap.Error(err))
+			// Fail closed: still clear cookie but return 500
+			http.Error(w, "logout failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Clear the session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "openguard_session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
+	})
+
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
 }
 

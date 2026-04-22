@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -33,9 +34,10 @@ func (r *Repository) BeginTx(ctx context.Context) (pgx.Tx, error) {
 // CreateOrg inserts a new organization.
 func (r *Repository) CreateOrg(ctx context.Context, name string) (string, error) {
 	var id string
+	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-")) + "-" + uuid.New().String()[:8]
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO orgs (name) VALUES ($1) RETURNING id
-	`, name).Scan(&id)
+		INSERT INTO orgs (name, slug) VALUES ($1, $2) RETURNING id
+	`, name, slug).Scan(&id)
 	return id, err
 }
 

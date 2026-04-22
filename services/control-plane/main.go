@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/http"
 	"os"
@@ -44,9 +46,24 @@ func main() {
 		port = "8080"
 	}
 
+	var tlsConfig *tls.Config
+	if _, err := os.Stat("/certs/ca.crt"); err == nil {
+		caCert, err := os.ReadFile("/certs/ca.crt")
+		if err == nil {
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(caCert)
+			tlsConfig = &tls.Config{
+				ClientCAs:  caCertPool,
+				ClientAuth: tls.VerifyClientCertIfGiven,
+			}
+			log.Info("mTLS configured")
+		}
+	}
+
 	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: r,
+		Addr:      ":" + port,
+		Handler:   r,
+		TLSConfig: tlsConfig,
 	}
 
 	go func() {

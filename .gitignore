@@ -50,3 +50,9 @@ yarn-error.log*
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Certificates
+*.crt
+*.key
+*.csr
+*.srl

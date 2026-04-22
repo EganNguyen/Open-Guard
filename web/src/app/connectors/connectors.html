@@ -12,7 +12,7 @@
   </div>
 
   <!-- Table Card -->
-  <div class="bg-white rounded-lg border border-[#DFE1E6] shadow-sm overflow-hidden">
+  <div class="bg-white rounded-lg border border-[#DFE1E6] shadow-sm overflow-hidden" *ngIf="connectors$ | async as connectors; else loadingTpl">
     <div class="overflow-x-auto">
       <table class="w-full text-left border-collapse">
         <thead>
@@ -26,25 +26,14 @@
           </tr>
         </thead>
         <tbody class="divide-y divide-[#DFE1E6]">
-          @if (loading()) {
+          @if (connectors.length === 0) {
             <tr>
-              <td colspan="6" class="px-6 py-8 text-center text-[#6B778C]">
-                <div class="flex items-center justify-center space-x-2">
-                  <div class="w-2 h-2 bg-blue-600 rounded-full animate-bounce"></div>
-                  <div class="w-2 h-2 bg-blue-600 rounded-full animate-bounce [animation-delay:-.3s]"></div>
-                  <div class="w-2 h-2 bg-blue-600 rounded-full animate-bounce [animation-delay:-.5s]"></div>
-                </div>
-                <p class="mt-2 text-xs">Fetching connectors...</p>
-              </td>
-            </tr>
-          } @else if (error()) {
-            <tr>
-              <td colspan="6" class="px-6 py-8 text-center text-red-500 text-sm">
-                {{ error() }}
+              <td colspan="6" class="px-6 py-12 text-center text-[#6B778C]">
+                <p>No connectors registered yet.</p>
               </td>
             </tr>
           } @else {
-            @for (connector of connectors(); track connector.id) {
+            @for (connector of connectors; track connector.id) {
               <tr class="hover:bg-[#F4F5F7] transition-colors group">
                 <td class="px-6 py-4">
                   <div class="flex items-center">
@@ -79,7 +68,7 @@
                   <button (click)="editConnector(connector)" class="p-1 rounded-md text-[#6B778C] hover:bg-[#EBECF0] hover:text-[#172B4D] opacity-0 group-hover:opacity-100 transition-all" title="Edit">
                     <span class="material-symbols-outlined">edit</span>
                   </button>
-                  <button (click)="deleteConnector(connector.id)" class="p-1 rounded-md text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all" title="Delete">
+                  <button (click)="confirmDelete(connector)" class="p-1 rounded-md text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all" title="Delete">
                     <span class="material-symbols-outlined">delete</span>
                   </button>
                 </td>
@@ -92,13 +81,24 @@
     
     <!-- Pagination Placeholder -->
     <div class="px-6 py-4 bg-[#FAFBFC] border-t border-[#DFE1E6] flex items-center justify-between text-sm text-[#6B778C]">
-      <span>Showing 1 to {{ connectors().length }} of {{ connectors().length }} connectors</span>
+      <span>Showing latest {{ connectors.length }} connectors</span>
       <div class="flex space-x-2">
         <button class="px-3 py-1 border border-[#DFE1E6] rounded bg-white text-gray-400 cursor-not-allowed">Previous</button>
         <button class="px-3 py-1 border border-[#DFE1E6] rounded bg-white text-[#172B4D]">Next</button>
       </div>
     </div>
   </div>
+
+  <ng-template #loadingTpl>
+    <div class="bg-white rounded-lg border border-[#DFE1E6] p-12 text-center text-[#6B778C]">
+      <div class="flex items-center justify-center space-x-2 mb-4">
+        <div class="w-2 h-2 bg-blue-600 rounded-full animate-bounce"></div>
+        <div class="w-2 h-2 bg-blue-600 rounded-full animate-bounce [animation-delay:-.3s]"></div>
+        <div class="w-2 h-2 bg-blue-600 rounded-full animate-bounce [animation-delay:-.5s]"></div>
+      </div>
+      <p class="text-xs">Fetching connectors...</p>
+    </div>
+  </ng-template>
 
   <!-- Register Connector Modal -->
   @if (showModal()) {
@@ -192,5 +192,14 @@
         </div>
       </div>
     </div>
+  }
+
+  <!-- Confirm Delete -->
+  @if (showConfirm()) {
+    <app-confirm-dialog 
+      title="Delete Connector"
+      [message]="'Are you sure you want to delete \'' + connectorToDelete()?.name + '\'? Applications using this connector will no longer be able to authenticate.'"
+      (confirm)="deleteConnector()"
+      (cancel)="showConfirm.set(false)" />
   }
 </div>

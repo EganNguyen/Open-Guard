@@ -1,11 +1,17 @@
+-- Fix policies table schema per spec §11.1:
+-- Replace array model (actions TEXT[], resources TEXT[], effect TEXT)
+-- with flexible JSONB logic expression + version + ETag support
+
+-- Drop and recreate with correct schema
+DROP TABLE IF EXISTS policies CASCADE;
+
 CREATE TABLE policies (
-    id          UUID PRIMARY KEY DEFAULT GEN_RANDOM_UUID(),
-    org_id      UUID NOT NULL, -- references orgs in iam, but we use loose coupling
-    name        TEXT NOT NULL,
-    effect      TEXT NOT NULL DEFAULT 'allow', -- allow, deny
-    actions     TEXT[] NOT NULL,
-    resources   TEXT[] NOT NULL,
-    conditions  JSONB DEFAULT '{}',
+    id          UUID        PRIMARY KEY DEFAULT GEN_RANDOM_UUID(),
+    org_id      UUID        NOT NULL,
+    name        TEXT        NOT NULL,
+    description TEXT        NOT NULL DEFAULT '',
+    logic       JSONB       NOT NULL,          -- flexible rule expression per spec §11.1
+    version     INT         NOT NULL DEFAULT 1, -- increments on each mutation for ETag
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

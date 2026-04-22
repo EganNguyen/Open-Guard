@@ -142,7 +142,7 @@ func (s *Service) DeleteConnector(ctx context.Context, id string) error {
 }
 
 func (s *Service) GenerateTOTPSetup(ctx context.Context, userID, email string) (string, string, error) {
-	key, err := totp.Generate(totp.GenerateOptions{
+	key, err := totp.Generate(totp.GenerateOpts{
 		Issuer:      "OpenGuard",
 		AccountName: email,
 	})

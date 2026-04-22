@@ -9,26 +9,10 @@ import { OverviewService } from '../core/services/overview.service';
   templateUrl: './home.html',
   styleUrls: ['./home.css']
 })
-export class HomeComponent implements OnInit {
+export class HomeComponent {
   private overviewService = inject(OverviewService);
   
-  stats = signal<any[]>([]);
-  recentActivities = signal<any[]>([]);
-  systemHealth = signal<any[]>([]);
-  loading = signal(true);
+  dashboardData$ = this.overviewService.getDashboardData();
 
-  ngOnInit() {
-    this.overviewService.getDashboardData().subscribe({
-      next: (data) => {
-        this.stats.set(data.stats);
-        this.recentActivities.set(data.activities);
-        this.systemHealth.set(data.health);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        console.error('Failed to fetch dashboard data', err);
-        this.loading.set(false);
-      }
-    });
-  }
+
 }

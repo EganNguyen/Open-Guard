@@ -22,11 +22,15 @@ export class ApiService {
     return this.http.post<T>(`${this.apiUrl}${path}`, body, { headers });
   }
 
+  put<T>(path: string, body: any): Observable<T> {
+    return this.http.put<T>(`${this.apiUrl}${path}`, body);
+  }
+
   patch<T>(path: string, body: any): Observable<T> {
     return this.http.patch<T>(`${this.apiUrl}${path}`, body);
   }
 
-  delete<T>(path: string): Observable<T> {
-    return this.http.delete<T>(`${this.apiUrl}${path}`);
+  delete<T>(path: string, params: HttpParams = new HttpParams()): Observable<T> {
+    return this.http.delete<T>(`${this.apiUrl}${path}`, { params });
   }
 }
