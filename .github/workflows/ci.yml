@@ -44,8 +44,9 @@ jobs:
     - name: Install go-sqllint
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GOPRIVATE: github.com/erikstmartin/*
       run: |
-        git config --global url."https://${{ github.token }}@github.com/".insteadOf "https://github.com/"
+        git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
         go install github.com/erikstmartin/go-sqllint@latest
     - name: Run go-sqllint
       run: go-sqllint ./... || true
