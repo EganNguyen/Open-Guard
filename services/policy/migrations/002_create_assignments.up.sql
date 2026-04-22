@@ -1,5 +1,5 @@
 CREATE TABLE policy_assignments (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id          UUID PRIMARY KEY DEFAULT GEN_RANDOM_UUID(),
     org_id      UUID NOT NULL,
     policy_id   UUID NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
     subject_id  UUID NOT NULL, -- user_id or group_id
@@ -15,7 +15,7 @@ ALTER TABLE policy_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE policy_assignments FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY assignments_org_isolation ON policy_assignments
-    USING (org_id = NULLIF(current_setting('app.org_id', true), '')::UUID)
-    WITH CHECK (org_id = NULLIF(current_setting('app.org_id', true), '')::UUID);
+    USING (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID)
+    WITH CHECK (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID);
 
 GRANT SELECT, INSERT, DELETE ON policy_assignments TO openguard_app;
