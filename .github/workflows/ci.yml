@@ -15,25 +15,13 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: false
+        cache: true
     - name: Run Tests
-      # Assuming shared/sdk logic is placed here later.
       run: |
-        go work sync || true
-        go test ./... -race -coverprofile=coverage.out -timeout 5m || true
+        go work sync
+        go test ./... -race -coverprofile=coverage.out -timeout 5m
 
   go-lint:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: golangci-lint
-      uses: golangci/golangci-lint-action@v4
-      with:
-        version: v1.59
-        args: --timeout=5m
-      continue-on-error: true
-
-  sql-lint:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -41,15 +29,25 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-    - name: Install go-sqllint
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        GOPRIVATE: github.com/erikstmartin/*
-      run: |
-        git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
-        go install github.com/erikstmartin/go-sqllint@latest
-    - name: Run go-sqllint
-      run: go-sqllint ./... || true
+        cache: true
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v4
+      with:
+        version: v1.59
+        args: --timeout=5m
+
+  sql-lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install sqlfluff
+      run: pip install sqlfluff
+    - name: Run SQL lint
+      run: sqlfluff lint . --dialect postgres
 
   next-build:
     runs-on: ubuntu-latest
@@ -62,12 +60,14 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: 20
+        cache: 'npm'
+        cache-dependency-path: './web/package-lock.json'
     - name: Install dependencies
       run: npm install
     - name: Build Next.js
-      run: npm run build || true
+      run: npm run build
     - name: Lint Next.js
-      run: npm run lint || true
+      run: npm run lint
 
   contract-tests:
     runs-on: ubuntu-latest
@@ -77,21 +77,24 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
+        cache: true
     - name: Run Contract Tests
-      run: go test ./shared/... -run TestContract -v || true
+      run: go test ./shared/... -run TestContract -v
 
   security-scan:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
     - uses: actions/checkout@v4
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
+        cache: true
     - name: Govulncheck
       run: |
         go install golang.org/x/vuln/cmd/govulncheck@latest
-        govulncheck ./... || true
+        govulncheck ./...
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
       with:
