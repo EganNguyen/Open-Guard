@@ -48,13 +48,24 @@ func (r *Repository) CreateUser(ctx context.Context, orgID, email, passwordHash,
 	`, orgID, email, passwordHash, displayName, role).Scan(&id)
 	return id, err
 }
+// CreateSession inserts a new session record.
+func (r *Repository) CreateSession(ctx context.Context, orgID, userID, jti, userAgent, ipAddress string, expiresAt time.Time) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO sessions (org_id, user_id, jti, user_agent, ip_address, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, orgID, userID, jti, userAgent, ipAddress, expiresAt)
+	return err
+}
 
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (map[string]interface{}, error) {
 	var user = make(map[string]interface{})
 	var id, orgID, pwdHash, displayName, role, status string
+	var failedCount int
+	var lockedUntil *time.Time
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, org_id, password_hash, display_name, role, status FROM users WHERE email = $1
-	`, email).Scan(&id, &orgID, &pwdHash, &displayName, &role, &status)
+		SELECT id, org_id, password_hash, display_name, role, status, failed_login_count, locked_until 
+		FROM users WHERE email = $1
+	`, email).Scan(&id, &orgID, &pwdHash, &displayName, &role, &status, &failedCount, &lockedUntil)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +76,82 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (map[stri
 	user["role"] = role
 	user["status"] = status
 	user["email"] = email
+	user["failed_login_count"] = failedCount
+	user["locked_until"] = lockedUntil
 	return user, nil
+}
+
+func (r *Repository) GetUserByID(ctx context.Context, id string) (map[string]interface{}, error) {
+	var user = make(map[string]interface{})
+	var orgID, email, displayName, role, status string
+	err := r.pool.QueryRow(ctx, `
+		SELECT org_id, email, display_name, role, status FROM users WHERE id = $1
+	`, id).Scan(&orgID, &email, &displayName, &role, &status)
+	if err != nil {
+		return nil, err
+	}
+	user["id"] = id
+	user["org_id"] = orgID
+	user["email"] = email
+	user["display_name"] = displayName
+	user["role"] = role
+	user["status"] = status
+	return user, nil
+}
+func (r *Repository) IncrementFailedLogin(ctx context.Context, email string) (int, error) {
+	var count int
+	err := r.pool.QueryRow(ctx, `
+		UPDATE users SET failed_login_count = failed_login_count + 1, updated_at = NOW()
+		WHERE email = $1 RETURNING failed_login_count
+	`, email).Scan(&count)
+	return count, err
+}
+
+func (r *Repository) ResetFailedLogin(ctx context.Context, email string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = NOW()
+		WHERE email = $1
+	`, email)
+	return err
+}
+
+func (r *Repository) LockAccount(ctx context.Context, email string, until time.Time) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE users SET locked_until = $2, updated_at = NOW()
+		WHERE email = $1
+	`, email, until)
+	return err
+}
+
+func (r *Repository) GetMFAConfig(ctx context.Context, userID, mfaType string) (map[string]interface{}, error) {
+	var config = make(map[string]interface{})
+	var secretEncrypted string
+	err := r.pool.QueryRow(ctx, `
+		SELECT secret_encrypted FROM mfa_configs WHERE user_id = $1 AND mfa_type = $2
+	`, userID, mfaType).Scan(&secretEncrypted)
+	if err != nil {
+		return nil, err
+	}
+	config["secret_encrypted"] = secretEncrypted
+	return config, nil
+}
+
+func (r *Repository) UpsertMFAConfig(ctx context.Context, orgID, userID, mfaType, secretEncrypted string) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO mfa_configs (org_id, user_id, mfa_type, secret_encrypted)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id, mfa_type) DO UPDATE SET 
+			secret_encrypted = EXCLUDED.secret_encrypted, 
+			updated_at = NOW()
+	`, orgID, userID, mfaType, secretEncrypted)
+	return err
+}
+
+func (r *Repository) EnableUserMFA(ctx context.Context, userID string, enabled bool, method string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE users SET mfa_enabled = $1, mfa_method = $2 WHERE id = $3
+	`, enabled, method, userID)
+	return err
 }
 
 func (r *Repository) GetConnectorByID(ctx context.Context, id string) (map[string]interface{}, error) {

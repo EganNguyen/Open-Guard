@@ -4,6 +4,7 @@ CREATE TABLE users (
     email               TEXT NOT NULL,
     display_name        TEXT NOT NULL DEFAULT '',
     password_hash       TEXT,            -- bcrypt, cost 12
+    role                TEXT NOT NULL DEFAULT 'user',
     status              TEXT NOT NULL DEFAULT 'active',
     mfa_enabled         BOOLEAN NOT NULL DEFAULT FALSE,
     mfa_method          TEXT,

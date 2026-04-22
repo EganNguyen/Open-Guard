@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"github.com/openguard/services/iam/pkg/handlers"
@@ -20,6 +21,9 @@ import (
 	"github.com/openguard/services/iam/pkg/seed"
 	"github.com/openguard/services/iam/pkg/service"
 	"github.com/openguard/services/iam/pkg/telemetry"
+	"github.com/openguard/shared/crypto"
+	"github.com/openguard/shared/kafka"
+	"github.com/openguard/shared/kafka/outbox"
 )
 
 func main() {
@@ -53,11 +57,33 @@ func main() {
 		log.Fatal("failed to parse db config", zap.Error(err))
 	}
 
+	// Set connection pool limits per spec §2.10
+	config.MaxConns = 25
+	config.MinConns = 5
+	config.MaxConnLifetime = 30 * time.Minute
+	config.MaxConnIdleTime = 5 * time.Minute
+
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		log.Fatal("failed to connect to db", zap.Error(err))
 	}
 	defer pool.Close()
+
+	// Initialize Redis
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379/0"
+	}
+	rOptions, err := redis.ParseURL(redisURL)
+	if err != nil {
+		log.Fatal("failed to parse redis url", zap.Error(err))
+	}
+	rdb := redis.NewClient(rOptions)
+	defer rdb.Close()
+
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		log.Warn("redis connection check failed", zap.Error(err))
+	}
 
 	// Auto-seed if requested
 	if os.Getenv("SEED_DB") == "true" {
@@ -69,13 +95,50 @@ func main() {
 	// Initialize AuthWorkerPool
 	authPool := service.NewAuthWorkerPool(2 * runtime.NumCPU())
 
+	// Load JWT Keyring
+	keyringJSON := os.Getenv("IAM_JWT_KEYS")
+	if keyringJSON == "" {
+		// Default dev key if not provided - NOT FOR PRODUCTION
+		keyringJSON = `[{"kid":"dev-key","secret":"dev-secret-at-least-32-chars-long-!!","algorithm":"HS256","status":"active"}]`
+		log.Warn("IAM_JWT_KEYS not set, using default dev key")
+	}
+	keyring, err := crypto.LoadKeyring(keyringJSON)
+	if err != nil {
+		log.Fatal("failed to load JWT keyring", zap.Error(err))
+	}
+
+	// Load AES Keyring for MFA
+	aesKeyringJSON := os.Getenv("IAM_AES_KEYS")
+	if aesKeyringJSON == "" {
+		// Default dev key - 32 bytes base64 encoded
+		aesKeyringJSON = `[{"kid":"dev-aes","key":"YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=","status":"active"}]`
+		log.Warn("IAM_AES_KEYS not set, using default dev key")
+	}
+	aesKeyring, err := crypto.LoadAESKeyring(aesKeyringJSON)
+	if err != nil {
+		log.Fatal("failed to load AES keyring", zap.Error(err))
+	}
+
 	// Initialize Repository, Service, Handler
 	repo := repository.NewRepository(pool)
-	svc := service.NewService(repo, authPool)
+	svc := service.NewService(repo, authPool, keyring, aesKeyring, rdb)
 	h := handlers.NewHandler(svc)
 
 	// Setup Router
-	r := router.NewRouter(h)
+	r := router.NewRouter(h, keyring, rdb)
+
+	// Initialize Kafka and Outbox Relay
+	brokers := os.Getenv("KAFKA_BROKERS")
+	if brokers == "" {
+		brokers = "localhost:9092"
+	}
+	kp := kafka.NewPublisher([]string{brokers})
+	defer kp.Close()
+
+	relay := outbox.NewRelay(pool, kp, "outbox_records", 5*time.Second, slog.Default())
+	
+	// Start Outbox Relay in background
+	go relay.Run(ctx)
 
 	port := os.Getenv("PORT")
 	if port == "" {

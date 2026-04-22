@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -114,4 +115,12 @@ func Decrypt(encodedCiphertext string, keyring []EncryptionKey) ([]byte, error) 
 	}
 
 	return plaintext, nil
+}
+// LoadAESKeyring parses a JSON-encoded AES keyring.
+func LoadAESKeyring(jsonStr string) ([]EncryptionKey, error) {
+	var keyring []EncryptionKey
+	if err := json.Unmarshal([]byte(jsonStr), &keyring); err != nil {
+		return nil, fmt.Errorf("invalid AES keyring JSON: %w", err)
+	}
+	return keyring, nil
 }

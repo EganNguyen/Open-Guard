@@ -28,8 +28,8 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Default to allow for now as a skeleton
-	resp := DecisionResponse{Effect: "allow"}
+	// Fail-closed by default per spec §10
+	resp := DecisionResponse{Effect: "deny"}
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

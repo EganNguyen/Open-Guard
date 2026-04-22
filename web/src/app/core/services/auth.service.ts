@@ -32,19 +32,19 @@ export class AuthService {
 
   private init(): void {
     if (isPlatformBrowser(this.platformId)) {
-      const savedUser = localStorage.getItem('openguard_user');
-      if (savedUser) {
-        try {
-          this.currentUser.set(JSON.parse(savedUser));
-        } catch (e) {
-          localStorage.removeItem('openguard_user');
+      this.api.get<any>('/auth/me').subscribe({
+        next: (res) => {
+          this.currentUser.set(res.user);
+        },
+        error: () => {
+          this.currentUser.set(null);
         }
-      }
+      });
     }
   }
 
   login(credentials: any, oauthParams?: any): Observable<any> {
-    const { email, password, rememberMe } = credentials;
+    const { email, password } = credentials;
     return this.api.post<any>('/auth/login', { email, password }).pipe(
       tap(res => {
         if (oauthParams && oauthParams.client_id && oauthParams.redirect_uri) {
@@ -52,16 +52,12 @@ export class AuthService {
           return;
         }
 
+        // OpenGuard Admin Restriction check (per existing logic)
         if (res.user.email !== 'admin@openguard.io') {
           throw new Error('Access denied. Open Guard access is restricted to the System Admin only.');
         }
 
         this.currentUser.set(res.user);
-        
-        if (rememberMe && isPlatformBrowser(this.platformId)) {
-          localStorage.setItem('openguard_user', JSON.stringify(res.user));
-        }
-
         this.router.navigate(['/overview']);
       })
     );
@@ -70,9 +66,6 @@ export class AuthService {
   logout(): void {
     this.api.post('/auth/logout', {}).subscribe(() => {
       this.currentUser.set(null);
-      if (isPlatformBrowser(this.platformId)) {
-        localStorage.removeItem('openguard_user');
-      }
       this.router.navigate(['/login']);
     });
   }
