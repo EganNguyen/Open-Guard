@@ -1,5 +1,5 @@
 CREATE TABLE users (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                  UUID PRIMARY KEY DEFAULT GEN_RANDOM_UUID(),
     org_id              UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
     email               TEXT NOT NULL,
     display_name        TEXT NOT NULL DEFAULT '',
@@ -30,7 +30,7 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY users_org_isolation ON users
-    USING (org_id = NULLIF(current_setting('app.org_id', true), '')::UUID)
-    WITH CHECK (org_id = NULLIF(current_setting('app.org_id', true), '')::UUID);
+    USING (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID)
+    WITH CHECK (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON users TO openguard_app;

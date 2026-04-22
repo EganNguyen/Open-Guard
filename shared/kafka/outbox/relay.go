@@ -2,7 +2,6 @@ package outbox
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 

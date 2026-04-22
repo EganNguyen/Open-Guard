@@ -1,5 +1,5 @@
 CREATE TABLE outbox_records (
-    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id           UUID PRIMARY KEY DEFAULT GEN_RANDOM_UUID(),
     org_id       UUID NOT NULL,
     topic        TEXT NOT NULL,
     key          TEXT NOT NULL,
@@ -17,7 +17,7 @@ CREATE INDEX idx_outbox_pending ON outbox_records(created_at) WHERE status = 'pe
 -- NOTIFY trigger for immediate relay wake-up
 CREATE OR REPLACE FUNCTION notify_outbox() RETURNS trigger AS $$
 BEGIN
-    PERFORM pg_notify('outbox_new', NEW.id::text);
+    PERFORM pg_notify('outbox_new', NEW.id::TEXT);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -30,8 +30,8 @@ CREATE TRIGGER outbox_insert_notify
 ALTER TABLE outbox_records ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY outbox_org_isolation ON outbox_records
-    USING (org_id = NULLIF(current_setting('app.org_id', true), '')::UUID)
-    WITH CHECK (org_id = NULLIF(current_setting('app.org_id', true), '')::UUID);
+    USING (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID)
+    WITH CHECK (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID);
 
 GRANT SELECT, INSERT ON outbox_records TO openguard_app;
 GRANT SELECT, UPDATE, DELETE ON outbox_records TO openguard_outbox;

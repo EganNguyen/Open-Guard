@@ -19,8 +19,8 @@ jobs:
     - name: Run Tests
       run: |
         go work sync
-        # Test each module defined in go.work
-        go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && go test ./... -race -coverprofile=coverage.out -timeout 5m'
+        # Iterate over modules and only run tests if the module contains Go files
+        go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if find . -name "*.go" | grep -q ".go"; then go test ./... -race -coverprofile=coverage.out -timeout 5m; else echo "Skipping {} (no Go files)"; fi'
 
   go-lint:
     runs-on: ubuntu-latest
@@ -80,7 +80,7 @@ jobs:
     - name: Run Contract Tests
       run: |
         # Only run if TestContract exists in any module
-        go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if grep -r "TestContract" .; then go test ./... -run TestContract -v; fi'
+        go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if grep -rq "TestContract" .; then go test ./... -run TestContract -v; fi'
 
   security-scan:
     runs-on: ubuntu-latest
@@ -94,8 +94,8 @@ jobs:
     - name: Govulncheck
       run: |
         go install golang.org/x/vuln/cmd/govulncheck@latest
-        # Run govulncheck for each module
-        go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && govulncheck ./...'
+        # Run govulncheck for each module that has Go files
+        go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if find . -name "*.go" | grep -q ".go"; then govulncheck ./...; fi'
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
       with:

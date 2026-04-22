@@ -1,5 +1,5 @@
 CREATE TABLE sessions (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id            UUID PRIMARY KEY DEFAULT GEN_RANDOM_UUID(),
     org_id        UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
     user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     jti           TEXT NOT NULL UNIQUE,
@@ -20,7 +20,7 @@ ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sessions FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY sessions_org_isolation ON sessions
-    USING (org_id = NULLIF(current_setting('app.org_id', true), '')::UUID)
-    WITH CHECK (org_id = NULLIF(current_setting('app.org_id', true), '')::UUID);
+    USING (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID)
+    WITH CHECK (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON sessions TO openguard_app;

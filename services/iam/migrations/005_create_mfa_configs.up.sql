@@ -1,5 +1,5 @@
 CREATE TABLE mfa_configs (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                  UUID PRIMARY KEY DEFAULT GEN_RANDOM_UUID(),
     org_id              UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
     user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     mfa_type            TEXT NOT NULL, -- 'totp', 'webauthn'
@@ -21,7 +21,7 @@ ALTER TABLE mfa_configs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE mfa_configs FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY mfa_configs_org_isolation ON mfa_configs
-    USING (org_id = NULLIF(current_setting('app.org_id', true), '')::UUID)
-    WITH CHECK (org_id = NULLIF(current_setting('app.org_id', true), '')::UUID);
+    USING (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID)
+    WITH CHECK (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON mfa_configs TO openguard_app;
