@@ -1,17 +1,12 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.22-alpine AS builder
 
-WORKDIR /build
-# Copy the entire workspace to support go.work
+WORKDIR /app
+COPY go.mod ./
 COPY . .
-
-WORKDIR /build/services/policy
-RUN go mod download
-RUN CGO_ENABLED=0 GOOS=linux go build -o /policy .
+RUN go mod tidy && go build -o service .
 
 FROM alpine:3.19
-RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
-COPY --from=builder /policy .
-
-EXPOSE 8082
-ENTRYPOINT ["/app/policy"]
+COPY --from=builder /app/service /usr/local/bin/service
+COPY migrations /app/migrations
+CMD ["service"]

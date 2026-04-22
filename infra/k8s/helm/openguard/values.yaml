@@ -1,0 +1,21 @@
+replicaCount: 1
+
+image:
+  repository: openguard
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+deployment:
+  minReadySeconds: 30
+  strategy:
+    type: RollingUpdate
+
+hpa:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

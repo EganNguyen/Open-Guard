@@ -2,164 +2,107 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"log/slog"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
+	"runtime"
 	"syscall"
 	"time"
 
-	"github.com/openguard/iam/pkg/config"
-	"github.com/openguard/iam/pkg/db"
-	"github.com/openguard/iam/pkg/handlers"
-	"github.com/openguard/iam/pkg/repository"
-	"github.com/openguard/iam/pkg/router"
-	"github.com/openguard/iam/pkg/service"
-	"github.com/openguard/shared/crypto"
-	"github.com/openguard/shared/kafka"
-	"github.com/openguard/shared/outbox"
-	"github.com/openguard/shared/rls"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.uber.org/zap"
+
+	"github.com/openguard/services/iam/pkg/handlers"
+	"github.com/openguard/services/iam/pkg/logger"
+	"github.com/openguard/services/iam/pkg/repository"
+	"github.com/openguard/services/iam/pkg/router"
+	"github.com/openguard/services/iam/pkg/seed"
+	"github.com/openguard/services/iam/pkg/service"
+	"github.com/openguard/services/iam/pkg/telemetry"
 )
 
 func main() {
-	cfg := config.Load()
+	// Initialize logger
+	logger.Init()
+	defer logger.Log.Sync()
+	log := logger.Log.With(zap.String("service", "iam"))
 
-	var logLevel slog.Level
-	switch cfg.LogLevel {
-	case "debug": logLevel = slog.LevelDebug
-	case "warn":  logLevel = slog.LevelWarn
-	case "error": logLevel = slog.LevelError
-	default:      logLevel = slog.LevelInfo
-	}
-
-	var handler slog.Handler
-	if cfg.AppEnv == "development" {
-		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
-	} else {
-		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
-	}
-	logger := slog.New(handler).With("service", "iam")
-
-	// Global Context
-	ctx, cancelGlobal := context.WithCancel(context.Background())
-	defer cancelGlobal()
-
-	// Database
-	pool, err := db.Connect(ctx, cfg.PostgresDSN())
+	// Initialize OpenTelemetry
+	tp, err := telemetry.InitTracer()
 	if err != nil {
-		logger.Error("failed to connect to database", "error", err)
-		os.Exit(1)
+		log.Fatal("failed to initialize tracer", zap.Error(err))
 	}
-	defer pool.Close()
-	logger.Info("connected to PostgreSQL")
-
-	// RLS Wrapper for Application Queries
-	orgPool := rls.NewOrgPool(pool)
-
-	// Kafka Producer
-	brokers := strings.Split(cfg.KafkaBrokers, ",")
-	producer := kafka.NewProducer(brokers, []string{
-		kafka.TopicAuthEvents,
-		kafka.TopicAuditTrail,
-	}, logger)
-	defer producer.Close()
-
-	// Distributed Transaction Outbox
-	outboxWriter := outbox.NewWriter()
-	outboxRelay := outbox.NewRelay(pool, producer)
-	
-	// Start daemon loop in background
-	go outboxRelay.Start(ctx)
-
-	// Keyrings
-	jwtKeyring := crypto.NewJWTKeyring(cfg.JWTKeys)
-	aesKeyring := crypto.NewAESKeyring(cfg.MFAKeys)
-
-	// Repository
-	repo := repository.New()
-
-	// Service
-	isDev := cfg.AppEnv == "development"
-	iamService := service.New(
-		orgPool, 
-		repo, 
-		outboxWriter, 
-		logger, 
-		jwtKeyring, 
-		aesKeyring, 
-		time.Duration(cfg.JWTExpiry)*time.Second, 
-		time.Duration(cfg.SessionIdleTimeout)*time.Second,
-		isDev,
-	)
-
-	// Handlers
-	authHandler := handlers.NewAuthHandler(iamService, cfg.PublicWebURL)
-	userHandler := handlers.NewUserHandler(iamService)
-	mfaHandler := handlers.NewMFAHandler()
-	scimHandler := handlers.NewSCIMHandler()
-	tokenHandler := handlers.NewTokenHandler(iamService, logger)
-
-	// Router
-	r := router.New(router.Config{
-		AuthHandler:  authHandler,
-		UserHandler:  userHandler,
-		MFAHandler:   mfaHandler,
-		SCIMHandler:  scimHandler,
-		TokenHandler: tokenHandler,
-		Logger:       logger,
-	})
-
-	// Setup mTLS Server
-	caCert, err := os.ReadFile(cfg.CACertPath)
-	if err != nil {
-		logger.Error("failed to load CA cert for mtls", "error", err)
-		os.Exit(1)
-	}
-	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(caCert)
-
-	tlsConfig := &tls.Config{
-		ClientCAs:  caCertPool,
-		ClientAuth: tls.VerifyClientCertIfGiven,
-		MinVersion: tls.VersionTLS12,
-	}
-
-	srv := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      r,
-		TLSConfig:    tlsConfig,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
-	// Start server
-	go func() {
-		logger.Info("IAM service mTLS server starting", "port", cfg.Port)
-		if err := srv.ListenAndServeTLS(cfg.TLSCertPath, cfg.TLSKeyPath); err != nil && err != http.ErrServerClosed {
-			logger.Error("server error", "error", err)
-			os.Exit(1)
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			log.Error("failed to shutdown tracer", zap.Error(err))
 		}
 	}()
 
-	// Graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
-	<-quit
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	logger.Info("shutting down IAM service...")
-	// Cancel the root context to unblock the Relay daemon
-	cancelGlobal()
+	// DB connection string
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://openguard:openguard@localhost:5432/openguard?sslmode=disable"
+	}
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer shutdownCancel()
+	config, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		log.Fatal("failed to parse db config", zap.Error(err))
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		log.Fatal("failed to connect to db", zap.Error(err))
+	}
+	defer pool.Close()
+
+	// Auto-seed if requested
+	if os.Getenv("SEED_DB") == "true" {
+		if err := seed.Seed(ctx, pool); err != nil {
+			log.Error("seeding failed", zap.Error(err))
+		}
+	}
+
+	// Initialize AuthWorkerPool
+	authPool := service.NewAuthWorkerPool(2 * runtime.NumCPU())
+
+	// Initialize Repository, Service, Handler
+	repo := repository.NewRepository(pool)
+	svc := service.NewService(repo, authPool)
+	h := handlers.NewHandler(svc)
+
+	// Setup Router
+	r := router.NewRouter(h)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: r,
+	}
+
+	go func() {
+		log.Info("service starting", zap.String("port", port))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal("server failed", zap.Error(err))
+		}
+	}()
+
+	<-ctx.Done()
+	log.Info("shutting down gracefully")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("server shutdown error", "error", err)
+		log.Error("server shutdown failed", zap.Error(err))
 	}
 	
-	logger.Info("IAM service stopped")
+	fmt.Println("Service exited")
 }

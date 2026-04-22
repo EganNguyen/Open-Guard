@@ -1,97 +1,44 @@
 package router
 
 import (
-	"encoding/json"
-	"log/slog"
-	"net/http"
-
 	"github.com/go-chi/chi/v5"
-	"github.com/openguard/iam/pkg/handlers"
-	sharedmw "github.com/openguard/shared/middleware"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/openguard/services/iam/pkg/handlers"
+	iam_middleware "github.com/openguard/services/iam/pkg/middleware"
+	"github.com/openguard/services/iam/pkg/telemetry"
 )
 
-// Config holds dependencies needed to build the IAM router.
-type Config struct {
-	AuthHandler  *handlers.AuthHandler
-	UserHandler  *handlers.UserHandler
-	MFAHandler   *handlers.MFAHandler
-	SCIMHandler  *handlers.SCIMHandler
-	TokenHandler *handlers.TokenHandler
-	Logger       *slog.Logger
-}
-
-// New creates the IAM chi router with all routes.
-func New(cfg Config) *chi.Mux {
+// Router sets up the HTTP routes for the IAM service.
+func NewRouter(h *handlers.Handler) *chi.Mux {
 	r := chi.NewRouter()
 
-	// Global middleware
-	r.Use(sharedmw.RequestID)
-	r.Use(sharedmw.Logging(cfg.Logger))
-	// CORS is handled by the Control Plane gateway; avoid doubling headers
-	// r.Use(sharedmw.CORS)
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(iam_middleware.Correlation)
+	r.Use(telemetry.Metrics)
+	r.Use(middleware.Recoverer)
 
-	// Health endpoints
-	r.Get("/health/live", healthHandler)
-	r.Get("/health/ready", healthHandler)
+	r.Handle("/metrics", promhttp.Handler())
+	r.Get("/health", h.Health)
+	
+	r.Route("/mgmt", func(r chi.Router) {
+		r.Post("/orgs", h.CreateOrg)
+		r.Post("/users", h.CreateUser)
+		r.Get("/connectors", h.ListConnectors)
+		r.Post("/connectors", h.CreateConnector)
+		r.Put("/connectors/{id}", h.UpdateConnector)
+		r.Delete("/connectors/{id}", h.DeleteConnector)
+		r.Get("/users", h.ListUsers)
+	})
 
-	// --- OIDC Discovery ---
-	r.Get("/.well-known/openid-configuration", cfg.AuthHandler.OIDCDiscovery)
-	r.Get("/auth/jwks", cfg.AuthHandler.JWKS)
-
-	// --- Public OIDC/SAML IdP endpoints (called directly) ---
 	r.Route("/auth", func(r chi.Router) {
-		r.Post("/register", cfg.AuthHandler.Register)
-		r.Post("/login", cfg.AuthHandler.Login)
-		r.Post("/logout", cfg.AuthHandler.Logout)
-		r.Post("/refresh", cfg.AuthHandler.Refresh)
-		r.Post("/saml/callback", cfg.AuthHandler.SAMLCallback)
-		r.Get("/oidc/login", cfg.AuthHandler.OIDCLogin)
-		r.Post("/oidc/token", cfg.AuthHandler.OIDCToken)
-		r.Get("/oidc/authorize", cfg.AuthHandler.Authorize)
-		r.Get("/oidc/callback", cfg.AuthHandler.OIDCCallback)
-		r.Post("/mfa/enroll", cfg.MFAHandler.Enroll)
-		r.Post("/mfa/verify", cfg.MFAHandler.Verify)
-		r.Post("/mfa/challenge", cfg.MFAHandler.Challenge)
-	})
-
-	// --- Internal management API (mTLS, called by control plane) ---
-	r.Route("/users", func(r chi.Router) {
-		r.Use(sharedmw.RequireMTLS)
-		
-		r.Get("/", cfg.UserHandler.List)
-		r.Post("/", cfg.UserHandler.Create)
-		r.Route("/{id}", func(r chi.Router) {
-			r.Get("/", cfg.UserHandler.Get)
-			r.Patch("/", cfg.UserHandler.Update)
-			r.Delete("/", cfg.UserHandler.Delete)
-			r.Post("/suspend", cfg.UserHandler.Suspend)
-			r.Post("/activate", cfg.UserHandler.Activate)
-			r.Get("/sessions", cfg.UserHandler.ListSessions)
-			r.Delete("/sessions/{sid}", cfg.UserHandler.RevokeSession)
-			r.Get("/tokens", cfg.UserHandler.ListTokens)
-			r.Post("/tokens", cfg.TokenHandler.Create)
-			r.Delete("/tokens/{tid}", cfg.UserHandler.RevokeToken)
-		})
-	})
-
-	// --- SCIM v2 routes ---
-	r.Route("/scim/v2", func(r chi.Router) {
-		r.Use(sharedmw.RequireMTLS)
-
-		r.Get("/Users", cfg.SCIMHandler.ListUsers)
-		r.Post("/Users", cfg.SCIMHandler.CreateUser)
-		r.Get("/Users/{id}", cfg.SCIMHandler.GetUser)
-		r.Put("/Users/{id}", cfg.SCIMHandler.ReplaceUser)
-		r.Patch("/Users/{id}", cfg.SCIMHandler.UpdateUser)
-		r.Delete("/Users/{id}", cfg.SCIMHandler.DeleteUser)
-		r.Get("/Groups", cfg.SCIMHandler.ListGroups)
+		r.Post("/login", h.Login)
+		r.Post("/logout", h.Logout)
+		r.Get("/authorize", h.Authorize)
+		r.Post("/token", h.Token)
 	})
 
 	return r
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }

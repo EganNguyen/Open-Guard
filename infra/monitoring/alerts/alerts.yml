@@ -1,0 +1,39 @@
+groups:
+- name: openguard
+  rules:
+  - alert: OutboxLagHigh
+    expr: openguard_outbox_pending_records > 1000
+    for: 2m
+    labels: { severity: warning }
+    annotations:
+      runbook: "docs/runbooks/outbox-dlq.md"
+
+  - alert: CircuitBreakerOpen
+    expr: openguard_circuit_breaker_state{state="2"} == 1
+    for: 30s
+    labels: { severity: critical }
+    annotations:
+      runbook: "docs/runbooks/circuit-breaker-open.md"
+
+  - alert: KafkaConsumerLagHigh
+    expr: openguard_kafka_consumer_lag > 50000
+    for: 5m
+    labels: { severity: warning }
+    annotations:
+      runbook: "docs/runbooks/kafka-consumer-lag.md"
+
+  - alert: AuditChainIntegrityFailure
+    expr: increase(openguard_audit_chain_integrity_failures_total[5m]) > 0
+    labels: { severity: critical }
+    annotations:
+      runbook: "docs/runbooks/audit-hash-mismatch.md"
+
+  - alert: PolicyServiceDown
+    expr: up{job="policy"} == 0
+    for: 30s
+    labels: { severity: critical }
+
+  - alert: KafkaOffsetCommitLag
+    expr: histogram_quantile(0.99, openguard_kafka_offset_commit_duration_seconds_bucket) > 5
+    for: 2m
+    labels: { severity: warning }

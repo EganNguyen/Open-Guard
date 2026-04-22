@@ -3,89 +3,99 @@ package crypto
 import (
 	"errors"
 	"fmt"
-	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
+var (
+	ErrTokenExpired = errors.New("token expired")
+	ErrTokenInvalid = errors.New("token invalid")
+)
+
+// JWTKey represents a key in the JWT multi-key keyring.
 type JWTKey struct {
 	Kid       string `json:"kid"`
-	Secret    string `json:"secret"` // Symmetric secret for HS256 or PEM-encoded RSA Private Key for RS256
-	Algorithm string `json:"algorithm"`
-	Status    string `json:"status"` // "active" | "verify_only"
+	Secret    string `json:"secret"`    // base64-encoded secret for HS256
+	Algorithm string `json:"algorithm"` // "HS256" | "RS256"
+	Status    string `json:"status"`    // "active" | "verify_only"
 }
 
-type JWTKeyring struct {
-	keys []JWTKey
-}
-
-func NewJWTKeyring(keys []JWTKey) *JWTKeyring {
-	return &JWTKeyring{keys: keys}
-}
-
-// Sign uses the first key with status="active".
-func (k *JWTKeyring) Sign(claims jwt.Claims) (string, error) {
-	for _, key := range k.keys {
-		if key.Status == "active" {
-			token := jwt.NewWithClaims(jwt.GetSigningMethod(key.Algorithm), claims)
-			token.Header["kid"] = key.Kid
-
-			if strings.HasPrefix(key.Algorithm, "RS") {
-				rsaKey, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(key.Secret))
-				if err != nil {
-					return "", fmt.Errorf("invalid rsa private key for kid %s: %w", key.Kid, err)
-				}
-				return token.SignedString(rsaKey)
-			}
-			return token.SignedString([]byte(key.Secret))
+// Sign generates a signed JWT using the first active key in the keyring.
+func Sign(claims jwt.Claims, keyring []JWTKey) (string, error) {
+	var activeKey *JWTKey
+	for _, k := range keyring {
+		if k.Status == "active" {
+			activeKey = &k
+			break
 		}
 	}
-	return "", errors.New("no active jwt key found")
+
+	if activeKey == nil {
+		return "", ErrKeyNotFound
+	}
+
+	token := jwt.NewWithClaims(jwt.GetSigningMethod(activeKey.Algorithm), claims)
+	token.Header["kid"] = activeKey.Kid
+
+	return token.SignedString([]byte(activeKey.Secret))
 }
 
-// Verify tries all keys, matching on kid from the token header.
-// Returns an error if the token is expired or invalid.
-func (k *JWTKeyring) Verify(tokenString string) (jwt.MapClaims, error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+// Verify parses and verifies a JWT using the matching key from the keyring.
+func Verify(tokenString string, keyring []JWTKey, claims jwt.Claims) (*jwt.Token, error) {
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		kid, ok := token.Header["kid"].(string)
 		if !ok {
-			return nil, errors.New("missing kid in token header")
+			return nil, fmt.Errorf("missing kid in header")
 		}
-		for _, key := range k.keys {
-			if key.Kid == kid {
-				if token.Method.Alg() != key.Algorithm {
+
+		for _, k := range keyring {
+			if k.Kid == kid {
+				if k.Algorithm != token.Method.Alg() {
 					return nil, fmt.Errorf("unexpected signing method: %v", token.Method.Alg())
 				}
-
-				if strings.HasPrefix(key.Algorithm, "RS") {
-					// Check if Secret is private key (common in our config) or public key
-					rsaKey, err := jwt.ParseRSAPublicKeyFromPEM([]byte(key.Secret))
-					if err != nil {
-						// Not a public key, try parsing as private key and extracting public key
-						privKey, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(key.Secret))
-						if err != nil {
-							return nil, fmt.Errorf("invalid rsa key for kid %s: %w", key.Kid, err)
-						}
-						return &privKey.PublicKey, nil
-					}
-					return rsaKey, nil
-				}
-				return []byte(key.Secret), nil
+				return []byte(k.Secret), nil
 			}
 		}
-		return nil, errors.New("unknown kid")
+
+		return nil, ErrKeyNotFound
 	})
 
 	if err != nil {
-		return nil, err
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, ErrTokenExpired
+		}
+		return nil, fmt.Errorf("%w: %v", ErrTokenInvalid, err)
 	}
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		return claims, nil
+
+	if !token.Valid {
+		return nil, ErrTokenInvalid
 	}
-	return nil, errors.New("invalid jwt token")
+
+	return token, nil
 }
 
-// GetKeys returns all keys in the keyring.
-func (k *JWTKeyring) GetKeys() []JWTKey {
-	return k.keys
+// StandardClaims includes core OpenGuard claims.
+type StandardClaims struct {
+	jwt.RegisteredClaims
+	OrgID  string `json:"org_id"`
+	UserID string `json:"user_id"`
+}
+
+// NewStandardClaims creates a new StandardClaims with JTI and standard expiration.
+func NewStandardClaims(orgID, userID, jti string, ttl time.Duration) StandardClaims {
+	now := time.Now()
+	return StandardClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        jti,
+			Issuer:    "openguard-iam",
+			Subject:   userID,
+			Audience:  jwt.ClaimStrings{"openguard-ui", "openguard-sdk"},
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now.Add(-1 * time.Minute)), // 1m clock skew
+		},
+		OrgID:  orgID,
+		UserID: userID,
+	}
 }

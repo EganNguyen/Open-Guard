@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --atlassian-blue: #0052CC;
+  --atlassian-dark-blue: #0747A6;
+  --atlassian-light-gray: #F4F5F7;
+  --atlassian-text: #172B4D;
+  --atlassian-subtle-text: #6B778C;
+  --atlassian-border: #DFE1E6;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  background-color: #F4F5F7;
+  color: #172B4D;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.material-symbols-outlined {
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
+  vertical-align: middle;
+}

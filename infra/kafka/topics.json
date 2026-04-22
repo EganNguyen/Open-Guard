@@ -1,8 +1,0 @@
-[
-  { "name": "auth.events",            "partitions": 6,  "retention_ms": 604800000 },
-  { "name": "policy.changes",         "partitions": 3,  "retention_ms": 604800000 },
-  { "name": "data.access",            "partitions": 6,  "retention_ms": 604800000 },
-  { "name": "threat.alerts",          "partitions": 3,  "retention_ms": 2592000000 },
-  { "name": "audit.trail",            "partitions": 6,  "retention_ms": -1 },
-  { "name": "notifications.outbound", "partitions": 3,  "retention_ms": 604800000 }
-]

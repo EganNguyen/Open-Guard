@@ -1,14 +1,14 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:alpine AS builder
 
-WORKDIR /build
+WORKDIR /app
+COPY go.mod ./
+# Copy shared module if needed, but since we are using local paths or simple structure:
 COPY . .
-WORKDIR /build/services/iam
-RUN go mod download
-RUN CGO_ENABLED=0 GOOS=linux go build -o /iam .
+RUN go mod tidy && go build -o service .
 
 FROM alpine:3.19
-RUN apk add --no-cache ca-certificates tzdata
-COPY --from=builder /iam /usr/local/bin/iam
-
-EXPOSE 8081
-ENTRYPOINT ["iam"]
+WORKDIR /app
+COPY --from=builder /app/service /usr/local/bin/service
+# Copy migrations so they can be run or referenced if needed
+COPY migrations /app/migrations
+CMD ["service"]

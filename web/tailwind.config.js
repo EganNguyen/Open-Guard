@@ -1,1 +1,19 @@
-module.exports = { content: ['./app/**/*.{js,ts,jsx,tsx}', './components/**/*.{js,ts,jsx,tsx}'], theme: { extend: { colors: { background: 'var(--background)', foreground: 'var(--foreground)', border: 'var(--border)', accent: { DEFAULT: 'var(--accent)', foreground: 'var(--accent-foreground)' }, sidebar: { DEFAULT: 'var(--sidebar)', foreground: 'var(--sidebar-foreground)' }, surface: { 1: 'var(--surface1)', 2: 'var(--surface2)' }, severity: { critical: 'var(--red)', high: 'var(--amber)', medium: 'var(--purple)', low: 'var(--blue)', info: 'var(--green)' } }, fontFamily: { sans: ['var(--font-sans)', 'system-ui'], mono: ['var(--font-mono)', 'monospace'] } } }, plugins: [] };
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    "./src/**/*.{html,ts}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        'atlassian-blue': '#0052CC',
+        'atlassian-dark-blue': '#0747A6',
+        'atlassian-light-gray': '#F4F5F7',
+        'atlassian-text': '#172B4D',
+        'atlassian-subtle-text': '#6B778C',
+        'atlassian-border': '#DFE1E6',
+      },
+    },
+  },
+  plugins: [],
+}

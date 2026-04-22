@@ -1,38 +1,23 @@
--- 001_create_policies.up.sql
--- Creates the policies table with RLS enforcement.
-
-CREATE TABLE IF NOT EXISTS policies (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id      UUID NOT NULL,
+CREATE TABLE policies (
+    id          UUID PRIMARY KEY DEFAULT GEN_RANDOM_UUID(),
+    org_id      UUID NOT NULL, -- references orgs in iam, but we use loose coupling
     name        TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    type        TEXT NOT NULL,                    -- data_export | anon_access | ip_allowlist | session_limit
-    rules       JSONB NOT NULL DEFAULT '{}',
-    enabled     BOOLEAN NOT NULL DEFAULT TRUE,
-    created_by  UUID NOT NULL,
+    effect      TEXT NOT NULL DEFAULT 'allow', -- allow, deny
+    actions     TEXT[] NOT NULL,
+    resources   TEXT[] NOT NULL,
+    conditions  JSONB DEFAULT '{}',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_policies_org ON policies(org_id);
-CREATE INDEX IF NOT EXISTS idx_policies_org_type ON policies(org_id, type);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_policies_org_name ON policies(org_id, name);
+CREATE INDEX idx_policies_org_id ON policies(org_id);
 
+-- Enable RLS
 ALTER TABLE policies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE policies FORCE ROW LEVEL SECURITY;
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_policies
-        WHERE schemaname = 'public'
-          AND tablename = 'policies'
-          AND policyname = 'policies_org_isolation'
-    ) THEN
-        CREATE POLICY policies_org_isolation
-            ON policies
-            USING (org_id = current_setting('app.org_id', true)::UUID)
-            WITH CHECK (org_id = current_setting('app.org_id', true)::UUID);
-    END IF;
-END
-$$;
+
+CREATE POLICY policies_org_isolation ON policies
+    USING (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID)
+    WITH CHECK (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON policies TO openguard_app;

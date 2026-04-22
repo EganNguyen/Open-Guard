@@ -2,26 +2,27 @@ package resilience
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/sony/gobreaker"
 )
 
-// ErrCircuitOpen is returned when the breaker stops requests.
-var ErrCircuitOpen = fmt.Errorf("circuit breaker is open")
+var ErrCircuitOpen = errors.New("circuit breaker open")
 
+// BreakerConfig defines the settings for a circuit breaker.
 type BreakerConfig struct {
 	Name             string
-	Timeout          time.Duration // request timeout
-	MaxRequests      uint32        // max requests in half-open state
+	MaxRequests      uint32        // requests allowed in half-open state
 	Interval         time.Duration // stat collection window
-	FailureThreshold uint32        // failures before opening
+	FailureThreshold uint32        // consecutive failures before opening
 	OpenDuration     time.Duration // time before moving to half-open
 }
 
-// NewBreaker creates a circuit breaker with standard OpenGuard defaults.
-func NewBreaker(cfg BreakerConfig) *gobreaker.CircuitBreaker {
+// NewBreaker creates a new gobreaker.CircuitBreaker with the given configuration.
+func NewBreaker(cfg BreakerConfig, logger *slog.Logger) *gobreaker.CircuitBreaker {
 	return gobreaker.NewCircuitBreaker(gobreaker.Settings{
 		Name:        cfg.Name,
 		MaxRequests: cfg.MaxRequests,
@@ -31,27 +32,32 @@ func NewBreaker(cfg BreakerConfig) *gobreaker.CircuitBreaker {
 			return counts.ConsecutiveFailures >= cfg.FailureThreshold
 		},
 		OnStateChange: func(name string, from, to gobreaker.State) {
-			// In a real application, emit prometheus metrics here
-			// e.g. openguard_circuit_breaker_state_change{name, from, to}
+			logger.Warn("circuit breaker state changed",
+				"name", name, "from", from.String(), "to", to.String())
 		},
 	})
 }
 
-// Call executes fn through the circuit breaker with a context timeout.
-// Returns ErrCircuitOpen if the breaker is open.
-func Call[T any](ctx context.Context, cb *gobreaker.CircuitBreaker, timeout time.Duration, fn func(context.Context) (T, error)) (T, error) {
+// Call wraps a function call with a timeout and a circuit breaker.
+func Call[T any](ctx context.Context, cb *gobreaker.CircuitBreaker,
+	timeout time.Duration, fn func(context.Context) (T, error)) (T, error) {
+
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	result, err := cb.Execute(func() (any, error) {
-		return fn(ctx)
-	})
+	result, err := cb.Execute(func() (any, error) { return fn(ctx) })
 	if err != nil {
 		var zero T
-		if err == gobreaker.ErrOpenState || err == gobreaker.ErrTooManyRequests {
+		if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {
 			return zero, fmt.Errorf("%w: %s", ErrCircuitOpen, cb.Name())
 		}
 		return zero, err
 	}
+
+	if result == nil {
+		var zero T
+		return zero, nil
+	}
+
 	return result.(T), nil
 }

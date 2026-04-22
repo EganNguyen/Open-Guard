@@ -1,0 +1,148 @@
+# name: Full Production Pipeline
+
+# on:
+#   push:
+#     branches: [ "main" ]
+#   pull_request:
+#     branches: [ "main" ]
+
+# jobs:
+#   # STEP 1-3: Checkout, Setup, Lint/Format
+#   lint-and-format:
+#     name: "1-3: Checkout, Setup, Lint/Format"
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4 # 1. Checkout
+      
+#       - name: Setup Go # 2. Setup Environment
+#         uses: actions/setup-go@v5
+#         with:
+#           go-version: '1.22'
+#           cache: true
+      
+#       - name: Setup Node
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: 20
+#           cache: 'npm'
+#           cache-dependency-path: './web/package-lock.json'
+
+#       - name: Setup Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: '3.11'
+
+#       - name: Install Tools (Lint/Format)
+#         run: |
+#           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.59.1
+#           pip install sqlfluff
+#           npm install -g prettier
+
+#       - name: Run Go Lint # 3. Lint / Format Check
+#         run: |
+#           go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if find . -name "*.go" | grep -q ".go"; then $(go env GOPATH)/bin/golangci-lint run ./...; fi'
+      
+#       - name: Run SQL Lint
+#         run: sqlfluff lint .
+
+#       - name: Run Format Check (Prettier)
+#         run: npx prettier --check .
+
+#   # STEP 4: Build
+#   build:
+#     name: "4: Build"
+#     needs: lint-and-format
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#       - name: Setup Go
+#         uses: actions/setup-go@v5
+#         with:
+#           go-version: '1.22'
+#       - name: Build Go Services
+#         run: |
+#           go work sync
+#           go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if find . -name "*.go" | grep -q ".go"; then go build ./...; fi'
+#       - name: Build Angular Web
+#         working-directory: ./web
+#         run: |
+#           npm install
+#           npm run build
+
+#   # STEP 5: Unit Tests
+#   unit-tests:
+#     name: "5: Unit Tests"
+#     needs: build
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#       - name: Setup Go
+#         uses: actions/setup-go@v5
+#         with:
+#           go-version: '1.22'
+#       - name: Run Unit Tests
+#         run: |
+#           go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if find . -name "*.go" | grep -q ".go"; then go test -v -short ./...; fi'
+
+#   # STEP 6: Integration Tests
+#   integration-tests:
+#     name: "6: Integration Tests"
+#     needs: unit-tests
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#       - name: Setup Go
+#         uses: actions/setup-go@v5
+#         with:
+#           go-version: '1.22'
+#       - name: Run Integration/Contract Tests
+#         run: |
+#           # Targeting specific patterns that represent integration/contract boundaries
+#           go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if grep -rq "TestContract\|TestIntegration" .; then go test ./... -run "TestContract\|TestIntegration" -v; fi'
+
+#   # STEP 7-8: Security & Dependency Scan
+#   security-and-dependencies:
+#     name: "7-8: Security & Dependency Scan"
+#     needs: integration-tests
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#       - name: Dependency Scan (Govulncheck) # 8. Dependency Scan
+#         run: |
+#           go install golang.org/x/vuln/cmd/govulncheck@latest
+#           go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if find . -name "*.go" | grep -q ".go"; then $(go env GOPATH)/bin/govulncheck ./...; fi'
+#       - name: Security Scan (Trivy) # 7. Security Scan
+#         uses: aquasecurity/trivy-action@master
+#         with:
+#           scan-type: 'fs'
+#           scan-ref: '.'
+#           severity: 'CRITICAL,HIGH'
+
+#   # STEP 9-10: Artifact Build & Store
+#   artifact-management:
+#     name: "9-10: Artifact Build & Store"
+#     needs: security-and-dependencies
+#     runs-on: ubuntu-latest
+#     if: github.ref == 'refs/heads/main'
+#     permissions:
+#       contents: read
+#       packages: write
+#     strategy:
+#       matrix:
+#         service: [iam, control-plane, policy, alerting, audit, threat, dlp, compliance, webhook-delivery, connector-registry]
+#     steps:
+#       - uses: actions/checkout@v4 # 9. Artifact Build
+#       - name: Log in to GHCR
+#         uses: docker/login-action@v3
+#         with:
+#           registry: ghcr.io
+#           username: ${{ github.actor }}
+#           password: ${{ secrets.GITHUB_TOKEN }}
+#       - name: Build and Store Artifact # 10. Store Artifact
+#         uses: docker/build-push-action@v5
+#         with:
+#           context: ./services/${{ matrix.service }}
+#           push: true
+#           tags: |
+#             ghcr.io/${{ github.repository_owner }}/openguard-${{ matrix.service }}:latest
+#             ghcr.io/${{ github.repository_owner }}/openguard-${{ matrix.service }}:${{ github.sha }}

@@ -1,0 +1,28 @@
+{
+  "title": "Centralized Logs",
+  "uid": "og-central-logs-v1",
+  "panels": [
+    {
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 20, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        { "expr": "{service=~\"$service\"} |= \"$search\"", "refId": "A" }
+      ],
+      "title": "Service Logs Viewer",
+      "type": "logs"
+    }
+  ],
+  "templating": {
+    "list": [
+      { "name": "service", "type": "custom", "query": "iam, control-plane", "includeAll": true },
+      { "name": "search", "type": "custom", "query": "" }
+    ]
+  },
+  "title": "Centralized Logs",
+  "schemaVersion": 39
+}

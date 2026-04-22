@@ -1,35 +1,36 @@
 package telemetry
 
 import (
+	"context"
 	"log/slog"
+	"os"
+	"strings"
 )
 
-// SafeAttr masks sensitive values for logging per §15.3.
-// If the environment is not development, it masks the value.
-func SafeAttr(key string, value string, isDev bool) slog.Attr {
-	if isDev {
-		return slog.String(key, value)
+// NewLogger creates a new structured logger with redaction for sensitive fields.
+func NewLogger(serviceName string) *slog.Logger {
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			// Redact sensitive fields
+			key := strings.ToLower(a.Key)
+			if key == "password" || key == "token" || key == "secret" || key == "api_key" || key == "authorization" {
+				return slog.String(a.Key, "[REDACTED]")
+			}
+			return a
+		},
 	}
-	return slog.String(key, "***MASKED***")
+
+	handler := slog.NewJSONHandler(os.Stdout, opts).WithAttrs([]slog.Attr{
+		slog.String("service", serviceName),
+	})
+
+	return slog.New(handler)
 }
 
-// SensitiveAttrs returns a list of attributes where sensitive ones are masked in non-dev.
-func SensitiveAttrs(isDev bool, attrs ...slog.Attr) []any {
-	args := make([]any, len(attrs))
-	for i, a := range attrs {
-		if !isDev && isSensitiveKey(a.Key) {
-			args[i] = slog.String(a.Key, "***MASKED***")
-		} else {
-			args[i] = a
-		}
-	}
-	return args
-}
-
-func isSensitiveKey(key string) bool {
-	switch key {
-	case "password", "token", "secret", "api_key", "refresh_token":
-		return true
-	}
-	return false
+// RequestID returns the request ID from context if present.
+func RequestID(ctx context.Context) string {
+	// Implementation depends on how RequestID is stored in context
+	// For now, returning empty
+	return ""
 }

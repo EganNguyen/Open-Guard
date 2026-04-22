@@ -1,80 +1,52 @@
-# ##############################################################################
-# Open-Guard .gitignore
-# ##############################################################################
+# Dependency directories
+node_modules/
+vendor/
 
-# ------------------------------------------------------------------------------
-# Environment/Secrets
-# ------------------------------------------------------------------------------
-.env
-.env.*
-!.env.example
-
-# ------------------------------------------------------------------------------
-# Binaries and Build Artifacts
-# ------------------------------------------------------------------------------
-bin/
+# Build outputs
 dist/
 build/
+bin/
 out/
 .next/
-node_modules/
 
-# ------------------------------------------------------------------------------
-# Go
-# ------------------------------------------------------------------------------
-# Compiled binaries
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Go specific
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Test and coverage output
 *.test
 *.out
-*.cover
-*.prof
+go.work.sum
 
-# Workspace (local files)
-# go.work
-# go.work.sum
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
 
-# ------------------------------------------------------------------------------
-# Node/Javascript (Next.js)
-# ------------------------------------------------------------------------------
+# Docker
+.docker/
+docker-compose.override.yml
+
 # Logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
 
-# ------------------------------------------------------------------------------
-# IDE / Editors / OS
-# ------------------------------------------------------------------------------
-# VS Code
-.vscode/
+# Angular specific
+.angular/
+.pnpm-store/
 
-# JetBrains (IntelliJ, GoLand, WebStorm)
-.idea/
-
-# OS/System
-.DS_Store
+# OS files
 Thumbs.db
-
-# ------------------------------------------------------------------------------
-# Infra/Docker/Local Data
-# ------------------------------------------------------------------------------
-# Local database data (if maped to volumes)
-postgres_data/
-kafka_data/
-redis_data/
-*.db
-*.sqlite
-*.crt
-*.key
-*.srl
-
-# ------------------------------------------------------------------------------
-# Session files
-# ------------------------------------------------------------------------------
-*.session.sql
+ehthumbs.db
+Desktop.ini

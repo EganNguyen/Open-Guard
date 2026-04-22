@@ -1,0 +1,35 @@
+apiVersion: 1
+
+providers:
+  - name: 'System Overview'
+    orgId: 1
+    folder: 'System Overview'
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards/overview
+  - name: 'Services'
+    orgId: 1
+    folder: 'Services'
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards/services
+  - name: 'Logs'
+    orgId: 1
+    folder: 'Logs'
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards/logs
+  - name: 'Tracing'
+    orgId: 1
+    folder: 'Tracing'
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards/tracing
+  - name: 'Business'
+    orgId: 1
+    folder: 'Business'
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards/business
+
+

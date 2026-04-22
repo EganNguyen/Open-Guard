@@ -1,0 +1,16 @@
+{
+  "title": "IAM Service",
+  "uid": "og-iam-service-v1",
+  "panels": [
+    {
+      "title": "IAM Throughput",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum by (method, path) (rate(http_requests_total{service=\"iam\"}[5m]))", "legendFormat": "{{method}} {{path}}" }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39
+}

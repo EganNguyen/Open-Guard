@@ -1,0 +1,16 @@
+{
+  "title": "System Overview",
+  "uid": "og-system-overview-v1",
+  "panels": [
+    {
+      "title": "Global Request Rate (RPS)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(http_requests_total[5m]))", "legendFormat": "Global RPS" }
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39
+}
