@@ -1,3 +1,3 @@
 module github.com/openguard/alerting
 
-go 1.22
+go 1.25.0

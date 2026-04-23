@@ -6,23 +6,33 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type bcryptJob struct {
+type bcryptCompareJob struct {
 	password string
 	hash     string
 	result   chan error
 }
 
+type bcryptGenerateJob struct {
+	password string
+	result   chan struct {
+		hash []byte
+		err  error
+	}
+}
+
 // AuthWorkerPool manages a bounded set of goroutines for CPU-intensive bcrypt operations.
 type AuthWorkerPool struct {
-	jobs    chan bcryptJob
-	workers int
+	compareJobs  chan bcryptCompareJob
+	generateJobs chan bcryptGenerateJob
+	workers      int
 }
 
 // NewAuthWorkerPool initializes the pool with the specified number of workers.
 func NewAuthWorkerPool(workers int) *AuthWorkerPool {
 	p := &AuthWorkerPool{
-		jobs:    make(chan bcryptJob, 100),
-		workers: workers,
+		compareJobs:  make(chan bcryptCompareJob, 100),
+		generateJobs: make(chan bcryptGenerateJob, 100),
+		workers:      workers,
 	}
 	for i := 0; i < workers; i++ {
 		go p.worker()
@@ -31,8 +41,17 @@ func NewAuthWorkerPool(workers int) *AuthWorkerPool {
 }
 
 func (p *AuthWorkerPool) worker() {
-	for job := range p.jobs {
-		job.result <- bcrypt.CompareHashAndPassword([]byte(job.hash), []byte(job.password))
+	for {
+		select {
+		case job := <-p.compareJobs:
+			job.result <- bcrypt.CompareHashAndPassword([]byte(job.hash), []byte(job.password))
+		case job := <-p.generateJobs:
+			hash, err := bcrypt.GenerateFromPassword([]byte(job.password), 12)
+			job.result <- struct {
+				hash []byte
+				err  error
+			}{hash, err}
+		}
 	}
 }
 
@@ -40,7 +59,7 @@ func (p *AuthWorkerPool) worker() {
 func (p *AuthWorkerPool) Compare(ctx context.Context, password, hash string) error {
 	result := make(chan error, 1)
 	select {
-	case p.jobs <- bcryptJob{password, hash, result}:
+	case p.compareJobs <- bcryptCompareJob{password, hash, result}:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -50,5 +69,26 @@ func (p *AuthWorkerPool) Compare(ctx context.Context, password, hash string) err
 		return err
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+// Generate schedules a bcrypt hash generation and waits for the result.
+func (p *AuthWorkerPool) Generate(ctx context.Context, password string) ([]byte, error) {
+	result := make(chan struct {
+		hash []byte
+		err  error
+	}, 1)
+
+	select {
+	case p.generateJobs <- bcryptGenerateJob{password, result}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	select {
+	case res := <-result:
+		return res.hash, res.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }

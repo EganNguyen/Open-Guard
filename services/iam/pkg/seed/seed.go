@@ -15,41 +15,6 @@ const (
 )
 
 func Seed(ctx context.Context, pool *pgxpool.Pool) error {
-	// 0. Ensure Tables Exist (Minimal for Phase 2)
-	_, err := pool.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS orgs (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			name TEXT NOT NULL,
-			slug TEXT NOT NULL UNIQUE,
-			status TEXT NOT NULL DEFAULT 'active',
-			created_at TIMESTAMPTZ DEFAULT now()
-		);
-		
-		CREATE TABLE IF NOT EXISTS users (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			org_id UUID REFERENCES orgs(id),
-			email TEXT NOT NULL UNIQUE,
-			password_hash TEXT NOT NULL,
-			display_name TEXT NOT NULL,
-			role TEXT NOT NULL DEFAULT 'user',
-			status TEXT NOT NULL DEFAULT 'active',
-			created_at TIMESTAMPTZ DEFAULT now()
-		);
-
-		CREATE TABLE IF NOT EXISTS connectors (
-			id TEXT PRIMARY KEY,
-			name TEXT NOT NULL,
-			client_secret TEXT NOT NULL,
-			redirect_uris TEXT[] NOT NULL,
-			created_at TIMESTAMPTZ DEFAULT now()
-		);
-
-		ALTER TABLE connectors ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES orgs(id);
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to ensure tables exist: %w", err)
-	}
-
 	// 1. Create Organizations
 	orgs := []struct {
 		id   string
@@ -59,7 +24,7 @@ func Seed(ctx context.Context, pool *pgxpool.Pool) error {
 		{systemOrgID, "OpenGuard System", "openguard-system"},
 		{acmeOrgID, "Acme Corp", "acme-corp"},
 	}
-
+	var err error
 	for _, org := range orgs {
 		_, err = pool.Exec(ctx, `
 			INSERT INTO orgs (id, name, slug, status)
@@ -112,17 +77,6 @@ func Seed(ctx context.Context, pool *pgxpool.Pool) error {
 
 	// 4. Create Default Policies for Task App
 	_, err = pool.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS policies (
-			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			org_id UUID REFERENCES orgs(id),
-			name TEXT NOT NULL,
-			logic JSONB NOT NULL,
-			version INT NOT NULL DEFAULT 1,
-			status TEXT NOT NULL DEFAULT 'active',
-			created_at TIMESTAMPTZ DEFAULT now(),
-			updated_at TIMESTAMPTZ DEFAULT now()
-		);
-
 		INSERT INTO policies (org_id, name, logic, version)
 		VALUES ($1, $2, $3, 1)
 		ON CONFLICT DO NOTHING

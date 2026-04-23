@@ -1,0 +1,40 @@
+package sdk
+
+import (
+	"context"
+	"fmt"
+)
+
+type EvaluationRequest struct {
+	SubjectID string `json:"subject_id"`
+	Action    string `json:"action"`
+	Resource  string `json:"resource"`
+}
+
+type EvaluationResponse struct {
+	Allowed bool   `json:"allowed"`
+	Reason  string `json:"reason"`
+}
+
+func (c *Client) Allow(ctx context.Context, subjectID, action, resource string) (bool, error) {
+	cacheKey := fmt.Sprintf("%s:%s:%s", subjectID, action, resource)
+	if val, ok := c.cache.Get(cacheKey); ok {
+		return val, nil
+	}
+
+	req := EvaluationRequest{
+		SubjectID: subjectID,
+		Action:    action,
+		Resource:  resource,
+	}
+
+	var resp EvaluationResponse
+	// Path /v1/policy/evaluate per spec §10
+	err := c.do(ctx, "POST", "/v1/policy/evaluate", req, &resp)
+	if err != nil {
+		return false, err
+	}
+
+	c.cache.Set(cacheKey, resp.Allowed)
+	return resp.Allowed, nil
+}

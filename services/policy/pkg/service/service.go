@@ -9,10 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/openguard/services/policy/pkg/repository"
 	"github.com/openguard/services/policy/pkg/telemetry"
 	"github.com/openguard/shared/kafka/outbox"
+	"github.com/openguard/shared/resilience"
 	"github.com/redis/go-redis/v9"
+	"github.com/sony/gobreaker"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -67,6 +70,7 @@ type Service struct {
 	outboxWriter *outbox.Writer
 	sfGroup     singleflight.Group
 	logger      *slog.Logger
+	dbBreaker   *gobreaker.CircuitBreaker
 }
 
 // NewService creates a new policy service.
@@ -76,6 +80,13 @@ func NewService(repo *repository.Repository, rdb *redis.Client, outboxWriter *ou
 		rdb:         rdb,
 		outboxWriter: outboxWriter,
 		logger:      logger,
+		dbBreaker: resilience.NewBreaker(resilience.BreakerConfig{
+			Name:             "policy-db",
+			MaxRequests:      5,
+			Interval:         10 * time.Second,
+			FailureThreshold: 10,
+			OpenDuration:     30 * time.Second,
+		}, logger),
 	}
 }
 
@@ -131,7 +142,7 @@ func (s *Service) Evaluate(ctx context.Context, req EvaluateRequest) (*EvaluateR
 		err  error
 	}
 	ch := s.sfGroup.DoChan(key, func() (interface{}, error) {
-		resp, err := s.evaluateFromDB(ctx, req)
+		resp, err := s.evaluateFromDB(ctx, req, key)
 		return &sfResult{resp: resp, err: err}, nil
 	})
 
@@ -155,8 +166,10 @@ func (s *Service) Evaluate(ctx context.Context, req EvaluateRequest) (*EvaluateR
 }
 
 // evaluateFromDB fetches policies from Postgres and evaluates them.
-func (s *Service) evaluateFromDB(ctx context.Context, req EvaluateRequest) (*EvaluateResponse, error) {
-	policies, err := s.repo.GetMatchingPolicies(ctx, req.OrgID, req.SubjectID, req.UserGroups)
+func (s *Service) evaluateFromDB(ctx context.Context, req EvaluateRequest, key string) (*EvaluateResponse, error) {
+	policies, err := resilience.Call(ctx, s.dbBreaker, 50*time.Millisecond, func(ctx context.Context) ([]repository.Policy, error) {
+		return s.repo.GetMatchingPolicies(ctx, req.OrgID, req.SubjectID, req.UserGroups)
+	})
 	if err != nil {
 		// Fail-closed: if we can't read policies, deny
 		s.logger.Error("failed to fetch policies, failing closed", "error", err, "org_id", req.OrgID)
@@ -281,7 +294,7 @@ func matchesGlob(patterns []string, value string) bool {
 func (s *Service) backgroundRefresh(req EvaluateRequest, key string) {
 	ctx, cancel := context.WithTimeout(context.Background(), maxRetryDelay)
 	defer cancel()
-	s.evaluateFromDB(ctx, req)
+	s.evaluateFromDB(ctx, req, key)
 }
 
 // CreatePolicy creates a new policy and publishes a change event.
@@ -403,6 +416,30 @@ func (s *Service) InvalidateOrgCache(ctx context.Context, orgID string) error {
 			return fmt.Errorf("invalidate keys: %w", err)
 		}
 	}
+
+	return nil
+}
+
+func (s *Service) CreateAssignment(ctx context.Context, orgID, policyID, subjectID, subjectType string) (*repository.Assignment, error) {
+	a, err := s.repo.CreateAssignment(ctx, orgID, policyID, subjectID, subjectType)
+	if err != nil {
+		return nil, err
+	}
+
+	// Invalidate cache for the org (R-14)
+	go s.InvalidateOrgCache(context.Background(), orgID)
+
+	return a, nil
+}
+
+func (s *Service) DeleteAssignment(ctx context.Context, orgID, assignmentID string) error {
+	err := s.repo.DeleteAssignment(ctx, orgID, assignmentID)
+	if err != nil {
+		return err
+	}
+
+	// Invalidate cache for the org (R-14)
+	go s.InvalidateOrgCache(context.Background(), orgID)
 
 	return nil
 }

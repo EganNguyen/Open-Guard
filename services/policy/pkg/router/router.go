@@ -22,21 +22,24 @@ func NewRouter(h *handlers.Handler) *chi.Mux {
 	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/health", h.Health)
 
-	// Policy evaluation — path must be /v1/policy/evaluate per spec §11.5
-	// (control-plane proxies POST /v1/policy/evaluate → policy-service /v1/policy/evaluate)
-	r.Post("/v1/policy/evaluate", h.Evaluate)
+	r.Route("/v1", func(r chi.Router) {
+		r.Route("/policies", func(r chi.Router) {
+			r.Get("/", h.ListPolicies)
+			r.Post("/", h.CreatePolicy)
+			r.Get("/{id}", h.GetPolicy)
+			r.Put("/{id}", h.UpdatePolicy)
+			r.Delete("/{id}", h.DeletePolicy)
+		})
 
-	// Policy CRUD
-	r.Route("/v1/policies", func(r chi.Router) {
-		r.Get("/", h.ListPolicies)
-		r.Post("/", h.CreatePolicy)
-		r.Get("/{id}", h.GetPolicy)
-		r.Put("/{id}", h.UpdatePolicy)
-		r.Delete("/{id}", h.DeletePolicy)
+		r.Route("/assignments", func(r chi.Router) {
+			r.Get("/", h.ListAssignments)
+			r.Post("/", h.CreateAssignment)
+			r.Delete("/{id}", h.DeleteAssignment)
+		})
+
+		r.Post("/policy/evaluate", h.Evaluate)
+		r.Get("/policy/eval-logs", h.ListEvalLogs)
 	})
-
-	// Eval log
-	r.Get("/v1/policy/eval-logs", h.ListEvalLogs)
 
 	return r
 }

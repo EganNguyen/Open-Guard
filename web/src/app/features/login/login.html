@@ -8,7 +8,7 @@
       <p class="mt-2 text-sm text-[#6B778C]">Securely access your OpenGuard dashboard</p>
     </div>
     
-    <form class="mt-8 space-y-6" [formGroup]="loginForm" (ngSubmit)="onSubmit()">
+    <form *ngIf="!mfaRequired()" class="mt-8 space-y-6" [formGroup]="loginForm" (ngSubmit)="onSubmit()">
       <div class="space-y-4">
         <div>
           <label for="email-address" class="block text-xs font-bold uppercase tracking-wider text-[#6B778C] mb-1">Email address</label>
@@ -55,6 +55,35 @@
           Log in
         </button>
       </div>
+    </form>
+
+    <!-- MFA Step (R-11) -->
+    <form *ngIf="mfaRequired()" class="mt-8 space-y-6" (ngSubmit)="onMfaSubmit()">
+      <div class="text-center">
+        <span class="material-symbols-outlined text-4xl text-[#0052CC] mb-2">security</span>
+        <h3 class="text-lg font-bold text-[#172B4D]">Two-factor authentication</h3>
+        <p class="text-sm text-[#6B778C]">Enter the 6-digit code from your authenticator app</p>
+      </div>
+
+      <div>
+        <input type="text" maxlength="6" [(ngModel)]="mfaCode" name="mfaCode"
+               class="appearance-none rounded-md relative block w-full px-3 py-3 border border-[#DFE1E6] bg-[#FAFBFC] text-center text-2xl tracking-[0.5em] font-bold text-[#172B4D] focus:outline-none focus:ring-2 focus:ring-[#4C9AFF] focus:border-[#4C9AFF] transition-all" 
+               placeholder="000000">
+      </div>
+
+      <div *ngIf="errorMessage()" class="p-3 rounded bg-red-50 border border-red-200 text-red-700 text-xs flex items-center">
+        <span class="material-symbols-outlined text-sm mr-2">error</span>
+        {{ errorMessage() }}
+      </div>
+
+      <button type="submit" [disabled]="mfaCode().length !== 6 || isLoading()"
+              class="group relative w-full flex justify-center py-2.5 px-4 border border-transparent text-sm font-bold rounded-md text-white bg-[#0052CC] hover:bg-[#0747A6] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#4C9AFF] disabled:opacity-50 transition-all shadow-md">
+        Verify & Log in
+      </button>
+
+      <button type="button" (click)="mfaRequired.set(false)" class="w-full text-sm text-[#0052CC] hover:underline">
+        Back to login
+      </button>
     </form>
     
     <div class="text-center pt-4 border-t border-[#DFE1E6]">

@@ -1,8 +1,8 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, inject, OnInit, signal, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { PolicyService } from '../core/services/policy.service';
+import { AuditService, AuditEvent } from '../core/services/audit.service';
 import { AuthService } from '../core/services/auth.service';
-import { AuditLog } from '../core/models/audit.model';
+import { Subscription } from 'rxjs';
 
 @Component({
   selector: 'app-audit-logs',
@@ -11,15 +11,20 @@ import { AuditLog } from '../core/models/audit.model';
   templateUrl: './audit-logs.html',
   styleUrls: ['./audit-logs.css']
 })
-export class AuditLogComponent implements OnInit {
-  private policyService = inject(PolicyService);
+export class AuditLogComponent implements OnInit, OnDestroy {
+  private auditService = inject(AuditService);
   private authService = inject(AuthService);
+  private streamSubscription?: Subscription;
 
-  logs = signal<AuditLog[]>([]);
+  logs = signal<any[]>([]);
   loading = signal(true);
 
   ngOnInit() {
     this.loadLogs();
+  }
+
+  ngOnDestroy() {
+    this.streamSubscription?.unsubscribe();
   }
 
   loadLogs() {
@@ -27,14 +32,24 @@ export class AuditLogComponent implements OnInit {
     if (!user) return;
 
     this.loading.set(true);
-    this.policyService.listEvalLogs(user.org_id).subscribe({
+    this.auditService.listEvents(user.org_id).subscribe({
       next: (res) => {
-        this.logs.set(res.logs);
+        this.logs.set(res.events);
         this.loading.set(false);
+        this.startStreaming(user.org_id);
       },
       error: (err) => {
         console.error('Failed to load audit logs', err);
         this.loading.set(false);
+      }
+    });
+  }
+
+  startStreaming(orgId: string) {
+    this.streamSubscription = this.auditService.streamEvents(orgId).subscribe({
+      next: (data) => {
+        const event = JSON.parse(data);
+        this.logs.update(prev => [event, ...prev.slice(0, 49)]);
       }
     });
   }

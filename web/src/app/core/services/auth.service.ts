@@ -45,15 +45,36 @@ export class AuthService {
 
   login(credentials: any, oauthParams?: any): Observable<any> {
     const { email, password } = credentials;
-    return this.api.post<any>('/auth/login', { email, password }).pipe(
+    const url = oauthParams ? '/auth/oauth/login' : '/auth/login';
+    const body = oauthParams ? { email, password, ...oauthParams } : { email, password };
+
+    return this.api.post<any>(url, body).pipe(
       tap(res => {
-        if (oauthParams && oauthParams.client_id && oauthParams.redirect_uri) {
-          window.location.href = `${oauthParams.redirect_uri}?code=skeleton-auth-code&state=${oauthParams.state || ''}`;
+        if (res.mfa_required) {
+          return;
+        }
+
+        if (oauthParams && res.code) {
+          window.location.href = `${oauthParams.redirect_uri}?code=${res.code}&state=${res.state || ''}`;
           return;
         }
 
         this.currentUser.set(res.user);
-        this.router.navigate(['/overview']);
+        this.router.navigate(['/']); // R-06: /overview does not exist
+      })
+    );
+  }
+
+  verifyMfa(mfaChallenge: string, code: string, oauthParams?: any): Observable<any> {
+    return this.api.post<any>('/auth/mfa/verify', { mfa_challenge: mfaChallenge, code }).pipe(
+      tap(res => {
+        if (oauthParams && res.code) {
+          window.location.href = `${oauthParams.redirect_uri}?code=${res.code}&state=${res.state || ''}`;
+          return;
+        }
+
+        this.currentUser.set(res.user);
+        this.router.navigate(['/']);
       })
     );
   }

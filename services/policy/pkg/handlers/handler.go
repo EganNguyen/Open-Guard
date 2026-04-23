@@ -250,3 +250,75 @@ func (h *Handler) ListEvalLogs(w http.ResponseWriter, r *http.Request) {
 		"total": len(logs),
 	})
 }
+
+// ListAssignments handles GET /v1/assignments
+func (h *Handler) ListAssignments(w http.ResponseWriter, r *http.Request) {
+	orgID := r.URL.Query().Get("org_id")
+	if orgID == "" {
+		h.writeError(w, http.StatusBadRequest, "org_id is required")
+		return
+	}
+
+	assignments, err := h.repo.ListAssignments(r.Context(), orgID)
+	if err != nil {
+		h.logger.Error("list assignments failed", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "failed to list assignments")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"assignments": assignments,
+		"total":       len(assignments),
+	})
+}
+
+// CreateAssignment handles POST /v1/assignments
+func (h *Handler) CreateAssignment(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		OrgID       string `json:"org_id"`
+		PolicyID    string `json:"policy_id"`
+		SubjectID   string `json:"subject_id"`
+		SubjectType string `json:"subject_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if body.OrgID == "" || body.PolicyID == "" || body.SubjectID == "" {
+		h.writeError(w, http.StatusBadRequest, "org_id, policy_id, and subject_id are required")
+		return
+	}
+
+	assignment, err := h.svc.CreateAssignment(r.Context(), body.OrgID, body.PolicyID, body.SubjectID, body.SubjectType)
+	if err != nil {
+		h.logger.Error("create assignment failed", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "failed to create assignment")
+		return
+	}
+
+	h.writeJSON(w, http.StatusCreated, assignment)
+}
+
+// DeleteAssignment handles DELETE /v1/assignments/{id}
+func (h *Handler) DeleteAssignment(w http.ResponseWriter, r *http.Request) {
+	assignmentID := chi.URLParam(r, "id")
+	orgID := r.URL.Query().Get("org_id")
+
+	if assignmentID == "" || orgID == "" {
+		h.writeError(w, http.StatusBadRequest, "id and org_id are required")
+		return
+	}
+
+	if err := h.svc.DeleteAssignment(r.Context(), orgID, assignmentID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			h.writeError(w, http.StatusNotFound, "assignment not found")
+			return
+		}
+		h.logger.Error("delete assignment failed", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "failed to delete assignment")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}

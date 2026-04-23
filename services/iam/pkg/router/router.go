@@ -22,6 +22,7 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) 
 	r.Use(iam_middleware.Correlation)
 	r.Use(telemetry.Metrics)
 	r.Use(middleware.Recoverer)
+	r.Use(middleware.RequestSize(1 << 20)) // 1MB limit (R-05)
 
 	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/health", h.Health)
@@ -44,11 +45,19 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) 
 		r.Group(func(r chi.Router) {
 			r.Use(authRateLimiter.Limit)
 			r.Post("/login", h.Login)
+			r.Post("/oauth/login", h.OAuthLogin)
+			r.Post("/refresh", h.Refresh)
+			r.Post("/mfa/verify", h.VerifyMFA)
 		})
 		r.Post("/logout", h.Logout)
 		r.Get("/authorize", h.Authorize)
 		r.Post("/token", h.Token)
 		
+		r.Route("/scim/v2", func(r chi.Router) {
+			r.Get("/Users", h.ListScimUsers)
+			r.Get("/Users/{id}", h.GetScimUser)
+		})
+
 		r.Group(func(r chi.Router) {
 			r.Use(iam_middleware.Auth(keyring, rdb))
 			r.Get("/me", h.Me)

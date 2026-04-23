@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"sync"
+	"time"
 
 	"golang.org/x/time/rate"
 )
@@ -17,11 +18,23 @@ type RateLimiter struct {
 
 // NewRateLimiter creates a new rate limiter with r requests per second and burst b.
 func NewRateLimiter(r rate.Limit, b int) *RateLimiter {
-	return &RateLimiter{
+	l := &RateLimiter{
 		ips: make(map[string]*rate.Limiter),
 		r:   r,
 		b:   b,
 	}
+
+	// Periodic cleanup to prevent memory leak (R-01)
+	go func() {
+		for range time.Tick(15 * time.Minute) {
+			l.mu.Lock()
+			// Simple strategy: clear all. More advanced would be to check last access time.
+			l.ips = make(map[string]*rate.Limiter)
+			l.mu.Unlock()
+		}
+	}()
+
+	return l
 }
 
 func (l *RateLimiter) getLimiter(ip string) *rate.Limiter {

@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/openguard/sdk"
 	"github.com/openguard/shared/crypto"
 )
 
@@ -35,21 +36,27 @@ func main() {
 		log.Fatalf("failed to init db: %v", err)
 	}
 
-	r := chi.NewRouter()
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
+	// ── OpenGuard SDK Initialization ──────────────────────────────────────────
+	policyURL := os.Getenv("OPENGUARD_POLICY_URL")
+	if policyURL == "" {
+		policyURL = "http://localhost:8083"
+	}
+	apiKey := os.Getenv("OPENGUARD_API_KEY")
+	if apiKey == "" {
+		apiKey = "ogk_dev_key_12345678" // Default for dev
+	}
+	og := sdk.NewClient(policyURL, apiKey)
 
-	// Phase 3: Real OpenGuard Auth & Policy Middleware
+	// Auth setup (still needed for token verification)
 	keyringJSON := os.Getenv("OPENGUARD_JWT_KEYS")
 	if keyringJSON == "" {
 		keyringJSON = `[{"kid":"dev-key","secret":"dev-secret-at-least-32-chars-long-!!","algorithm":"HS256","status":"active"}]`
 	}
 	keyring, _ := crypto.LoadKeyring(keyringJSON)
 
-	policyBaseURL := os.Getenv("OPENGUARD_POLICY_URL")
-	if policyBaseURL == "" {
-		policyBaseURL = "http://localhost:8082"
-	}
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
 
 	authMiddleware := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -76,32 +83,16 @@ func main() {
 	policyMiddleware := func(action string) func(http.Handler) http.Handler {
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				orgID := r.Context().Value("org_id").(string)
 				userID := r.Context().Value("user_id").(string)
 
-				// Call OpenGuard Policy Service
-				evalReq := map[string]interface{}{
-					"org_id":      orgID,
-					"subject_id":  userID,
-					"user_groups": []string{}, // Could be fetched from token if added
-					"action":      action,
-					"resource":    "task:*", // Simple resource scoping
-				}
-				b, _ := json.Marshal(evalReq)
-				
-				resp, err := http.Post(policyBaseURL+"/v1/policy/evaluate", "application/json", strings.NewReader(string(b)))
+				// Use SDK for policy evaluation (R-15)
+				allowed, err := og.Allow(r.Context(), userID, action, "task:*")
 				if err != nil {
-					http.Error(w, "Policy service unavailable", http.StatusServiceUnavailable)
+					http.Error(w, "Policy evaluation failed", http.StatusServiceUnavailable)
 					return
 				}
-				defer resp.Body.Close()
 
-				var evalResp struct {
-					Effect string `json:"effect"`
-				}
-				json.NewDecoder(resp.Body).Decode(&evalResp)
-
-				if evalResp.Effect != "allow" {
+				if !allowed {
 					http.Error(w, "Access Denied by OpenGuard Policy", http.StatusForbidden)
 					return
 				}

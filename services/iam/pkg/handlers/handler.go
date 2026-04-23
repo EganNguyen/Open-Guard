@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 
@@ -52,6 +53,15 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle MFA requirement (R-11)
+	if mfaRequired, ok := user["mfa_required"].(bool); ok && mfaRequired {
+		h.writeJSON(w, http.StatusAccepted, map[string]interface{}{
+			"mfa_required":  true,
+			"mfa_challenge": user["mfa_challenge"],
+		})
+		return
+	}
+
 	// Set HttpOnly cookie for session management per spec §5
 	http.SetCookie(w, &http.Cookie{
 		Name:     "openguard_session",
@@ -65,7 +75,91 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	h.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user":         user,
-		"access_token": token, // Still return it for SDKs/APIs, but frontend will use the cookie
+		"access_token": token,
+	})
+}
+
+func (h *Handler) VerifyMFA(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ChallengeToken string `json:"mfa_challenge"`
+		Code           string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	user, token, err := h.svc.VerifyMFAAndLogin(r.Context(), body.ChallengeToken, body.Code, r.UserAgent(), r.RemoteAddr)
+	if err != nil {
+		http.Error(w, "Invalid MFA code", http.StatusUnauthorized)
+		return
+	}
+
+	// Set session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "openguard_session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   3600,
+	})
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"user":         user,
+		"access_token": token,
+	})
+}
+
+func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	res, err := h.svc.RefreshToken(r.Context(), body.RefreshToken, r.UserAgent(), r.RemoteAddr)
+	if err != nil {
+		http.Error(w, "Invalid or expired refresh token", http.StatusUnauthorized)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, res)
+}
+
+func (h *Handler) OAuthLogin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email       string `json:"email"`
+		Password    string `json:"password"`
+		ClientID    string `json:"client_id"`
+		RedirectURI string `json:"redirect_uri"`
+		State       string `json:"state"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	user, _, err := h.svc.Login(r.Context(), body.Email, body.Password, r.UserAgent(), r.RemoteAddr)
+	if err != nil {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// Generate auth code (R-03)
+	code := uuid.New().String()
+	err = h.svc.StoreAuthCode(r.Context(), code, user["org_id"].(string), user["id"].(string))
+	if err != nil {
+		http.Error(w, "failed to store auth code", http.StatusInternalServerError)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"code":  code,
+		"state": body.State,
 	})
 }
 
@@ -179,7 +273,9 @@ func (h *Handler) ListConnectors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.svc.ListUsers(r.Context())
+	orgID := middleware.GetOrgID(r.Context())
+	filter := r.URL.Query().Get("filter")
+	users, err := h.svc.ListUsers(r.Context(), orgID, filter)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

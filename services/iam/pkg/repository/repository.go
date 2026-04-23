@@ -156,6 +156,29 @@ func (r *Repository) EnableUserMFA(ctx context.Context, userID string, enabled b
 	return err
 }
 
+func (r *Repository) ListMFAConfigs(ctx context.Context, userID string) ([]map[string]interface{}, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT mfa_type, secret_encrypted FROM mfa_configs WHERE user_id = $1
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var configs []map[string]interface{}
+	for rows.Next() {
+		var mfaType, secret string
+		if err := rows.Scan(&mfaType, &secret); err != nil {
+			return nil, err
+		}
+		configs = append(configs, map[string]interface{}{
+			"mfa_type":         mfaType,
+			"secret_encrypted": secret,
+		})
+	}
+	return configs, nil
+}
+
 func (r *Repository) GetConnectorByID(ctx context.Context, id string) (map[string]interface{}, error) {
 	var connector = make(map[string]interface{})
 	var name, secret string
@@ -201,10 +224,20 @@ func (r *Repository) ListConnectors(ctx context.Context) ([]map[string]interface
 	}
 	return connectors, nil
 }
-func (r *Repository) ListUsers(ctx context.Context) ([]map[string]interface{}, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT id, org_id, email, display_name, role, status, created_at FROM users
-	`)
+func (r *Repository) ListUsers(ctx context.Context, orgID string, filter string) ([]map[string]interface{}, error) {
+	query := `SELECT id, org_id, email, display_name, role, status, scim_external_id, version, created_at, updated_at FROM users WHERE org_id = $1`
+	args := []interface{}{orgID}
+
+	if filter != "" {
+		// Very basic SCIM filter support: userName eq "..."
+		if strings.Contains(filter, `userName eq "`) {
+			email := strings.Split(strings.Split(filter, `userName eq "`)[1], `"`)[0]
+			query += ` AND email = $2`
+			args = append(args, email)
+		}
+	}
+
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -212,22 +245,40 @@ func (r *Repository) ListUsers(ctx context.Context) ([]map[string]interface{}, e
 
 	var users []map[string]interface{}
 	for rows.Next() {
-		var id, orgID, email, name, role, status string
-		var createdAt time.Time
-		if err := rows.Scan(&id, &orgID, &email, &name, &role, &status, &createdAt); err != nil {
+		var id, orgIDStr, email, name, role, status string
+		var externalID *string
+		var version int
+		var created, updated time.Time
+		if err := rows.Scan(&id, &orgIDStr, &email, &name, &role, &status, &externalID, &version, &created, &updated); err != nil {
 			return nil, err
 		}
-		users = append(users, map[string]interface{}{
-			"id":           id,
-			"org_id":       orgID,
-			"email":        email,
-			"display_name": name,
-			"role":         role,
-			"status":       status,
-			"created_at":   createdAt,
-		})
+		user := map[string]interface{}{
+			"id":               id,
+			"org_id":           orgIDStr,
+			"email":            email,
+			"display_name":     name,
+			"role":             role,
+			"status":           status,
+			"scim_external_id": externalID,
+			"version":          version,
+			"created_at":       created,
+			"updated_at":       updated,
+		}
+		users = append(users, user)
 	}
 	return users, nil
+}
+
+func (r *Repository) GetUserByExternalID(ctx context.Context, orgID, externalID string) (map[string]interface{}, error) {
+	return r.getUser(ctx, "org_id = $1 AND scim_external_id = $2", orgID, externalID)
+}
+
+func (r *Repository) UpdateUserSCIM(ctx context.Context, id string, externalID string, status string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE users SET scim_external_id = $1, status = $2, version = version + 1, updated_at = NOW()
+		WHERE id = $3
+	`, externalID, status, id)
+	return err
 }
 
 func (r *Repository) CreateConnector(ctx context.Context, id, name, secret string, uris []string) (string, error) {
@@ -271,4 +322,72 @@ func (r *Repository) DeleteConnector(ctx context.Context, id string) error {
 		DELETE FROM connectors WHERE id = $1
 	`, id)
 	return err
+}
+
+func (r *Repository) CreateRefreshToken(ctx context.Context, orgID, userID, tokenHash string, familyID uuid.UUID, expiresAt time.Time) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO refresh_tokens (org_id, user_id, token_hash, family_id, expires_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, orgID, userID, tokenHash, familyID, expiresAt)
+	return err
+}
+
+func (r *Repository) GetRefreshToken(ctx context.Context, tokenHash string) (map[string]interface{}, error) {
+	var rt = make(map[string]interface{})
+	var id, orgID, userID string
+	var familyID uuid.UUID
+	var expiresAt time.Time
+	var revoked bool
+
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, org_id, user_id, family_id, expires_at, revoked 
+		FROM refresh_tokens WHERE token_hash = $1
+	`, tokenHash).Scan(&id, &orgID, &userID, &familyID, &expiresAt, &revoked)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	rt["id"] = id
+	rt["org_id"] = orgID
+	rt["user_id"] = userID
+	rt["family_id"] = familyID
+	rt["expires_at"] = expiresAt
+	rt["revoked"] = revoked
+	return rt, nil
+}
+
+func (r *Repository) RevokeRefreshTokenFamily(ctx context.Context, familyID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE refresh_tokens SET revoked = TRUE WHERE family_id = $1
+	`, familyID)
+	return err
+}
+
+func (r *Repository) DeleteRefreshToken(ctx context.Context, tokenHash string) error {
+	_, err := r.pool.Exec(ctx, `
+		DELETE FROM refresh_tokens WHERE token_hash = $1
+	`, tokenHash)
+	return err
+}
+func (r *Repository) getUser(ctx context.Context, where string, args ...interface{}) (map[string]interface{}, error) {
+	query := `SELECT id, org_id, email, display_name, role, status FROM users WHERE ` + where
+	var id, orgID, email, displayName, role, status string
+	err := r.pool.QueryRow(ctx, query, args...).Scan(&id, &orgID, &email, &displayName, &role, &status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return map[string]interface{}{
+		"id":           id,
+		"org_id":       orgID,
+		"email":        email,
+		"display_name": displayName,
+		"role":         role,
+		"status":       status,
+	}, nil
 }

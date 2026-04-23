@@ -1,10 +1,14 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
+# Copy shared module
+WORKDIR /shared
+COPY shared/ ./
+
+# Build service
 WORKDIR /app
-COPY go.mod ./
-# RUN go mod download (no go.sum yet)
-COPY main.go ./
-RUN go build -o service .
+COPY services/alerting/go.mod ./
+COPY services/alerting/ .
+RUN go mod tidy && go build -o service .
 
 FROM alpine:3.19
 WORKDIR /app

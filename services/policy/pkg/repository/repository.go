@@ -40,6 +40,16 @@ type EvalLog struct {
 	EvaluatedAt      time.Time `json:"evaluated_at"`
 }
 
+// Assignment represents a policy assignment to a subject.
+type Assignment struct {
+	ID          string    `json:"id"`
+	OrgID       string    `json:"org_id"`
+	PolicyID    string    `json:"policy_id"`
+	SubjectID   string    `json:"subject_id"`
+	SubjectType string    `json:"subject_type"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // Repository handles all database interactions for the policy service.
 type Repository struct {
 	pool *pgxpool.Pool
@@ -402,4 +412,84 @@ func (r *Repository) ListEvalLogs(ctx context.Context, orgID string, limit int) 
 		logs = append(logs, l)
 	}
 	return logs, nil
+}
+
+func (r *Repository) ListAssignments(ctx context.Context, orgID string) ([]Assignment, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	if err := SetRLS(ctx, tx, orgID); err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT id, org_id, policy_id, subject_id, subject_type, created_at
+		FROM policy_assignments
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var assignments []Assignment
+	for rows.Next() {
+		var a Assignment
+		if err := rows.Scan(&a.ID, &a.OrgID, &a.PolicyID, &a.SubjectID, &a.SubjectType, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		assignments = append(assignments, a)
+	}
+	tx.Commit(ctx)
+	return assignments, nil
+}
+
+func (r *Repository) CreateAssignment(ctx context.Context, orgID, policyID, subjectID, subjectType string) (*Assignment, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	if err := SetRLS(ctx, tx, orgID); err != nil {
+		return nil, err
+	}
+
+	var a Assignment
+	err = tx.QueryRow(ctx, `
+		INSERT INTO policy_assignments (org_id, policy_id, subject_id, subject_type)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, org_id, policy_id, subject_id, subject_type, created_at
+	`, orgID, policyID, subjectID, subjectType).Scan(&a.ID, &a.OrgID, &a.PolicyID, &a.SubjectID, &a.SubjectType, &a.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (r *Repository) DeleteAssignment(ctx context.Context, orgID, assignmentID string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if err := SetRLS(ctx, tx, orgID); err != nil {
+		return err
+	}
+
+	ct, err := tx.Exec(ctx, `DELETE FROM policy_assignments WHERE id = $1 AND org_id = $2`, assignmentID, orgID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit(ctx)
 }

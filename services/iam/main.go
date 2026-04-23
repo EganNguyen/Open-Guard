@@ -15,10 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"go.uber.org/zap"
 
 	"github.com/openguard/services/iam/pkg/handlers"
-	"github.com/openguard/services/iam/pkg/logger"
 	"github.com/openguard/services/iam/pkg/repository"
 	"github.com/openguard/services/iam/pkg/router"
 	"github.com/openguard/services/iam/pkg/seed"
@@ -30,19 +28,19 @@ import (
 )
 
 func main() {
-	// Initialize logger
-	logger.Init()
-	defer logger.Log.Sync()
-	log := logger.Log.With(zap.String("service", "iam"))
+	// Initialize slog (R-13)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "iam")
+	slog.SetDefault(logger)
 
 	// Initialize OpenTelemetry
 	tp, err := telemetry.InitTracer()
 	if err != nil {
-		log.Fatal("failed to initialize tracer", zap.Error(err))
+		logger.Error("failed to initialize tracer", "error", err)
+		os.Exit(1)
 	}
 	defer func() {
 		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Error("failed to shutdown tracer", zap.Error(err))
+			logger.Error("failed to shutdown tracer", "error", err)
 		}
 	}()
 
@@ -57,7 +55,8 @@ func main() {
 
 	config, err := pgxpool.ParseConfig(dbURL)
 	if err != nil {
-		log.Fatal("failed to parse db config", zap.Error(err))
+		logger.Error("failed to parse db config", "error", err)
+		os.Exit(1)
 	}
 
 	// Set connection pool limits per spec §2.10
@@ -68,7 +67,8 @@ func main() {
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
-		log.Fatal("failed to connect to db", zap.Error(err))
+		logger.Error("failed to connect to db", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
@@ -79,19 +79,20 @@ func main() {
 	}
 	rOptions, err := redis.ParseURL(redisURL)
 	if err != nil {
-		log.Fatal("failed to parse redis url", zap.Error(err))
+		logger.Error("failed to parse redis url", "error", err)
+		os.Exit(1)
 	}
 	rdb := redis.NewClient(rOptions)
 	defer rdb.Close()
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
-		log.Warn("redis connection check failed", zap.Error(err))
+		logger.Warn("redis connection check failed", "error", err)
 	}
 
 	// Auto-seed if requested
 	if os.Getenv("SEED_DB") == "true" {
 		if err := seed.Seed(ctx, pool); err != nil {
-			log.Error("seeding failed", zap.Error(err))
+			logger.Error("seeding failed", "error", err)
 		}
 	}
 
@@ -103,11 +104,12 @@ func main() {
 	if keyringJSON == "" {
 		// Default dev key if not provided - NOT FOR PRODUCTION
 		keyringJSON = `[{"kid":"dev-key","secret":"dev-secret-at-least-32-chars-long-!!","algorithm":"HS256","status":"active"}]`
-		log.Warn("IAM_JWT_KEYS not set, using default dev key")
+		logger.Warn("IAM_JWT_KEYS not set, using default dev key")
 	}
 	keyring, err := crypto.LoadKeyring(keyringJSON)
 	if err != nil {
-		log.Fatal("failed to load JWT keyring", zap.Error(err))
+		logger.Error("failed to load JWT keyring", "error", err)
+		os.Exit(1)
 	}
 
 	// Load AES Keyring for MFA
@@ -115,11 +117,12 @@ func main() {
 	if aesKeyringJSON == "" {
 		// Default dev key - 32 bytes base64 encoded
 		aesKeyringJSON = `[{"kid":"dev-aes","key":"YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=","status":"active"}]`
-		log.Warn("IAM_AES_KEYS not set, using default dev key")
+		logger.Warn("IAM_AES_KEYS not set, using default dev key")
 	}
 	aesKeyring, err := crypto.LoadAESKeyring(aesKeyringJSON)
 	if err != nil {
-		log.Fatal("failed to load AES keyring", zap.Error(err))
+		logger.Error("failed to load AES keyring", "error", err)
+		os.Exit(1)
 	}
 
 	// Initialize Repository, Service, Handler
@@ -159,7 +162,7 @@ func main() {
 				ClientCAs:  caCertPool,
 				ClientAuth: tls.VerifyClientCertIfGiven,
 			}
-			log.Info("mTLS configured")
+			logger.Info("mTLS configured")
 		}
 	}
 
@@ -170,20 +173,21 @@ func main() {
 	}
 
 	go func() {
-		log.Info("service starting", zap.String("port", port))
+		logger.Info("service starting", "port", port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("server failed", zap.Error(err))
+			logger.Error("server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
 	<-ctx.Done()
-	log.Info("shutting down gracefully")
+	logger.Info("shutting down gracefully")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error("server shutdown failed", zap.Error(err))
+		logger.Error("server shutdown failed", "error", err)
 	}
 	
 	fmt.Println("Service exited")

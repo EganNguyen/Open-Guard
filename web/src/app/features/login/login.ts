@@ -26,6 +26,10 @@ export class LoginComponent implements OnInit {
   showPassword = signal(false);
   errorMessage = signal<string | null>(null);
   
+  mfaRequired = signal(false);
+  mfaChallenge = signal<string | null>(null);
+  mfaCode = signal('');
+
   oauthParams: any = null;
 
   ngOnInit() {
@@ -50,8 +54,27 @@ export class LoginComponent implements OnInit {
       this.errorMessage.set(null);
       
       this.authService.login(this.loginForm.value, this.oauthParams).subscribe({
+        next: (res) => {
+          if (res.mfa_required) {
+            this.mfaRequired.set(true);
+            this.mfaChallenge.set(res.mfa_challenge);
+            this.isLoading.set(false);
+          }
+        },
         error: (err) => {
           this.errorMessage.set(err.message || 'Login failed');
+          this.isLoading.set(false);
+        }
+      });
+    }
+  }
+
+  onMfaSubmit(): void {
+    if (this.mfaCode().length === 6) {
+      this.isLoading.set(true);
+      this.authService.verifyMfa(this.mfaChallenge()!, this.mfaCode(), this.oauthParams).subscribe({
+        error: (err) => {
+          this.errorMessage.set(err.message || 'MFA verification failed');
           this.isLoading.set(false);
         }
       });

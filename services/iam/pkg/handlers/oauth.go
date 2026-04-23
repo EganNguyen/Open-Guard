@@ -4,6 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
@@ -37,10 +41,15 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Redirect to the OpenGuard Login UI
-	// In a real app, we'd store the OAuth params in a session/cookie
-	loginURL := fmt.Sprintf("http://localhost:4200/login?client_id=%s&redirect_uri=%s&state=%s", 
-		url.QueryEscape(clientID), 
-		url.QueryEscape(redirectURI), 
+	dashboardURL := os.Getenv("OPENGUARD_DASHBOARD_URL")
+	if dashboardURL == "" {
+		dashboardURL = "http://localhost:4200"
+	}
+
+	loginURL := fmt.Sprintf("%s/login?client_id=%s&redirect_uri=%s&state=%s",
+		dashboardURL,
+		url.QueryEscape(clientID),
+		url.QueryEscape(redirectURI),
 		url.QueryEscape(state))
 	http.Redirect(w, r, loginURL, http.StatusFound)
 }
@@ -55,9 +64,10 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 	if clientID == "" {
 		clientID, _, _ = r.BasicAuth()
 	}
+	code := r.Form.Get("code")
 
-	if clientID == "" {
-		http.Error(w, "missing client_id", http.StatusBadRequest)
+	if clientID == "" || code == "" {
+		http.Error(w, "missing client_id or code", http.StatusBadRequest)
 		return
 	}
 
@@ -67,13 +77,14 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Real token issuance for Phase 3 demo
-	// In a real OAuth flow, we would verify the 'code' from a session/store
-	// For this demo, we issue a token for the 'Acme Admin' seeded in seed.go
-	orgID := "11111111-1111-1111-1111-111111111111"
-	userID := "22222222-2222-2222-2222-222222222222" // I'll assume this ID or just use a new UUID
-	
-	token, err := h.svc.SignToken(orgID, userID, "oauth-jti-"+clientID, 1*time.Hour)
+	// Verify the 'code' from Redis (R-03)
+	orgID, userID, err := h.svc.GetAuthCode(r.Context(), code)
+	if err != nil {
+		http.Error(w, "invalid or expired code", http.StatusUnauthorized)
+		return
+	}
+
+	token, err := h.svc.SignToken(orgID, userID, "oauth-jti-"+uuid.New().String(), 1*time.Hour)
 	if err != nil {
 		http.Error(w, "failed to sign token", http.StatusInternalServerError)
 		return
