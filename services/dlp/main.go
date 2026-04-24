@@ -40,7 +40,7 @@ func main() {
 		}
 	} else {
 		logger.Warn("JWT_KEYS not set, using default development key")
-		keyring = []crypto.JWTKey{{KID: "dev", Secret: "default-secret", Algorithm: "HS256", Status: "active"}}
+		keyring = []crypto.JWTKey{{Kid: "dev", Secret: "default-secret", Algorithm: "HS256", Status: "active"}}
 	}
 
 	port := os.Getenv("PORT")

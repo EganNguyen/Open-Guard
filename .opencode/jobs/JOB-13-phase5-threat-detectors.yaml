@@ -1,0 +1,285 @@
+id: JOB-13
+title: "Phase 5 Threat Detection — Missing 5 of 6 Detectors"
+priority: P1
+phase_impact: [5]
+severity: HIGH
+estimated_effort: 6d
+
+summary: |
+  Phase 5 goal per spec §13: "Real-time detection via Redis-backed counters. Composite
+  risk scoring. Saga-based alert lifecycle. SIEM payloads signed with HMAC and
+  replay-protected."
+
+  The threat service has exactly ONE detector: `BruteForceDetector`. The spec defines
+  six detectors. Five are completely absent from the codebase:
+
+    1. ✅ Brute Force          (implemented — but has issues, see below)
+    2. ❌ Impossible Travel    (not implemented — requires MaxMind GeoLite2 DB)
+    3. ❌ Off-Hours Access     (not implemented)
+    4. ❌ Data Exfiltration    (not implemented)
+    5. ❌ Account Takeover     (not implemented)
+    6. ❌ Privilege Escalation (not implemented)
+
+  Additionally: the threat service has no HTTP API layer (no router/handlers for the
+  six endpoints in §13.4), no alert persistence (MongoDB), no SIEM webhook integration,
+  no composite risk scoring, and no alert lifecycle saga.
+
+  The existing BruteForce detector also has defects:
+  - Uses hardcoded `MaxAttempts = 5` constant alongside env var (env var wins, but the
+    constant is misleading — spec default is 11, not 5)
+  - Redis window cleanup uses `EXPIRE` on a sorted-set key, but the key is created with
+    `ZADD` without a TTL. If the detector is restarted while within the window, the key
+    persists indefinitely until the next login triggers cleanup.
+
+problems:
+  - id: THREAT-01
+    title: "Missing ImpossibleTravelDetector"
+    file: services/threat/pkg/detector/ (new file: impossible_travel.go)
+    severity: HIGH
+    description: |
+      Spec §13.1: "Login from IP1 then IP2, distance > THREAT_GEO_CHANGE_THRESHOLD_KM
+      within 1hr → risk score 0.9."
+      Requires MaxMind GeoLite2 City database. The spec documents this in §13.1.1.
+
+    fix: |
+      1. Add `github.com/oschwald/geoip2-golang` dependency.
+      2. Create `services/threat/pkg/detector/impossible_travel.go`:
+         ```go
+         type ImpossibleTravelDetector struct {
+             db          *geoip2.Reader
+             rdb         *redis.Client
+             reader      *kafka.Reader
+             threshold   float64 // THREAT_GEO_CHANGE_THRESHOLD_KM, default 500
+             windowSecs  int     // 3600 (1 hour, hardcoded per spec)
+             logger      *slog.Logger
+         }
+
+         func (d *ImpossibleTravelDetector) Run(ctx context.Context) {
+             // Consume auth.login.success events
+             // For each event: parse IP, geolocate, store last login in Redis as
+             //   "travel:{userID}" = JSON{ip, lat, lon, unix_ts}
+             // On next login: compute Haversine distance from stored lat/lon
+             // If distance > threshold AND time delta < windowSecs → fire alert
+         }
+         ```
+      3. Implement Haversine formula for great-circle distance.
+      4. Store last position: `SET travel:{userID} {json} EX 3600`
+      5. SSRF note: GeoLite2 DB is loaded from local filesystem — no outbound call at query time.
+      6. Add `make geo-db` target to Makefile invoking `scripts/download-geolite2.sh`
+         (create the script: requires `MAXMIND_LICENSE_KEY` env var).
+      7. Add `MAXMIND_LICENSE_KEY` and `GEOLITE2_DB_PATH` to `.env.example`.
+      8. Mount the .mmdb file in docker-compose:
+         `./data/GeoLite2-City.mmdb:/data/GeoLite2-City.mmdb:ro`
+
+  - id: THREAT-02
+    title: "Missing OffHoursAccessDetector"
+    file: services/threat/pkg/detector/ (new file: off_hours.go)
+    severity: HIGH
+    description: |
+      Spec: "Login outside 06:00–22:00 org local time for 3+ consecutive days previously
+      all in-hours → risk score 0.5."
+
+    fix: |
+      ```go
+      type OffHoursDetector struct {
+          rdb        *redis.Client
+          offStart   int // THREAT_OFF_HOURS_START, default 22 (UTC hour)
+          offEnd     int // THREAT_OFF_HOURS_END, default 6 (UTC hour)
+          logger     *slog.Logger
+      }
+      // Redis key: "offhours:{orgID}:{userID}:{YYYY-MM-DD}" = "1" (in-hours day)
+      // On login: check hour. If off-hours, check last 3 days in Redis.
+      // If all 3 previous days were in-hours → fire alert.
+      // Set key EX 7 * 24 * 3600 (7 day TTL for historical pattern)
+      ```
+
+  - id: THREAT-03
+    title: "Missing DataExfiltrationDetector"
+    file: services/threat/pkg/detector/ (new file: data_exfiltration.go)
+    severity: HIGH
+    description: |
+      Spec: "data.access count for single user exceeds org baseline by 3σ within 1hr
+      → risk score 0.7."
+
+    fix: |
+      Use Redis sorted sets to track per-user access counts with sliding window:
+      ```go
+      // ZADD access:{orgID}:{userID} <unix_ms> <uuid>
+      // ZREMRANGEBYSCORE access:{orgID}:{userID} 0 <1hr_ago_ms>
+      // ZCARD → current count in window
+      // Compare against org baseline (store as Redis key: "baseline:{orgID}:access_mean"
+      // and "baseline:{orgID}:access_stddev") updated every 24h by a background job.
+      // If count > mean + 3*stddev → alert
+      ```
+
+  - id: THREAT-04
+    title: "Missing AccountTakeoverDetector"
+    file: services/threat/pkg/detector/ (new file: account_takeover.go)
+    severity: HIGH
+    description: |
+      Spec: "Login from new device fingerprint within 24hr of password change → risk 0.7."
+
+    fix: |
+      ```go
+      // On password.changed event: SET ato:pwchange:{userID} "1" EX 86400
+      // On auth.login.success event:
+      //   1. Check if "ato:pwchange:{userID}" exists
+      //   2. If yes: compare device fingerprint against known devices for user
+      //      (store fingerprints in Redis SET "ato:devices:{userID}", TTL 30 days)
+      //   3. If new device AND recent password change → alert
+      //   4. SADD "ato:devices:{userID}" <fingerprint>; EXPIRE 2592000
+      ```
+      Device fingerprint = SHA-256(User-Agent + Accept-Language + Platform header).
+
+  - id: THREAT-05
+    title: "Missing PrivilegeEscalationDetector"
+    file: services/threat/pkg/detector/ (new file: privilege_escalation.go)
+    severity: HIGH
+    description: |
+      Spec: "policy.changes with role.grant for user who logged in within 60min
+      → risk score 0.9."
+
+    fix: |
+      ```go
+      // On auth.login.success: SET privsec:login:{userID} "1" EX 3600
+      // On policy.changes (type=role.grant): check if privsec:login:{actorID} exists
+      // If yes → alert (login → immediate admin grant pattern)
+      ```
+      Consume from `TopicPolicyChanges` (separate from BruteForce's `TopicAuthEvents`).
+
+  - id: THREAT-06
+    title: "Missing composite risk scoring and alert persistence"
+    file: services/threat/ (new files: pkg/scorer/scorer.go, pkg/alert/alert.go)
+    severity: HIGH
+    description: |
+      All detectors currently fire independently with no shared scoring or alert model.
+      The spec (§13.1) requires:
+      - Composite scoring: max(individual_scores) weighted by recency
+      - Score ≥ 0.5 → alert; ≥ 0.8 → HIGH; ≥ 0.95 → CRITICAL
+      - Alerts persisted to MongoDB `alerts` collection
+      - Alert lifecycle: created → acknowledged → resolved (with MTTR)
+
+    fix: |
+      1. Create `pkg/scorer/scorer.go`:
+         ```go
+         type Score struct {
+             Value     float64
+             Source    string
+             OccurredAt time.Time
+         }
+         func CompositeScore(scores []Score) (float64, string) {
+             // max(individual) with recency decay (older scores weighted less)
+             // Recency factor: score * exp(-λ * minutes_ago), λ = 0.05
+         }
+         func Severity(score float64) string {
+             switch {
+             case score >= 0.95: return "CRITICAL"
+             case score >= 0.8:  return "HIGH"
+             default:            return "MEDIUM"
+             }
+         }
+         ```
+      2. Create `pkg/alert/alert.go` — MongoDB CRUD for alerts collection:
+         ```go
+         type Alert struct {
+             ID         primitive.ObjectID `bson:"_id"`
+             OrgID      string             `bson:"org_id"`
+             UserID     string             `bson:"user_id"`
+             Detector   string             `bson:"detector"`
+             Score      float64            `bson:"score"`
+             Severity   string             `bson:"severity"`  // MEDIUM/HIGH/CRITICAL
+             Status     string             `bson:"status"`    // open/acknowledged/resolved
+             CreatedAt  time.Time          `bson:"created_at"`
+             ResolvedAt *time.Time         `bson:"resolved_at,omitempty"`
+             MTTR       *int64             `bson:"mttr_seconds,omitempty"`
+         }
+         ```
+
+  - id: THREAT-07
+    title: "Missing HTTP API layer for threat service"
+    file: services/threat/ (new files: pkg/handlers/, pkg/router/)
+    severity: HIGH
+    description: |
+      The spec §13.4 defines six endpoints. None exist — the threat service has no router
+      or handler files (only detector + telemetry packages).
+
+    fix: |
+      Add `pkg/handlers/handler.go` and `pkg/router/router.go` to the threat service
+      implementing:
+      - GET /v1/threats/alerts — cursor-paginated, filter by status/severity
+      - GET /v1/threats/alerts/:id — alert detail + saga step status
+      - POST /v1/threats/alerts/:id/acknowledge
+      - POST /v1/threats/alerts/:id/resolve (compute MTTR)
+      - GET /v1/threats/stats — counts and MTTR by severity
+      - GET /v1/threats/detectors — active detectors and weights
+
+  - id: THREAT-08
+    title: "SIEM webhook integration missing from alerting and threat services"
+    file: services/alerting/pkg/webhook/siem.go
+    severity: HIGH
+    description: |
+      The spec §13.3 defines HMAC-SHA256 signed webhook delivery with replay protection.
+      `services/alerting/pkg/webhook/siem.go` exists but needs verification that it:
+      1. Includes `X-OpenGuard-Signature`, `X-OpenGuard-Delivery`, and
+         `X-OpenGuard-Timestamp` headers
+      2. Signs over `"<timestamp>.<body_bytes>"` (not just body)
+      3. Validates `ALERTING_SIEM_REPLAY_TOLERANCE_SECONDS` on receive side
+      4. Validates SIEM URL against SSRF guard at configuration time (not just at runtime)
+
+    fix: |
+      Review siem.go against the exact spec in §13.3. Add integration test:
+      - Send webhook → capture request → verify HMAC with known secret
+      - Send webhook with timestamp 6 minutes old → verify rejection
+      - Configure SIEM URL `http://169.254.169.254/...` → verify rejection at startup
+
+  - id: THREAT-09
+    title: "BruteForce detector hardcoded MaxAttempts=5 contradicts spec default of 11"
+    file: services/threat/pkg/detector/brute_force.go
+    line: 14
+    severity: LOW
+    description: |
+      `const MaxAttempts = 5` is the package-level constant. The env var
+      `THREAT_MAX_FAILED_LOGINS` overrides it (default 10 in code, spec says 11).
+      Three different values exist (5, 10, 11) creating confusion.
+
+    fix: |
+      Remove the package-level constant. Use only the env var with the spec-correct default:
+      ```go
+      maxAttempts := int64(11)  // spec default
+      if v := os.Getenv("THREAT_MAX_FAILED_LOGINS"); v != "" {
+          if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+              maxAttempts = n
+          }
+      }
+      ```
+
+acceptance_criteria:
+  - "11 failed logins within THREAT_ANOMALY_WINDOW_MINUTES → HIGH alert in MongoDB within 5s"
+  - "Privilege escalation detector fires within 5s of role grant event after recent login"
+  - "SIEM webhook includes valid HMAC signature; receiver can verify with known secret"
+  - "Webhook with timestamp 6 minutes old is rejected (replay protection)"
+  - "Alert saga: all 4 steps produce audit events in audit.trail"
+  - "MTTR computed correctly on resolution (resolved_at - created_at in seconds)"
+  - "ATO detector fires when login from new device follows password change within 24h"
+  - "SSRF: SIEM URL http://169.254.169.254/latest/meta-data/ rejected at configuration time"
+  - "GET /v1/threats/alerts returns paginated list filterable by status and severity"
+  - "GET /v1/threats/stats returns alert counts and MTTR per severity per org"
+  - "Impossible travel detector: login from city A then city B 600km away within 1hr → alert"
+
+files_to_modify:
+  - services/threat/pkg/detector/brute_force.go               # Fix constant/default
+  - services/threat/pkg/detector/impossible_travel.go          # New
+  - services/threat/pkg/detector/off_hours.go                  # New
+  - services/threat/pkg/detector/data_exfiltration.go          # New
+  - services/threat/pkg/detector/account_takeover.go           # New
+  - services/threat/pkg/detector/privilege_escalation.go       # New
+  - services/threat/pkg/scorer/scorer.go                       # New
+  - services/threat/pkg/alert/alert.go                         # New (MongoDB CRUD)
+  - services/threat/pkg/handlers/handler.go                    # New
+  - services/threat/pkg/router/router.go                       # New
+  - services/threat/main.go                                    # Wire all detectors, router
+  - services/alerting/pkg/webhook/siem.go                      # Verify/fix HMAC + replay
+  - scripts/download-geolite2.sh                               # New
+  - Makefile                                                    # Add geo-db target
+  - .env.example                                               # Add MAXMIND_LICENSE_KEY
+  - infra/docker/docker-compose.yml                            # Mount GeoLite2 DB

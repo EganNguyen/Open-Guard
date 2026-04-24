@@ -1,0 +1,173 @@
+id: JOB-15
+title: "Example App — Not Integrated with OpenGuard Go SDK or IAM Service"
+priority: P2
+phase_impact: [3, 5]
+severity: MEDIUM
+estimated_effort: 3d
+
+summary: |
+  The example app (`apps/example/`) is a TypeScript/Express + React application that
+  demonstrates a middleware approach to security, but it is NOT integrated with
+  OpenGuard's actual services. It uses a custom `@open-guard/middleware` package
+  (internal to the example) that performs local, in-memory threat detection — it never
+  calls OpenGuard's Policy, IAM, or Event Ingest APIs.
+
+  This contradicts the purpose of a connected example app: the spec envisions it as a
+  real-world demonstration of the OpenGuard SDK (`sdk/`), OIDC login flow (IAM), and
+  event ingestion (`POST /v1/events/ingest`). The current app is essentially a standalone
+  WAF demo with no connection to the OpenGuard control plane.
+
+  Specific gaps:
+  1. No OIDC login flow — uses hardcoded `admin/password` check in Express handler
+  2. No SDK (`sdk/`) usage — policy evaluation happens locally in middleware, not via
+     `POST /v1/policy/evaluate`
+  3. No event ingest — threat events detected in-process are never sent to OpenGuard's
+     audit pipeline or threat detection service
+  4. Attack simulator tests SQL injection, XSS, rate limiting — but these are
+     checked by the local middleware, not OpenGuard's DLP service
+  5. No demonstration of `SCIM POST /Users` provisioning flow
+  6. The existing reviewer_report.md notes "Gaps: example app does not demonstrate
+     Threat Event Ingestion"
+
+problems:
+  - id: EXAMPLE-01
+    title: "Auth uses hardcoded credentials — no OIDC/IAM integration"
+    file: apps/example/server/index.ts
+    lines: 38-48
+    severity: HIGH
+    description: |
+      ```typescript
+      if (username === 'admin' && password === 'password') { ... }
+      ```
+      The example app never authenticates against OpenGuard IAM. It doesn't demonstrate
+      the OIDC flow (POST /oauth/authorize → POST /oauth/token) that is the central
+      feature of Phase 2.
+
+    fix: |
+      Replace the hardcoded login with an OAuth 2.0 Authorization Code Flow:
+      1. Configure `OPENGUARD_ISSUER_URL`, `OPENGUARD_CLIENT_ID`, `OPENGUARD_CLIENT_SECRET`
+         in `apps/example/.env`.
+      2. Install `openid-client` npm package.
+      3. Add `/api/login` → redirect to OpenGuard's `/oauth/authorize`
+      4. Add `/api/callback` → exchange code for tokens via `/oauth/token`
+      5. Store access token in httpOnly cookie; refresh via `/oauth/token` (grant=refresh_token)
+      6. Show OIDC flow in the README with sequence diagram.
+
+  - id: EXAMPLE-02
+    title: "Policy evaluation is local — no OpenGuard SDK (sdk/) usage"
+    file: apps/example/server/ (multiple files)
+    severity: HIGH
+    description: |
+      The `@open-guard/middleware` package evaluates policies locally in-process.
+      A real connected app should call OpenGuard's policy service for authorization
+      decisions, demonstrating the SDK's fail-closed behavior and 60-second cache.
+
+    fix: |
+      1. Add a Node.js SDK client (`packages/sdk-node/` or call the Go HTTP API directly).
+         At minimum, create `apps/example/server/openguard-client.ts`:
+         ```typescript
+         export class OpenGuardClient {
+             private cache = new Map<string, {allowed: boolean, expiresAt: number}>();
+
+             async allow(subjectId: string, action: string, resource: string): Promise<boolean> {
+                 const key = `${subjectId}:${action}:${resource}`;
+                 const cached = this.cache.get(key);
+                 if (cached && Date.now() < cached.expiresAt) return cached.allowed;
+
+                 try {
+                     const resp = await fetch(`${process.env.OPENGUARD_URL}/v1/policy/evaluate`, {
+                         method: 'POST',
+                         headers: { 'Authorization': `Bearer ${this.apiKey}` },
+                         body: JSON.stringify({subject_id: subjectId, action, resource}),
+                     });
+                     const {allowed} = await resp.json();
+                     this.cache.set(key, {allowed, expiresAt: Date.now() + 60_000});
+                     return allowed;
+                 } catch {
+                     return false;  // fail-closed
+                 }
+             }
+         }
+         ```
+      2. Replace `openGuard(guardConfig)` middleware with `og.allow()` calls on protected routes.
+      3. Demo route: `GET /api/admin/users` → `og.allow(userId, 'read', 'users')` → forward or 403.
+
+  - id: EXAMPLE-03
+    title: "No event ingestion — threat events never sent to OpenGuard"
+    file: apps/example/server/index.ts
+    severity: HIGH
+    description: |
+      When the local middleware detects an attack (SQL injection, XSS, brute force),
+      it logs it and emits to a WebSocket. It never calls `POST /v1/events/ingest`
+      to send the event to OpenGuard's audit pipeline. This means:
+      - OpenGuard's threat detection service never receives these events
+      - They don't appear in the audit log
+      - They don't trigger OpenGuard alerts
+      The LiveGuardFeed component shows local-only events via WebSocket — not
+      real OpenGuard audit events.
+
+    fix: |
+      In the attack detection middleware, after local handling, send to OpenGuard:
+      ```typescript
+      async function ingestEvent(event: {
+          event_id: string,
+          type: string,
+          actor_id: string,
+          occurred_at: string,
+          payload: object
+      }) {
+          await fetch(`${process.env.OPENGUARD_URL}/v1/events/ingest`, {
+              method: 'POST',
+              headers: {
+                  'Authorization': `Bearer ${process.env.OPENGUARD_API_KEY}`,
+                  'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(event),
+          }).catch(err => console.error('Failed to ingest event:', err));
+          // Fire-and-forget: local security enforcement not blocked by OpenGuard availability
+      }
+      ```
+      Update `LiveGuardFeed` to optionally show events from `GET /v1/audit/events`
+      (real OpenGuard audit log) in addition to or instead of local WebSocket events.
+
+  - id: EXAMPLE-04
+    title: "README lacks end-to-end integration guide"
+    file: apps/example/README.md
+    severity: LOW
+    description: |
+      The README shows architecture but doesn't explain how to:
+      1. Register the example app as a connector in OpenGuard
+      2. Get an API key from OpenGuard admin
+      3. Configure env vars pointing to a running OpenGuard instance
+      4. Run the full stack together (docker-compose up → configure → run example)
+
+    fix: |
+      Add to README:
+      ```markdown
+      ## Connecting to OpenGuard
+
+      1. Start OpenGuard: `docker-compose up -d` (from repo root)
+      2. Create org + admin: `POST http://localhost:8081/v1/admin/orgs`
+      3. Register connector: `POST http://localhost:8081/v1/admin/connectors`
+         → copy the returned `api_key` to `OPENGUARD_API_KEY` in apps/example/.env
+      4. Set `OPENGUARD_URL=http://localhost:8080` in apps/example/.env
+      5. `pnpm dev` in apps/example/
+
+      ## Sequence Diagram: Login Flow
+      [OIDC sequence diagram showing browser → example app → OpenGuard IAM → token → app]
+      ```
+
+acceptance_criteria:
+  - "Login flow redirects to OpenGuard IAM /oauth/authorize and completes OIDC handshake"
+  - "Protected routes call og.allow() against OpenGuard policy service (not local check)"
+  - "Attack detection in middleware calls POST /v1/events/ingest before returning response"
+  - "LiveGuardFeed shows real OpenGuard audit events (or clearly labeled local fallback)"
+  - "README documents full integration setup with env vars and step-by-step connector registration"
+  - "Example app .env.example includes OPENGUARD_URL, OPENGUARD_API_KEY, OPENGUARD_CLIENT_ID"
+
+files_to_modify:
+  - apps/example/server/index.ts                 # OIDC flow, event ingest
+  - apps/example/server/openguard-client.ts      # New: policy evaluation client
+  - apps/example/client/src/components/LiveGuardFeed.tsx  # Real audit events
+  - apps/example/.env.example                    # New: OpenGuard env vars
+  - apps/example/README.md                       # Integration guide

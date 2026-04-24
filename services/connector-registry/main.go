@@ -15,7 +15,6 @@ import (
 	"github.com/openguard/services/connector-registry/pkg/router"
 	"github.com/openguard/services/connector-registry/pkg/service"
 	"github.com/openguard/services/connector-registry/pkg/telemetry"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 )
 

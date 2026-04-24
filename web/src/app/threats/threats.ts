@@ -1,3 +1,5 @@
+import { Component, OnInit, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { ThreatService } from '../core/services/threat.service';
 import { finalize } from 'rxjs';
 
@@ -41,12 +43,12 @@ export class ThreatsComponent implements OnInit {
     this.threatService.listAlerts()
       .pipe(finalize(() => this.loading.set(false)))
       .subscribe({
-        next: (res) => {
+        next: (res: any) => {
           const alerts = res.alerts || [];
           this.alerts.set(alerts);
           this.calculateStats(alerts);
         },
-        error: (err) => {
+        error: (err: any) => {
           console.error('Failed to fetch threats', err);
           this.error.set('Failed to load threat data. Please try again later.');
         }

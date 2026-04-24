@@ -1,0 +1,352 @@
+id: JOB-16
+title: "Helm Chart — Skeleton with Only NetworkPolicy; Missing All Deployment Resources"
+priority: P1
+phase_impact: [1, 7]
+severity: HIGH
+estimated_effort: 4d
+
+summary: |
+  The Helm chart at `infra/k8s/helm/openguard/` contains exactly two files:
+  - `values.yaml` (44 lines — generic, single service)
+  - `templates/networkpolicy.yaml` (one NetworkPolicy)
+  - `templates/_helpers.tpl` (template helpers only)
+
+  There are no Deployment, Service, HPA, PodDisruptionBudget, Secret, ConfigMap,
+  ServiceAccount, or Ingress templates. This means the project has no Kubernetes
+  deployment path at all — operators cannot deploy OpenGuard to a real cluster.
+
+  The spec (§08 Phase 1, §14 Phase 7) requires a fully operational Helm chart with:
+  - Per-service Deployment and Service resources
+  - IAM HPA with `targetCPUUtilizationPercentage: 60` (spec §1.2, bcrypt capacity model)
+  - PodDisruptionBudgets (`minAvailable: 1`) for all stateless services
+  - Pod anti-affinity (already in values.yaml but no template uses it)
+  - Secrets management (SOPS or ExternalSecrets)
+  - NetworkPolicies per service (only one generic policy exists)
+  - Resource requests/limits per service (IAM needs more CPU for bcrypt)
+  - mTLS cert mounts for service-to-service communication (§2.9)
+
+problems:
+  - id: HELM-01
+    title: "No Deployment templates — chart cannot deploy any service"
+    file: infra/k8s/helm/openguard/templates/
+    severity: CRITICAL
+    description: |
+      The entire chart has one functional template (NetworkPolicy). No service can be
+      deployed. `helm install openguard .` would create only a NetworkPolicy.
+
+    fix: |
+      Create a generic Deployment template `templates/deployment.yaml` parameterized
+      from values.yaml, plus per-service overrides. Structure:
+
+      ```
+      infra/k8s/helm/openguard/
+        Chart.yaml
+        values.yaml                        # default values
+        values-iam.yaml                    # IAM overrides (higher CPU, HPA at 60%)
+        values-compliance.yaml             # compliance overrides
+        templates/
+          _helpers.tpl
+          deployment.yaml                  # generic Deployment
+          service.yaml                     # ClusterIP Service
+          hpa.yaml                         # HorizontalPodAutoscaler
+          pdb.yaml                         # PodDisruptionBudget
+          serviceaccount.yaml              # ServiceAccount
+          networkpolicy.yaml               # per-service network policy
+          secret.yaml                      # ExternalSecret or placeholder
+          configmap.yaml                   # non-secret config
+          ingress.yaml                     # optional ingress
+      ```
+
+      Minimum `templates/deployment.yaml`:
+      ```yaml
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: {{ include "openguard.fullname" . }}
+        labels: {{- include "openguard.labels" . | nindent 4 }}
+      spec:
+        replicas: {{ .Values.replicaCount }}
+        selector:
+          matchLabels: {{- include "openguard.selectorLabels" . | nindent 6 }}
+        strategy:
+          type: {{ .Values.deployment.strategy.type }}
+          rollingUpdate:
+            maxSurge: 1
+            maxUnavailable: 0
+        minReadySeconds: {{ .Values.deployment.minReadySeconds }}
+        template:
+          metadata:
+            labels: {{- include "openguard.selectorLabels" . | nindent 8 }}
+            annotations:
+              prometheus.io/scrape: "true"
+              prometheus.io/port: "{{ .Values.service.metricsPort | default 9090 }}"
+          spec:
+            serviceAccountName: {{ include "openguard.fullname" . }}
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 65534
+              fsGroup: 65534
+            containers:
+              - name: {{ .Chart.Name }}
+                image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+                imagePullPolicy: {{ .Values.image.pullPolicy }}
+                ports:
+                  - containerPort: {{ .Values.service.port | default 8080 }}
+                  - containerPort: {{ .Values.service.metricsPort | default 9090 }}
+                    name: metrics
+                envFrom:
+                  - configMapRef:
+                      name: {{ include "openguard.fullname" . }}-config
+                  - secretRef:
+                      name: {{ include "openguard.fullname" . }}-secret
+                resources: {{- toYaml .Values.resources | nindent 12 }}
+                livenessProbe:
+                  httpGet:
+                    path: /health
+                    port: {{ .Values.service.port | default 8080 }}
+                  initialDelaySeconds: 15
+                  periodSeconds: 20
+                readinessProbe:
+                  httpGet:
+                    path: /health
+                    port: {{ .Values.service.port | default 8080 }}
+                  initialDelaySeconds: 5
+                  periodSeconds: 10
+            affinity: {{- toYaml .Values.affinity | nindent 12 }}
+            topologySpreadConstraints:
+              - maxSkew: 1
+                topologyKey: kubernetes.io/hostname
+                whenUnsatisfiable: DoNotSchedule
+                labelSelector:
+                  matchLabels: {{- include "openguard.selectorLabels" . | nindent 12 }}
+      ```
+
+  - id: HELM-02
+    title: "IAM HPA missing targetCPUUtilizationPercentage: 60 — spec §1.2 bcrypt model"
+    file: infra/k8s/helm/openguard/values.yaml
+    severity: HIGH
+    description: |
+      Spec §1.2 explicitly states: "Add IAM HPA scaling targets to the Helm chart with
+      `targetCPUUtilizationPercentage: 60`." The spec explains why: bcrypt at cost 12
+      saturates a core. At 70% CPU utilization (current default), the autoscaler fires
+      too late, causing bcrypt queuing and 503s before new pods come up.
+      
+      The current generic `values.yaml` uses `targetCPUUtilizationPercentage: 70` with
+      no IAM-specific override.
+
+    fix: |
+      Create `values-iam.yaml` (or a per-service values section in the main values.yaml):
+      ```yaml
+      # IAM service overrides — bcrypt capacity model requires 60% CPU target
+      hpa:
+        enabled: true
+        minReplicas: 3       # HA minimum
+        maxReplicas: 20      # headroom for traffic spikes
+        targetCPUUtilizationPercentage: 60   # spec §1.2 — NOT 70
+      resources:
+        requests:
+          cpu: "500m"        # IAM is CPU-heavy (bcrypt)
+          memory: "256Mi"
+        limits:
+          cpu: "2000m"
+          memory: "512Mi"
+      ```
+      
+      Add `templates/hpa.yaml`:
+      ```yaml
+      {{- if .Values.hpa.enabled }}
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: {{ include "openguard.fullname" . }}
+      spec:
+        scaleTargetRef:
+          apiVersion: apps/v1
+          kind: Deployment
+          name: {{ include "openguard.fullname" . }}
+        minReplicas: {{ .Values.hpa.minReplicas }}
+        maxReplicas: {{ .Values.hpa.maxReplicas }}
+        metrics:
+          - type: Resource
+            resource:
+              name: cpu
+              target:
+                type: Utilization
+                averageUtilization: {{ .Values.hpa.targetCPUUtilizationPercentage }}
+      {{- end }}
+      ```
+
+  - id: HELM-03
+    title: "No PodDisruptionBudget template — PDB values defined but unused"
+    file: infra/k8s/helm/openguard/values.yaml
+    severity: HIGH
+    description: |
+      `values.yaml` defines `podDisruptionBudget.enabled: true` and
+      `podDisruptionBudget.minAvailable: 1` but there is no `templates/pdb.yaml`.
+      The values are dead configuration.
+
+    fix: |
+      Create `templates/pdb.yaml`:
+      ```yaml
+      {{- if .Values.podDisruptionBudget.enabled }}
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: {{ include "openguard.fullname" . }}
+      spec:
+        minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+        selector:
+          matchLabels: {{- include "openguard.selectorLabels" . | nindent 6 }}
+      {{- end }}
+      ```
+
+  - id: HELM-04
+    title: "No secrets management strategy — no ExternalSecret, SOPS, or sealed-secrets"
+    file: infra/k8s/helm/openguard/
+    severity: HIGH
+    description: |
+      There is no secrets management in the Helm chart. Sensitive values (JWT keys,
+      DB passwords, Redis auth, Kafka SASL credentials, COMPLIANCE_SIGNING_KEY_ARN,
+      ALERTING_SIEM_WEBHOOK_HMAC_SECRET, MAXMIND_LICENSE_KEY) have no safe delivery
+      path to Kubernetes pods.
+      
+      The spec (§04 Environment & Config) requires secrets to not be committed to source
+      control and to support rotation.
+
+    fix: |
+      Choose one approach and implement it (ExternalSecrets is recommended for cloud
+      deployments):
+
+      Option A — ExternalSecrets Operator (recommended):
+      ```yaml
+      # templates/externalsecret.yaml
+      apiVersion: external-secrets.io/v1beta1
+      kind: ExternalSecret
+      metadata:
+        name: {{ include "openguard.fullname" . }}-secret
+      spec:
+        refreshInterval: 1h
+        secretStoreRef:
+          name: {{ .Values.externalSecrets.secretStore }}
+          kind: ClusterSecretStore
+        target:
+          name: {{ include "openguard.fullname" . }}-secret
+        data:
+          - secretKey: DATABASE_URL
+            remoteRef:
+              key: openguard/{{ .Values.environment }}/database-url
+          - secretKey: JWT_KEYS
+            remoteRef:
+              key: openguard/{{ .Values.environment }}/jwt-keys
+          # ... all other secrets
+      ```
+
+      Option B — SOPS encrypted values files committed to repo.
+      
+      At minimum: create `templates/secret.yaml` as a placeholder with a comment
+      directing operators to their secrets management solution, and list ALL secret
+      keys that services require.
+
+  - id: HELM-05
+    title: "No per-service NetworkPolicy — single generic policy allows all ingress within namespace"
+    file: infra/k8s/helm/openguard/templates/networkpolicy.yaml
+    severity: MEDIUM
+    description: |
+      The existing NetworkPolicy allows ingress from any pod in the same namespace.
+      This violates least-privilege: the DLP service should not be able to call the
+      compliance service directly; the audit service should not be able to call IAM.
+      Per spec §14 (Phase 7): "Each service's NetworkPolicy restricts ingress to
+      only the services that call it."
+
+    fix: |
+      Replace the generic policy with per-service policies in values.yaml:
+      ```yaml
+      # In values-iam.yaml:
+      networkPolicy:
+        enabled: true
+        ingress:
+          - from:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: control-plane  # only control-plane calls IAM
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: ingress-nginx
+      ```
+      
+      Minimum call graph for NetworkPolicy rules:
+      - IAM: ingress from [control-plane, ingress-nginx]
+      - Policy: ingress from [control-plane, sdk-clients (any pod with label)]
+      - Audit: ingress from [control-plane] (reads only via API gateway)
+      - Compliance: ingress from [ingress-nginx]
+      - DLP: ingress from [control-plane]
+      - Alerting: ingress from [ingress-nginx]
+      - Threat: ingress from [ingress-nginx]
+      - Webhook-delivery: ingress from [] (pull-only via Kafka)
+      - All: ingress from [prometheus] on metrics port
+
+  - id: HELM-06
+    title: "mTLS cert mounts not implemented — spec §2.9 requires certs in pod volumes"
+    file: infra/k8s/helm/openguard/templates/
+    severity: MEDIUM
+    description: |
+      Spec §2.9 specifies mTLS between all services using cert/key mounts. No cert
+      volumes, volume mounts, or TLS secret references exist in the Helm chart.
+
+    fix: |
+      Add to `values.yaml`:
+      ```yaml
+      mtls:
+        enabled: true
+        caSecretName: openguard-mtls-ca
+        certSecretName: openguard-mtls-cert  # per-service cert/key
+      ```
+      
+      Add to `templates/deployment.yaml`:
+      ```yaml
+      volumes:
+        {{- if .Values.mtls.enabled }}
+        - name: mtls-certs
+          secret:
+            secretName: {{ .Values.mtls.certSecretName }}
+        - name: mtls-ca
+          secret:
+            secretName: {{ .Values.mtls.caSecretName }}
+        {{- end }}
+      volumeMounts:
+        {{- if .Values.mtls.enabled }}
+        - name: mtls-certs
+          mountPath: /etc/openguard/certs
+          readOnly: true
+        - name: mtls-ca
+          mountPath: /etc/openguard/ca
+          readOnly: true
+        {{- end }}
+      ```
+      
+      Add `scripts/gen-mtls-certs.sh` per spec §2.9 if not already present.
+
+acceptance_criteria:
+  - "helm template openguard ./infra/k8s/helm/openguard produces valid YAML with no errors"
+  - "Generated manifests include Deployment, Service, HPA, PDB, ServiceAccount for each service"
+  - "IAM HPA targetCPUUtilizationPercentage is 60 (not 70)"
+  - "helm install --dry-run succeeds against a real cluster API"
+  - "PDB minAvailable=1 created for IAM, policy, audit, compliance, DLP, alerting"
+  - "NetworkPolicy restricts each service to its known callers only"
+  - "Secrets referenced from ExternalSecret or SOPS — no plaintext secrets in templates"
+  - "mTLS cert volumes mounted for all services when mtls.enabled=true"
+  - "Helm lint passes with no warnings"
+
+files_to_modify:
+  - infra/k8s/helm/openguard/templates/deployment.yaml     # New
+  - infra/k8s/helm/openguard/templates/service.yaml        # New
+  - infra/k8s/helm/openguard/templates/hpa.yaml            # New
+  - infra/k8s/helm/openguard/templates/pdb.yaml            # New
+  - infra/k8s/helm/openguard/templates/serviceaccount.yaml # New
+  - infra/k8s/helm/openguard/templates/configmap.yaml      # New
+  - infra/k8s/helm/openguard/templates/externalsecret.yaml # New (or secret.yaml)
+  - infra/k8s/helm/openguard/templates/networkpolicy.yaml  # Refactor to per-service
+  - infra/k8s/helm/openguard/values.yaml                   # Expand with all service params
+  - infra/k8s/helm/openguard/values-iam.yaml               # New: IAM-specific (CPU/HPA)
+  - infra/k8s/helm/openguard/Chart.yaml                    # Add dependencies if needed
+  - scripts/gen-mtls-certs.sh                              # New (if not present)

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/openguard/services/compliance/pkg/consumer"
 	"github.com/openguard/services/compliance/pkg/handlers"
@@ -46,7 +45,7 @@ func main() {
 		}
 	} else {
 		logger.Warn("JWT_KEYS not set, using default development key")
-		keyring = []crypto.JWTKey{{KID: "dev", Secret: "default-secret", Algorithm: "HS256", Status: "active"}}
+		keyring = []crypto.JWTKey{{Kid: "dev", Secret: "default-secret", Algorithm: "HS256", Status: "active"}}
 	}
 
 	concurrency, _ := strconv.ParseInt(os.Getenv("COMPLIANCE_REPORT_CONCURRENCY"), 10, 64)
