@@ -30,8 +30,10 @@ func Correlation(next http.Handler) http.Handler {
 
 // GetLogger retrieves the request-scoped logger from context, falling back to default logger.
 func GetLogger(ctx context.Context) *slog.Logger {
-	if l, ok := ctx.Value(loggerKey).(*slog.Logger); ok {
-		return l
+	if ctx != nil {
+		if l, ok := ctx.Value(loggerKey).(*slog.Logger); ok {
+			return l
+		}
 	}
 	return slog.Default()
 }

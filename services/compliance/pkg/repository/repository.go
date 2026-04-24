@@ -74,7 +74,7 @@ func (r *Repository) InitSchema(ctx context.Context) error {
 		) ENGINE = ReplacingMergeTree(occurred_at)
 		PARTITION BY toYYYYMMDD(occurred_at)
 		ORDER BY (org_id, type, occurred_at, event_id)
-		TTL occurred_at + INTERVAL 2 YEAR
+		TTL toDateTime(occurred_at) + INTERVAL 2 YEAR
 		SETTINGS index_granularity = 8192;`,
 
 		`CREATE MATERIALIZED VIEW IF NOT EXISTS event_counts_daily
