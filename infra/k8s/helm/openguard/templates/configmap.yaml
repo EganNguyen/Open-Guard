@@ -1,0 +1,18 @@
+{{- range $name, $service := .Values.services }}
+{{- if $service.enabled }}
+{{- $values := mustMerge (deepCopy $service) $.Values.defaults }}
+{{- $context := dict "Values" $values "Chart" $.Chart "Release" $.Release "Template" $.Template }}
+{{- $_ := set $context.Values "serviceName" $name }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openguard.serviceFullname" $context }}-config
+  labels:
+    {{- include "openguard.labels" $context | nindent 4 }}
+data:
+  SERVICE_NAME: {{ $name | quote }}
+  LOG_LEVEL: "info"
+  OPENGUARD_ENVIRONMENT: {{ $.Values.global.environment | quote }}
+{{- end }}
+{{- end }}

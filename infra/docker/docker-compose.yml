@@ -133,6 +133,32 @@ services:
       interval: 5s
       retries: 5
 
+  minio:
+    image: minio/minio
+    ports:
+      - "9001:9001"
+      - "9002:9000"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      retries: 5
+
+  minio-init:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb --ignore-existing local/compliance-reports;
+      exit 0;
+      "
+
   jaeger:
     image: jaegertracing/all-in-one:1.45
     ports:
@@ -277,11 +303,22 @@ services:
       - REDIS_ADDR=redis:6379
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_GROUP_ID=threat-detector
-      - KAFKA_TOPIC=iam.events
+      - KAFKA_TOPIC_AUTH=auth.events
+      - KAFKA_TOPIC_POLICY=policy.changes
+      - KAFKA_TOPIC_ACCESS=data.access
+      - MONGO_URI=mongodb://mongo-primary:27017
+      - GEOLITE2_DB_PATH=/data/GeoLite2-City.mmdb
+      - THREAT_GEO_CHANGE_THRESHOLD_KM=${THREAT_GEO_CHANGE_THRESHOLD_KM:-500}
+      - THREAT_OFF_HOURS_START=${THREAT_OFF_HOURS_START:-22}
+      - THREAT_OFF_HOURS_END=${THREAT_OFF_HOURS_END:-6}
+      - THREAT_MAX_FAILED_LOGINS=${THREAT_MAX_FAILED_LOGINS:-11}
     depends_on:
       redis: { condition: service_healthy }
       kafka: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
+      mongo-primary: { condition: service_healthy }
+    volumes:
+      - ../../data/GeoLite2-City.mmdb:/data/GeoLite2-City.mmdb:ro
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
@@ -296,27 +333,30 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
       retries: 5
-    depends_on:
-      mongo-primary: { condition: service_healthy }
-      kafka-init: { condition: service_completed_successfully }
-    volumes:
-      - ../certs:/certs:ro
     environment:
       - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
       - MONGODB_URI=mongodb://mongo-primary:27017
       - AUDIT_SECRET_KEY=${AUDIT_SECRET_KEY:?AUDIT_SECRET_KEY is required}
+      - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
+    depends_on:
+      mongo-primary: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
 
   alerting:
     build:
       context: ../../
       dockerfile: services/alerting/Dockerfile
     ports: ["8086:8080"]
-    depends_on:
-      kafka-init: { condition: service_completed_successfully }
     environment:
       - MONGO_URI=mongodb://mongo-primary:27017
       - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
       - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
+      - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
+    depends_on:
+      mongo-primary: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
@@ -341,12 +381,23 @@ services:
       context: ../../
       dockerfile: services/compliance/Dockerfile
     ports: ["8088:8080"]
-    depends_on:
-      kafka-init: { condition: service_completed_successfully }
     environment:
       - CLICKHOUSE_ADDR=clickhouse:9000
+      - DATABASE_URL=postgres://openguard:openguard@postgres:5432/openguard?sslmode=disable
       - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
       - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
+      - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=minioadmin
+      - S3_SECRET_KEY=minioadmin
+      - S3_BUCKET=compliance-reports
+      - COMPLIANCE_REPORT_MAX_CONCURRENT=10
+    depends_on:
+      clickhouse: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+      kafka-init: { condition: service_completed_successfully }
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
@@ -371,11 +422,14 @@ services:
       context: ../../
       dockerfile: services/dlp/Dockerfile
     ports: ["8089:8080"]
-    depends_on:
-      kafka-init: { condition: service_completed_successfully }
     environment:
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
       - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
+      - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
@@ -386,11 +440,14 @@ services:
       context: ../../
       dockerfile: services/connector-registry/Dockerfile
     ports: ["8090:8080"]
-    depends_on:
-      kafka-init: { condition: service_completed_successfully }
     environment:
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
       - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
+      - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s

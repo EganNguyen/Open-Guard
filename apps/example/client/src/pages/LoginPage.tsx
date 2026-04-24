@@ -1,76 +1,72 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Shield } from 'lucide-react';
 
 export function LoginPage(): JSX.Element {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('error')) {
+      setError('Authentication failed. Please try again.');
+    }
+  }, []);
+
+  const handleOidcLogin = async () => {
+    setLoading(true);
     setError('');
-
     try {
-      const response = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-
+      const response = await fetch('/api/login');
       const data = await response.json();
-
-      if (data.success) {
-        localStorage.setItem('csrfToken', data.csrfToken);
-        localStorage.setItem('sessionId', data.sessionId);
-        navigate('/');
+      if (data.url) {
+        window.location.href = data.url;
       } else {
-        setError(data.error || 'Login failed');
+        setError('OIDC login is not configured properly.');
       }
-    } catch {
-      setError('Network error');
+    } catch (err) {
+      setError('Failed to initiate OIDC login.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <div className="max-w-md mx-auto mt-16">
       <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6 text-center">Login</h1>
+        <div className="flex justify-center mb-6">
+          <div className="p-3 bg-blue-100 rounded-full">
+            <Shield className="w-10 h-10 text-blue-600" />
+          </div>
+        </div>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center">Welcome Back</h1>
+        <p className="text-gray-500 text-center mb-8">Sign in to your account using OpenGuard IAM</p>
         
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              placeholder="admin"
-            />
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">
+            {error}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              placeholder="password"
-            />
-          </div>
-          {error && (
-            <div className="text-red-600 text-sm">{error}</div>
+        )}
+
+        <button
+          onClick={handleOidcLogin}
+          disabled={loading}
+          className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-gray-900 text-white font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+        >
+          {loading ? (
+            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          ) : (
+            <>
+              <Shield className="w-5 h-5" />
+              Sign in with OpenGuard
+            </>
           )}
-          <button
-            type="submit"
-            className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Sign In
-          </button>
-        </form>
-        <p className="mt-4 text-xs text-gray-500 text-center">
-          Demo credentials: admin / password
-        </p>
+        </button>
+
+        <div className="mt-8 pt-6 border-t border-gray-100">
+          <p className="text-xs text-center text-gray-400">
+            Secure authentication provided by OpenGuard IAM Service
+          </p>
+        </div>
       </div>
     </div>
   );

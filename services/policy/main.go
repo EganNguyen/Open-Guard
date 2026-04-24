@@ -114,11 +114,23 @@ func main() {
 	relay := outbox.NewRelay(pool, kp, "outbox_records", 5*time.Second, logger)
 	go relay.Run(ctx)
 
-	// ── Service + Handler + Router ────────────────────────────────────────────
 	repo := repository.NewRepository(pool)
 	svc := service.NewService(repo, rdb, outboxWriter, logger)
 	h := handlers.NewHandler(svc, repo, logger)
-	r := router.NewRouter(h)
+
+	// ── Auth Configuration ───────────────────────────────────────────────────
+	keyringJSON := os.Getenv("IAM_JWT_KEYS")
+	if keyringJSON == "" {
+		keyringJSON = `[{"kid":"dev-key","secret":"dev-secret-at-least-32-chars-long-!!","algorithm":"HS256","status":"active"}]`
+		logger.Warn("IAM_JWT_KEYS not set, using default dev key")
+	}
+	keyring, err := crypto.LoadKeyring(keyringJSON)
+	if err != nil {
+		logger.Error("failed to load JWT keyring", "error", err)
+		os.Exit(1)
+	}
+
+	r := router.NewRouter(h, keyring, rdb)
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────
 	port := os.Getenv("PORT")

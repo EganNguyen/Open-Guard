@@ -1,0 +1,17 @@
+# IAM service overrides — bcrypt capacity model requires 60% CPU target
+# Spec §1.2: "Add IAM HPA scaling targets to the Helm chart with targetCPUUtilizationPercentage: 60"
+
+services:
+  iam:
+    hpa:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 20
+      targetCPUUtilizationPercentage: 60
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "256Mi"
+      limits:
+        cpu: "2000m"
+        memory: "512Mi"

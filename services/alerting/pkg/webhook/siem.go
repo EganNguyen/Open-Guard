@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -16,14 +17,23 @@ import (
 )
 
 type SIEMDeliverer struct {
-	client *http.Client
+	client          *http.Client
+	replayTolerance int64
 }
 
 func NewSIEMDeliverer() *SIEMDeliverer {
+	tolerance := int64(300) // Default 5 minutes
+	if v := os.Getenv("ALERTING_SIEM_REPLAY_TOLERANCE_SECONDS"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			tolerance = n
+		}
+	}
+
 	return &SIEMDeliverer{
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		replayTolerance: tolerance,
 	}
 }
 
@@ -31,13 +41,35 @@ func Sign(payload []byte, secret string) (sig, delivery, ts string) {
 	ts = strconv.FormatInt(time.Now().Unix(), 10)
 	delivery = uuid.New().String()
 	mac := hmac.New(sha256.New, []byte(secret))
+	// Sign over "<timestamp>.<body_bytes>" per spec §13.3
 	mac.Write([]byte(ts + "." + string(payload)))
 	sig = "sha256=" + hex.EncodeToString(mac.Sum(nil))
 	return
 }
 
+func Verify(payload []byte, secret, sig, ts string, tolerance int64) error {
+	// 1. Replay protection
+	tsInt, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid timestamp")
+	}
+	if time.Now().Unix()-tsInt > tolerance {
+		return fmt.Errorf("request too old (replay protection)")
+	}
+
+	// 2. Signature verification
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(ts + "." + string(payload)))
+	expectedSig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(sig), []byte(expectedSig)) {
+		return fmt.Errorf("invalid signature")
+	}
+	return nil
+}
+
 func (d *SIEMDeliverer) Deliver(ctx context.Context, webhookURL string, secret string, payload []byte) error {
-	// 1. SSRF validation
+	// 1. SSRF validation (runtime)
 	if err := middleware.ValidateOutboundURL(webhookURL); err != nil {
 		return fmt.Errorf("SSRF blocked: %w", err)
 	}
@@ -68,4 +100,11 @@ func (d *SIEMDeliverer) Deliver(ctx context.Context, webhookURL string, secret s
 	}
 
 	return nil
+}
+
+func ValidateConfig(webhookURL string) error {
+	if webhookURL == "" {
+		return nil
+	}
+	return middleware.ValidateOutboundURL(webhookURL)
 }

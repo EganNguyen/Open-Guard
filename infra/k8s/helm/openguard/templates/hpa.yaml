@@ -1,0 +1,30 @@
+{{- range $name, $service := .Values.services }}
+{{- if $service.enabled }}
+{{- $values := mustMerge (deepCopy $service) $.Values.defaults }}
+{{- if $values.hpa.enabled }}
+{{- $context := dict "Values" $values "Chart" $.Chart "Release" $.Release "Template" $.Template }}
+{{- $_ := set $context.Values "serviceName" $name }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "openguard.serviceFullname" $context }}
+  labels:
+    {{- include "openguard.labels" $context | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "openguard.serviceFullname" $context }}
+  minReplicas: {{ $values.hpa.minReplicas }}
+  maxReplicas: {{ $values.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $values.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}
+{{- end }}

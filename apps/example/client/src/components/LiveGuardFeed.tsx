@@ -7,6 +7,8 @@ interface LiveGuardFeedProps {
 }
 
 export function LiveGuardFeed({ events }: LiveGuardFeedProps): JSX.Element {
+  const isConnectedToOpenGuard = events.some(e => e.type === 'request' || e.type === 'threat'); // These are the types we send to OG
+
   const getIcon = (type: string) => {
     switch (type) {
       case 'block': return Shield;
@@ -40,6 +42,15 @@ export function LiveGuardFeed({ events }: LiveGuardFeedProps): JSX.Element {
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+        <h3 className="text-sm font-semibold text-gray-700">Recent Security Events</h3>
+        {isConnectedToOpenGuard && (
+          <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-100">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+            Connected to OpenGuard
+          </span>
+        )}
+      </div>
       <ul className="divide-y divide-gray-100 max-h-96 overflow-y-auto">
         {events.slice(0, 20).map((event, i) => {
           const Icon = getIcon(event.type);

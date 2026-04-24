@@ -1,25 +1,32 @@
-{{- if .Values.networkPolicy.enabled }}
+{{- range $name, $service := .Values.services }}
+{{- if and $service.enabled $.Values.defaults.networkPolicy.enabled }}
+{{- $values := mustMerge (deepCopy $service) $.Values.defaults }}
+{{- $context := dict "Values" $values "Chart" $.Chart "Release" $.Release "Template" $.Template }}
+{{- $_ := set $context.Values "serviceName" $name }}
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "openguard.fullname" . }}-default
+  name: {{ include "openguard.serviceFullname" $context }}
   labels:
-    {{- include "openguard.labels" . | nindent 4 }}
+    {{- include "openguard.labels" $context | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      {{- include "openguard.selectorLabels" . | nindent 6 }}
+      {{- include "openguard.selectorLabels" $context | nindent 6 }}
   policyTypes:
     - Ingress
   ingress:
-    # Allow traffic from within the namespace for health checks and internal communication
+    {{- if $values.networkPolicy.ingress }}
+    {{- toYaml $values.networkPolicy.ingress | nindent 4 }}
+    {{- end }}
+    # Always allow prometheus metrics scraping
     - from:
         - podSelector:
             matchLabels:
-              {{- include "openguard.selectorLabels" . | nindent 14 }}
-    # Allow traffic from ingress controller (e.g., nginx)
-    - from:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: {{ $values.service.metricsPort }}
+          protocol: TCP
+{{- end }}
 {{- end }}

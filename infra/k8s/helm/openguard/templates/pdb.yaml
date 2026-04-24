@@ -1,0 +1,21 @@
+{{- range $name, $service := .Values.services }}
+{{- if $service.enabled }}
+{{- $values := mustMerge (deepCopy $service) $.Values.defaults }}
+{{- if $values.podDisruptionBudget.enabled }}
+{{- $context := dict "Values" $values "Chart" $.Chart "Release" $.Release "Template" $.Template }}
+{{- $_ := set $context.Values "serviceName" $name }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "openguard.serviceFullname" $context }}
+  labels:
+    {{- include "openguard.labels" $context | nindent 4 }}
+spec:
+  minAvailable: {{ $values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "openguard.selectorLabels" $context | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}

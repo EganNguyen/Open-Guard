@@ -60,15 +60,36 @@ func (r *Repository) CreateOrg(ctx context.Context, name string) (string, error)
 }
 
 // CreateUser inserts a new user within an org.
-func (r *Repository) CreateUser(ctx context.Context, orgID, email, passwordHash, displayName, role string) (string, error) {
+func (r *Repository) CreateUser(ctx context.Context, orgID, email, passwordHash, displayName, role, status string) (string, error) {
 	var id string
 	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		return conn.QueryRow(ctx, `
-			INSERT INTO users (org_id, email, password_hash, display_name, role)
-			VALUES ($1, $2, $3, $4, $5) RETURNING id
-		`, orgID, email, passwordHash, displayName, role).Scan(&id)
+			INSERT INTO users (org_id, email, password_hash, display_name, role, status)
+			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+		`, orgID, email, passwordHash, displayName, role, status).Scan(&id)
 	})
 	return id, err
+}
+
+// CreateOutboxEvent inserts a new event into the outbox table within a transaction.
+func (r *Repository) CreateOutboxEvent(ctx context.Context, tx pgx.Tx, orgID, topic, key string, payload []byte) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO outbox_records (org_id, topic, key, payload)
+		VALUES ($1, $2, $3, $4)
+	`, orgID, topic, key, payload)
+	return err
+}
+
+// UpdateUserStatus updates the status of a user.
+func (r *Repository) UpdateUserStatus(ctx context.Context, userID, status string) error {
+	orgID := rls.OrgID(ctx)
+	return r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		_, err := conn.Exec(ctx, `
+			UPDATE users SET status = $1, version = version + 1, updated_at = NOW()
+			WHERE id = $2
+		`, status, userID)
+		return err
+	})
 }
 // CreateSession inserts a new session record.
 func (r *Repository) CreateSession(ctx context.Context, orgID, userID, jti, userAgent, ipAddress string, expiresAt time.Time) error {

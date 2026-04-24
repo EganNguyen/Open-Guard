@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/openguard/shared/crypto"
 )
 
 // SCIM v2 Models
@@ -59,6 +60,44 @@ func (h *Handler) ListScimUsers(w http.ResponseWriter, r *http.Request) {
 		ItemsPerPage: len(scimUsers),
 		Resources:    scimUsers,
 	})
+}
+
+func (h *Handler) PostScimUser(w http.ResponseWriter, r *http.Request) {
+	orgID := r.Header.Get("X-Org-ID")
+	if orgID == "" {
+		h.writeScimError(w, http.StatusUnauthorized, "unauthorized", "Missing X-Org-ID")
+		return
+	}
+
+	var payload scimUser
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.writeScimError(w, http.StatusBadRequest, "invalidSyntax", err.Error())
+		return
+	}
+
+	email := ""
+	for _, e := range payload.Emails {
+		if e.Primary {
+			email = e.Value
+			break
+		}
+	}
+	if email == "" && len(payload.Emails) > 0 {
+		email = payload.Emails[0].Value
+	}
+
+	// Password might be generated or provided in a different field for SCIM, 
+	// but here we use a random one if not provided.
+	password := crypto.GenerateRandomString(32)
+
+	id, err := h.svc.RegisterUser(r.Context(), orgID, email, password, payload.DisplayName, "user")
+	if err != nil {
+		h.writeScimError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+
+	user, _ := h.svc.GetCurrentUser(r.Context(), id)
+	h.writeJSON(w, http.StatusCreated, h.mapToScim(user))
 }
 
 func (h *Handler) GetScimUser(w http.ResponseWriter, r *http.Request) {

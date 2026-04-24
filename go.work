@@ -1,6 +1,7 @@
 go 1.25.0
 
 use (
+	./examples/task-management-app/backend
 	./sdk
 	./services/alerting
 	./services/audit
@@ -13,5 +14,4 @@ use (
 	./services/threat
 	./services/webhook-delivery
 	./shared
-	./examples/task-management-app/backend
 )

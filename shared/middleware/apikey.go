@@ -4,6 +4,7 @@ package middleware
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
@@ -127,18 +128,18 @@ func APIKeyAuthComplex(lookup APIKeyLookup) func(http.Handler) http.Handler {
 }
 
 // verifyPBKDF2 compares a raw API key against a stored PBKDF2 hash.
-// The stored hash format is: "pbkdf2$sha256$<iterations>$<salt_hex>$<hash_hex>"
+// The stored hash format is: "pbkdf2$sha512$<iterations>$<salt_hex>$<hash_hex>"
 // This is intentionally slow (security property) — use the Redis cache to avoid repeated calls.
 func verifyPBKDF2(rawKey, storedHash string) bool {
-	// Parse stored hash: pbkdf2$sha256$iterations$salt$hash
+	// Parse stored hash: pbkdf2$sha512$iterations$salt$hash
 	parts := strings.Split(storedHash, "$")
-	if len(parts) != 5 || parts[0] != "pbkdf2" || parts[1] != "sha256" {
+	if len(parts) != 5 || parts[0] != "pbkdf2" || parts[1] != "sha512" {
 		return false
 	}
 
 	var iterations int
 	fmt.Sscanf(parts[2], "%d", &iterations)
-	if iterations < 100000 {
+	if iterations < 600000 {
 		return false // reject weak hashes
 	}
 
@@ -153,13 +154,14 @@ func verifyPBKDF2(rawKey, storedHash string) bool {
 }
 
 // derivePBKDF2 re-derives the PBKDF2 hash for comparison.
-// Uses SHA-256 with the given salt and iteration count.
+// Uses SHA-512 with the given salt and iteration count.
 func derivePBKDF2(key, saltHex string, iterations int) string {
 	salt, err := hex.DecodeString(saltHex)
 	if err != nil {
 		return ""
 	}
-	hash := pbkdf2.Key([]byte(key), salt, iterations, 32, sha256.New)
+	// spec §2.6: PBKDF2-HMAC-SHA512, 600,000 iterations, 64-byte output
+	hash := pbkdf2.Key([]byte(key), salt, iterations, 64, sha512.New)
 	return hex.EncodeToString(hash)
 }
 

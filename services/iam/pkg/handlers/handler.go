@@ -12,8 +12,9 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 
-	"github.com/openguard/services/iam/pkg/middleware"
+	iam_middleware "github.com/openguard/services/iam/pkg/middleware"
 	"github.com/openguard/services/iam/pkg/service"
+	shared_middleware "github.com/openguard/shared/middleware"
 )
 
 // Handler manages HTTP requests for the IAM service.
@@ -52,6 +53,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	user, token, err := h.svc.Login(r.Context(), body.Email, body.Password, userAgent, ip)
 	if err != nil {
 		slog.Error("login failed", "error", err, "email", body.Email)
+		if err.Error() == "USER_PROVISIONING_IN_PROGRESS" {
+			h.writeJSON(w, http.StatusForbidden, map[string]interface{}{
+				"error": "User provisioning in progress",
+				"code":  "USER_PROVISIONING_IN_PROGRESS",
+			})
+			return
+		}
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -173,7 +181,7 @@ func (h *Handler) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID := shared_middleware.GetUserID(r.Context())
 	if userID == "" {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -192,17 +200,19 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	// Extract JTI and expiry injected by auth middleware
-	jti := middleware.GetJTI(r.Context())
-	expiresAt := middleware.GetExpiresAt(r.Context())
+	jti := shared_middleware.GetJTI(r.Context())
+	expiresAt := shared_middleware.GetExpiresAt(r.Context())
 
-	if jti != "" {
-		if err := h.svc.Logout(r.Context(), jti, expiresAt); err != nil {
-			log := middleware.GetLogger(r.Context())
-			log.Error("failed to revoke session", zap.Error(err))
-			// Fail closed: still clear cookie but return 500
-			http.Error(w, "logout failed", http.StatusInternalServerError)
-			return
-		}
+	if jti == "" {
+		http.Error(w, "invalid session: missing jti", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.svc.Logout(r.Context(), jti, expiresAt); err != nil {
+		log := iam_middleware.GetLogger(r.Context())
+		log.Error("logout failed", zap.Error(err))
+		http.Error(w, "logout failed", http.StatusInternalServerError)
+		return
 	}
 
 	// Clear the session cookie
@@ -251,7 +261,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Pull org_id from context per spec §5
-	orgID := middleware.GetOrgID(r.Context())
+	orgID := shared_middleware.GetOrgID(r.Context())
 	if orgID == "" {
 		http.Error(w, "Unauthorized: missing org_id", http.StatusUnauthorized)
 		return
@@ -263,7 +273,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 	id, err := h.svc.RegisterUser(ctx, orgID, body.Email, body.Password, body.DisplayName, body.Role)
 	if err != nil {
-		log := middleware.GetLogger(ctx)
+		log := iam_middleware.GetLogger(ctx)
 		log.Error("CreateUser failed", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -282,7 +292,7 @@ func (h *Handler) ListConnectors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
-	orgID := middleware.GetOrgID(r.Context())
+	orgID := shared_middleware.GetOrgID(r.Context())
 	filter := r.URL.Query().Get("filter")
 	users, err := h.svc.ListUsers(r.Context(), orgID, filter)
 	if err != nil {
@@ -306,7 +316,7 @@ func (h *Handler) CreateConnector(w http.ResponseWriter, r *http.Request) {
 
 	orgID, err := h.svc.CreateConnector(r.Context(), body.ID, body.Name, body.ClientSecret, body.RedirectURIs)
 	if err != nil {
-		log := middleware.GetLogger(r.Context())
+		log := iam_middleware.GetLogger(r.Context())
 		log.Error("CreateConnector failed", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -316,7 +326,7 @@ func (h *Handler) CreateConnector(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) TOTPSetup(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
+	userID := shared_middleware.GetUserID(r.Context())
 	// Get user email for TOTP label
 	user, err := h.svc.GetCurrentUser(r.Context(), userID)
 	if err != nil {
@@ -346,8 +356,8 @@ func (h *Handler) TOTPEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := middleware.GetUserID(r.Context())
-	orgID := middleware.GetOrgID(r.Context())
+	userID := shared_middleware.GetUserID(r.Context())
+	orgID := shared_middleware.GetOrgID(r.Context())
 
 	backupCodes, err := h.svc.EnableTOTP(r.Context(), orgID, userID, body.Code, body.Secret)
 	if err != nil {
@@ -437,4 +447,20 @@ func (h *Handler) DeleteConnector(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (h *Handler) ReprovisionUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	orgID := shared_middleware.GetOrgID(r.Context())
+	if orgID == "" {
+		http.Error(w, "Unauthorized: missing org_id", http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.svc.ReprovisionUser(r.Context(), orgID, id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]string{"status": "reprovisioning_started"})
 }

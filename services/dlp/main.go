@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/openguard/services/dlp/pkg/handlers"
 	"github.com/openguard/services/dlp/pkg/repository"
 	"github.com/openguard/services/dlp/pkg/router"
@@ -31,6 +32,19 @@ func main() {
 	if databaseURL == "" {
 		databaseURL = "postgres://postgres:postgres@localhost:5432/openguard_dlp?sslmode=disable"
 	}
+
+	// ── Redis (Blocklist) ────────────────────────────────────────────────────
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379/0"
+	}
+	rOptions, err := redis.ParseURL(redisURL)
+	if err != nil {
+		logger.Error("failed to parse redis url", "error", err)
+		os.Exit(1)
+	}
+	rdb := redis.NewClient(rOptions)
+	defer rdb.Close()
 	
 	var keyring []crypto.JWTKey
 	if keysJSON := os.Getenv("JWT_KEYS"); keysJSON != "" {
@@ -66,7 +80,7 @@ func main() {
 	h := handlers.NewDLPHandler(repo)
 
 	// 3. Initialize Router & Start Server
-	r := router.NewRouter(h, keyring)
+	r := router.NewRouter(h, keyring, rdb)
 
 	logger.Info("dlp service starting", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

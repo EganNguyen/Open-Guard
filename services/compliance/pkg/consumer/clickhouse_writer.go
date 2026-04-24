@@ -3,7 +3,9 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -32,8 +34,10 @@ func NewClickHouseWriter(brokers string, groupID string, topic string, repo *rep
 }
 
 func (w *ClickHouseWriter) Start(ctx context.Context) error {
-	batchSize := 1000
-	ticker := time.NewTicker(5 * time.Second)
+	batchSize := getEnvInt("CLICKHOUSE_BULK_FLUSH_ROWS", 5000)
+	flushMs := getEnvInt("CLICKHOUSE_BULK_FLUSH_MS", 2000)
+
+	ticker := time.NewTicker(time.Duration(flushMs) * time.Millisecond)
 	defer ticker.Stop()
 
 	var batch []kafka.Message
@@ -81,15 +85,29 @@ func (w *ClickHouseWriter) flush(ctx context.Context, messages []kafka.Message) 
 	}
 
 	if len(events) == 0 {
+		// Still commit so we don't re-process undecodable messages forever
+		_ = w.reader.CommitMessages(ctx, messages...)
 		return
 	}
 
+	// 1. Write to ClickHouse FIRST
 	if err := w.repo.IngestEvents(ctx, events); err != nil {
-		w.logger.Error("failed to ingest events to ClickHouse", "error", err)
-		return
+		w.logger.Error("clickhouse ingest failed — NOT committing offsets", "error", err)
+		return // messages will be re-delivered on restart
 	}
 
+	// 2. Commit offsets ONLY after successful write
 	if err := w.reader.CommitMessages(ctx, messages...); err != nil {
-		w.logger.Error("failed to commit offsets", "error", err)
+		w.logger.Error("offset commit failed after successful ingest", "error", err)
 	}
+}
+
+func getEnvInt(key string, fallback int) int {
+	if val := os.Getenv(key); val != "" {
+		var i int
+		if _, err := fmt.Sscanf(val, "%d", &i); err == nil {
+			return i
+		}
+	}
+	return fallback
 }

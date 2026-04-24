@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/resilience"
 	"github.com/pquerna/otp/totp"
@@ -22,7 +24,7 @@ import (
 // Repository defines the interface for data persistence.
 type Repository interface {
 	CreateOrg(ctx context.Context, name string) (string, error)
-	CreateUser(ctx context.Context, orgID, email, passwordHash, displayName, role string) (string, error)
+	CreateUser(ctx context.Context, orgID, email, passwordHash, displayName, role, status string) (string, error)
 	GetUserByEmail(ctx context.Context, email string) (map[string]interface{}, error)
 	GetUserByID(ctx context.Context, id string) (map[string]interface{}, error)
 	IncrementFailedLogin(ctx context.Context, email string) (int, error)
@@ -41,10 +43,13 @@ type Repository interface {
 	GetMFAConfig(ctx context.Context, userID, mfaType string) (map[string]interface{}, error)
 	GetConnectorByID(ctx context.Context, id string) (map[string]interface{}, error)
 	ListConnectors(ctx context.Context) ([]map[string]interface{}, error)
-	ListUsers(ctx context.Context, orgID string, filter string) ([]map[string]interface{}, error)
 	CreateConnector(ctx context.Context, id, name, secret string, uris []string) (string, error)
 	UpdateConnector(ctx context.Context, id, name string, uris []string) error
 	DeleteConnector(ctx context.Context, id string) error
+	ListUsers(ctx context.Context, orgID string, filter string) ([]map[string]interface{}, error)
+	BeginTx(ctx context.Context) (pgx.Tx, error)
+	CreateOutboxEvent(ctx context.Context, tx pgx.Tx, orgID, topic, key string, payload []byte) error
+	UpdateUserStatus(ctx context.Context, userID, status string) error
 }
 
 // Service handles business logic for the IAM service.
@@ -87,7 +92,81 @@ func (s *Service) RegisterUser(ctx context.Context, orgID, email, password, disp
 		return "", fmt.Errorf("hash password: %w", err)
 	}
 
-	return s.repo.CreateUser(ctx, orgID, email, string(hash), displayName, role)
+	// Use transaction for user creation + outbox event
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. Create with status='initializing'
+	userID, err := s.repo.CreateUser(ctx, orgID, email, string(hash), displayName, role, "initializing")
+	if err != nil {
+		return "", err
+	}
+
+	// 2. Publish user.created to saga.orchestration (via outbox)
+	event := map[string]interface{}{
+		"event":   "user.created",
+		"user_id": userID,
+		"org_id":  orgID,
+		"email":   email,
+		"status":  "initializing",
+		"ts":      time.Now().Unix(),
+	}
+	payload, _ := json.Marshal(event)
+	if err := s.repo.CreateOutboxEvent(ctx, tx, orgID, "saga.orchestration", userID, payload); err != nil {
+		return "", fmt.Errorf("outbox: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+
+	// 3. Saga timeout: write deadline to Redis (spec §2.5)
+	if s.rdb != nil {
+		deadline := time.Now().Add(40 * time.Second).Unix()
+		s.rdb.ZAdd(ctx, "saga:deadlines", redis.Z{
+			Score:  float64(deadline),
+			Member: userID,
+		})
+	}
+
+	return userID, nil
+}
+
+func (s *Service) ReprovisionUser(ctx context.Context, orgID, userID string) error {
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	// Publish retry event
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Reset status to initializing
+	if err := s.repo.UpdateUserStatus(ctx, userID, "initializing"); err != nil {
+		return err
+	}
+
+	event := map[string]interface{}{
+		"event":   "user.reprovision",
+		"user_id": userID,
+		"org_id":  orgID,
+		"email":   user["email"].(string),
+		"status":  "initializing",
+		"ts":      time.Now().Unix(),
+	}
+	payload, _ := json.Marshal(event)
+	if err := s.repo.CreateOutboxEvent(ctx, tx, orgID, "saga.orchestration", userID, payload); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (s *Service) Login(ctx context.Context, email, password, userAgent, ip string) (map[string]interface{}, string, error) {
@@ -96,7 +175,11 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 		return nil, "", err
 	}
 
-	// 1. Check if locked
+	// 1. Check if locked or initializing
+	if user["status"].(string) == "initializing" {
+		return nil, "", fmt.Errorf("USER_PROVISIONING_IN_PROGRESS")
+	}
+
 	if user["locked_until"] != nil {
 		until := user["locked_until"].(*time.Time)
 		if until != nil && time.Now().Before(*until) {

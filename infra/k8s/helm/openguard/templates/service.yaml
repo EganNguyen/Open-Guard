@@ -1,0 +1,27 @@
+{{- range $name, $service := .Values.services }}
+{{- if $service.enabled }}
+{{- $values := mustMerge (deepCopy $service) $.Values.defaults }}
+{{- $context := dict "Values" $values "Chart" $.Chart "Release" $.Release "Template" $.Template }}
+{{- $_ := set $context.Values "serviceName" $name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openguard.serviceFullname" $context }}
+  labels:
+    {{- include "openguard.labels" $context | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ $values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ $values.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "openguard.selectorLabels" $context | nindent 4 }}
+{{- end }}
+{{- end }}

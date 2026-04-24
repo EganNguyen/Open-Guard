@@ -1,36 +1,152 @@
-replicaCount: 1
+# Default values for openguard.
+# This is a multi-service chart that deploys the OpenGuard Control Plane.
 
-image:
-  repository: openguard
-  pullPolicy: IfNotPresent
-  tag: "latest"
+# Global settings
+global:
+  environment: production
+  imageRegistry: docker.io
+  imagePullSecrets: []
+  domain: openguard.io
 
-deployment:
-  minReadySeconds: 30
-  strategy:
-    type: RollingUpdate
+# Default settings for all services (can be overridden per service)
+defaults:
+  replicaCount: 1
+  image:
+    repository: openguard
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  deployment:
+    minReadySeconds: 5
+    strategy:
+      type: RollingUpdate
+  service:
+    port: 8080
+    metricsPort: 9090
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  networkPolicy:
+    enabled: true
+  mtls:
+    enabled: true
+    caSecretName: openguard-mtls-ca
 
-hpa:
-  enabled: true
-  minReplicas: 3
-  maxReplicas: 10
-  targetCPUUtilizationPercentage: 70
+# Service definitions
+services:
+  iam:
+    enabled: true
+    image:
+      repository: openguard/iam
+    hpa:
+      minReplicas: 3
+      maxReplicas: 20
+      targetCPUUtilizationPercentage: 60 # spec §1.2 - bcrypt capacity model
+    resources:
+      requests:
+        cpu: "500m" # IAM is CPU-heavy (bcrypt)
+        memory: "256Mi"
+      limits:
+        cpu: "2000m"
+        memory: "512Mi"
+    networkPolicy:
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: control-plane
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: ingress-nginx
 
-podDisruptionBudget:
-  enabled: true
-  minAvailable: 1
+  policy:
+    enabled: true
+    image:
+      repository: openguard/policy
+    networkPolicy:
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: control-plane
+            - podSelector:
+                matchLabels:
+                  openguard.io/sdk-client: "true" # SDK clients can call policy
 
-resources:
-  requests:
-    cpu: "100m"
-    memory: "128Mi"
-  limits:
-    cpu: "500m"
-    memory: "512Mi"
+  audit:
+    enabled: true
+    image:
+      repository: openguard/audit
+    networkPolicy:
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: control-plane
 
-networkPolicy:
-  enabled: true
+  compliance:
+    enabled: true
+    image:
+      repository: openguard/compliance
+    networkPolicy:
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: ingress-nginx
 
+  dlp:
+    enabled: true
+    image:
+      repository: openguard/dlp
+    networkPolicy:
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: control-plane
+
+  alerting:
+    enabled: true
+    image:
+      repository: openguard/alerting
+    networkPolicy:
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: ingress-nginx
+
+  threat:
+    enabled: true
+    image:
+      repository: openguard/threat
+    networkPolicy:
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: ingress-nginx
+
+  webhook-delivery:
+    enabled: true
+    image:
+      repository: openguard/webhook-delivery
+    networkPolicy:
+      ingress: [] # Pull-only via Kafka
+
+# Common affinity settings
 affinity:
   podAntiAffinity:
     preferredDuringSchedulingIgnoredDuringExecution:
@@ -42,3 +158,8 @@ affinity:
                 operator: In
                 values: ["openguard"]
           topologyKey: kubernetes.io/hostname
+
+# External Secrets configuration
+externalSecrets:
+  enabled: true
+  secretStore: aws-secrets-manager

@@ -3,8 +3,10 @@ package crypto
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -12,46 +14,47 @@ import (
 )
 
 const (
-	pbkdf2Iterations = 10000
-	pbkdf2KeyLen     = 32
-	pbkdf2SaltLen    = 16
+	pbkdf2Iterations = 600000
+	pbkdf2KeyLen     = 64
+	pbkdf2SaltLen    = 32
 )
 
-// HashPBKDF2 hashes a string using PBKDF2 with SHA-256.
+// HashPBKDF2 hashes a string using PBKDF2 with SHA-512.
+// Format: pbkdf2$sha512$iterations$salt_hex$hash_hex
 func HashPBKDF2(password string) string {
 	salt := make([]byte, pbkdf2SaltLen)
 	rand.Read(salt)
 
-	hash := pbkdf2.Key([]byte(password), salt, pbkdf2Iterations, pbkdf2KeyLen, sha256.New)
+	hash := pbkdf2.Key([]byte(password), salt, pbkdf2Iterations, pbkdf2KeyLen, sha512.New)
 	
-	// Format: iterations.salt.hash
-	return fmt.Sprintf("%d.%s.%s", 
+	return fmt.Sprintf("pbkdf2$sha512$%d$%s$%s", 
 		pbkdf2Iterations, 
-		base64.StdEncoding.EncodeToString(salt), 
-		base64.StdEncoding.EncodeToString(hash))
+		hex.EncodeToString(salt), 
+		hex.EncodeToString(hash))
 }
 
 // VerifyPBKDF2 verifies a password against a PBKDF2 hash.
 func VerifyPBKDF2(password, encodedHash string) bool {
-	parts := strings.Split(encodedHash, ".")
-	if len(parts) != 3 {
+	parts := strings.Split(encodedHash, "$")
+	if len(parts) != 5 || parts[0] != "pbkdf2" || parts[1] != "sha512" {
+		// Fallback to old format for migration if needed, but here we enforce new spec
 		return false
 	}
 
 	iterations := 0
-	fmt.Sscanf(parts[0], "%d", &iterations)
+	fmt.Sscanf(parts[2], "%d", &iterations)
 	
-	salt, err := base64.StdEncoding.DecodeString(parts[1])
+	salt, err := hex.DecodeString(parts[3])
 	if err != nil {
 		return false
 	}
 
-	expectedHash, err := base64.StdEncoding.DecodeString(parts[2])
+	expectedHash, err := hex.DecodeString(parts[4])
 	if err != nil {
 		return false
 	}
 
-	actualHash := pbkdf2.Key([]byte(password), salt, iterations, len(expectedHash), sha256.New)
+	actualHash := pbkdf2.Key([]byte(password), salt, iterations, len(expectedHash), sha512.New)
 	
 	return subtle.ConstantTimeCompare(actualHash, expectedHash) == 1
 }

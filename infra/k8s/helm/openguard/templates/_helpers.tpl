@@ -46,4 +46,18 @@ Selector labels
 {{- define "openguard.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "openguard.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- if .Values.serviceName }}
+app.kubernetes.io/component: {{ .Values.serviceName }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create the name of the service
+*/}}
+{{- define "openguard.serviceFullname" -}}
+{{- if .Values.serviceName }}
+{{- printf "%s-%s" (include "openguard.fullname" .) .Values.serviceName | trunc 63 | trimSuffix "-" -}}
+{{- else }}
+{{- include "openguard.fullname" . }}
+{{- end }}
 {{- end }}

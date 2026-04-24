@@ -2,18 +2,23 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+
 	"github.com/openguard/services/compliance/pkg/consumer"
 	"github.com/openguard/services/compliance/pkg/handlers"
 	"github.com/openguard/services/compliance/pkg/repository"
 	"github.com/openguard/services/compliance/pkg/router"
+	"github.com/openguard/services/compliance/pkg/storage"
 	"github.com/openguard/services/compliance/pkg/telemetry"
 	"github.com/openguard/shared/crypto"
-	"encoding/json"
+	"github.com/openguard/shared/resilience"
 )
 
 func main() {
@@ -36,7 +41,54 @@ func main() {
 	if kafkaBrokers == "" {
 		kafkaBrokers = "localhost:9092"
 	}
-	
+
+	// ── Redis (Blocklist) ────────────────────────────────────────────────────
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379/0"
+	}
+	rOptions, err := redis.ParseURL(redisURL)
+	if err != nil {
+		logger.Error("failed to parse redis url", "error", err)
+		os.Exit(1)
+	}
+	rdb := redis.NewClient(rOptions)
+	defer rdb.Close()
+
+	// ── PostgreSQL (Reports) ─────────────────────────────────────────────────
+	pgURL := os.Getenv("DATABASE_URL")
+	if pgURL == "" {
+		pgURL = "postgres://openguard:openguard@localhost:5432/openguard?sslmode=disable"
+	}
+	pgPool, err := pgxpool.New(context.Background(), pgURL)
+	if err != nil {
+		logger.Error("failed to connect to postgres", "error", err)
+		os.Exit(1)
+	}
+	defer pgPool.Close()
+
+	// ── S3/MinIO Storage ─────────────────────────────────────────────────────
+	s3Endpoint := os.Getenv("S3_ENDPOINT")
+	if s3Endpoint == "" {
+		s3Endpoint = "http://localhost:9000"
+	}
+	s3AccessKey := os.Getenv("S3_ACCESS_KEY")
+	s3SecretKey := os.Getenv("S3_SECRET_KEY")
+	s3Bucket := os.Getenv("S3_BUCKET")
+	if s3Bucket == "" {
+		s3Bucket = "compliance-reports"
+	}
+	s3Region := os.Getenv("S3_REGION")
+	if s3Region == "" {
+		s3Region = "us-east-1"
+	}
+
+	s3Storage, err := storage.NewS3Storage(s3Endpoint, s3AccessKey, s3SecretKey, s3Bucket, s3Region)
+	if err != nil {
+		logger.Error("failed to initialize s3 storage", "error", err)
+		os.Exit(1)
+	}
+
 	var keyring []crypto.JWTKey
 	if keysJSON := os.Getenv("JWT_KEYS"); keysJSON != "" {
 		if err := json.Unmarshal([]byte(keysJSON), &keyring); err != nil {
@@ -48,17 +100,20 @@ func main() {
 		keyring = []crypto.JWTKey{{Kid: "dev", Secret: "default-secret", Algorithm: "HS256", Status: "active"}}
 	}
 
-	concurrency, _ := strconv.ParseInt(os.Getenv("COMPLIANCE_REPORT_CONCURRENCY"), 10, 64)
-	if concurrency == 0 {
-		concurrency = 5
+	concurrencyStr := os.Getenv("COMPLIANCE_REPORT_MAX_CONCURRENT")
+	if concurrencyStr == "" {
+		concurrencyStr = "10" // spec default
 	}
+	concurrency, _ := strconv.Atoi(concurrencyStr)
+	bulkhead := resilience.NewBulkhead(concurrency)
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
 	// 1. Initialize ClickHouse
-	repo, err := repository.NewRepository(clickhouseAddr)
+	repo, err := repository.NewRepository(clickhouseAddr, pgPool)
 	if err != nil {
 		logger.Error("failed to connect to clickhouse", "error", err)
 		os.Exit(1)
@@ -84,10 +139,10 @@ func main() {
 	}()
 
 	// 3. Initialize Handlers
-	h := handlers.NewComplianceHandler(repo, concurrency)
+	h := handlers.NewComplianceHandler(repo, bulkhead, s3Storage)
 
 	// 4. Initialize Router & Start Server
-	r := router.NewRouter(h, keyring)
+	r := router.NewRouter(h, keyring, rdb)
 
 	logger.Info("compliance service starting", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

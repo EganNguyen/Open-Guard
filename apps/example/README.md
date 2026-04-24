@@ -76,6 +76,47 @@ for i in {1..6}; do
 done
 ```
 
+## Connecting to OpenGuard
+
+To demonstrate the full power of OpenGuard, connect this example app to a running OpenGuard control plane.
+
+1.  **Start OpenGuard**: Run `docker-compose up -d` from the repository root.
+2.  **Configure Environment**: 
+    - Copy `.env.example` to `.env`.
+    - `OPENGUARD_URL`: The URL of your OpenGuard Policy Service (default: `http://localhost:8080`).
+    - `OPENGUARD_ISSUER_URL`: The URL of OpenGuard IAM (default: `http://localhost:8081`).
+    - `OPENGUARD_API_KEY`: Generate an API key in the OpenGuard Dashboard and paste it here.
+3.  **Register Connector**:
+    - Go to the OpenGuard Dashboard (default: `http://localhost:3000`).
+    - Register a new connector for this app.
+    - Copy the `Client ID` and `Client Secret` to your `.env`.
+
+## Sequence Diagram: Login Flow
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant App as Example App (Node)
+    participant IAM as OpenGuard IAM
+    
+    Browser->>App: GET /api/login
+    App-->>Browser: Redirect to IAM /oauth/authorize
+    Browser->>IAM: Authorize
+    IAM-->>Browser: Redirect to /api/callback?code=...
+    Browser->>App: GET /api/callback?code=...
+    App->>IAM: POST /oauth/token (exchange code)
+    IAM-->>App: Access Token + ID Token
+    App->>Browser: Set HttpOnly Cookie & Redirect to Dashboard
+```
+
+## Security Integration
+
+This app demonstrates three levels of OpenGuard integration:
+
+1.  **Request Guarding**: The `openGuard` middleware inspects every incoming request for common attacks (SQLi, XSS, etc.).
+2.  **Policy Evaluation**: Protected routes call `ogClient.allow(subject, action, resource)` to make fine-grained authorization decisions.
+3.  **Event Ingestion**: Security events and blocks are automatically sent to OpenGuard's Audit trail for centralized logging and threat detection.
+
 ## Environment Variables
 
 | Variable | Default | Description |

@@ -11,12 +11,16 @@
   },
   "dependencies": {
     "@open-guard/core": "workspace:*",
+    "@open-guard/dashboard": "workspace:*",
     "@open-guard/detectors": "workspace:*",
     "@open-guard/middleware": "workspace:*",
     "@open-guard/sdk": "workspace:*",
-    "@open-guard/dashboard": "workspace:*",
+    "axios": "^1.15.2",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
     "express": "^4.18.2",
+    "openid-client": "^6.8.3",
     "ws": "^8.14.2"
   },
   "devDependencies": {

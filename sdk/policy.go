@@ -18,7 +18,9 @@ type EvaluationResponse struct {
 
 func (c *Client) Allow(ctx context.Context, subjectID, action, resource string) (bool, error) {
 	cacheKey := fmt.Sprintf("%s:%s:%s", subjectID, action, resource)
-	if val, ok := c.cache.Get(cacheKey); ok {
+
+	// Check cache — including grace period (stale-while-unavailable)
+	if val, ok := c.cache.GetOrStale(cacheKey); ok {
 		return val, nil
 	}
 
@@ -32,7 +34,11 @@ func (c *Client) Allow(ctx context.Context, subjectID, action, resource string) 
 	// Path /v1/policy/evaluate per spec §10
 	err := c.do(ctx, "POST", "/v1/policy/evaluate", req, &resp)
 	if err != nil {
-		return false, err
+		// Policy service unavailable — apply fail-closed behavior
+		if c.failOpen {
+			return true, nil // fail-open (dev mode)
+		}
+		return false, nil // fail-closed (production default) — deny, no error
 	}
 
 	c.cache.Set(cacheKey, resp.Allowed)

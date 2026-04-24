@@ -7,14 +7,17 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/openguard/services/policy/pkg/handlers"
+	"github.com/openguard/shared/crypto"
 	shared_middleware "github.com/openguard/shared/middleware"
+	"github.com/openguard/shared/resilience"
 )
 
 // NewRouter wires up the chi router for the policy service.
 // Route paths match exactly what the control-plane expects per spec §11.5.
-func NewRouter(h *handlers.Handler) *chi.Mux {
+func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)

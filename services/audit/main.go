@@ -11,12 +11,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/openguard/services/audit/pkg/consumer"
 	"github.com/openguard/services/audit/pkg/handlers"
 	"github.com/openguard/services/audit/pkg/repository"
 	"github.com/openguard/services/audit/pkg/telemetry"
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/middleware"
+	"github.com/openguard/shared/resilience"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -38,6 +41,27 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// ── Redis (Blocklist) ────────────────────────────────────────────────────
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379/0"
+	}
+	rOptions, err := redis.ParseURL(redisURL)
+	if err != nil {
+		logger.Error("failed to parse redis url", "error", err)
+		os.Exit(1)
+	}
+	rdb := redis.NewClient(rOptions)
+	defer rdb.Close()
+
+	breaker := resilience.NewBreaker(resilience.BreakerConfig{
+		Name:             "audit-redis-blocklist",
+		MaxRequests:      5,
+		Interval:         10 * time.Second,
+		FailureThreshold: 3,
+		OpenDuration:     5 * time.Second,
+	}, logger)
 
 	// ── MongoDB CQRS Split ───────────────────────────────────────────────────
 	primaryURI := os.Getenv("MONGO_URI_PRIMARY")
@@ -91,6 +115,8 @@ func main() {
 		"data.access",
 		"threat.alerts",
 		"connector.events",
+		"audit.trail",
+		"saga.orchestration",
 	}
 
 	for _, topic := range topics {
@@ -119,7 +145,7 @@ func main() {
 		logger.Error("failed to load JWT keyring", "error", err)
 		os.Exit(1)
 	}
-	authMiddleware := middleware.AuthJWT(keyring)
+	authMiddleware := middleware.AuthJWTWithBlocklist(keyring, rdb, breaker)
 
 	// ── HTTP Server (Health + Read API) ──────────────────────────────────────
 	port := os.Getenv("PORT")

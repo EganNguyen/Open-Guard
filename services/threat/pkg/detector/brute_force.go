@@ -3,20 +3,23 @@ package detector
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
+	"github.com/openguard/services/threat/pkg/alert"
+	sharedkafka "github.com/openguard/shared/kafka"
 )
 
 const (
-	WindowSize    = 5 * time.Minute
-	MaxAttempts  = 5
-	ThreatTTL    = 24 * time.Hour
+	WindowSize = 5 * time.Minute
+	ThreatTTL  = 24 * time.Hour
 )
 
 type BruteForceDetector struct {
@@ -24,9 +27,11 @@ type BruteForceDetector struct {
 	reader      *kafka.Reader
 	logger      *slog.Logger
 	maxAttempts int64
+	store       *alert.Store
+	pub         *sharedkafka.Publisher
 }
 
-func NewBruteForceDetector(redisAddr string, brokers string, groupID string, topic string, logger *slog.Logger) (*BruteForceDetector, error) {
+func NewBruteForceDetector(redisAddr string, brokers string, groupID string, topic string, store *alert.Store, pub *sharedkafka.Publisher, logger *slog.Logger) (*BruteForceDetector, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr: redisAddr,
 	})
@@ -40,7 +45,7 @@ func NewBruteForceDetector(redisAddr string, brokers string, groupID string, top
 		MaxBytes: 10e6,
 	})
 
-	maxAttempts := int64(10)
+	maxAttempts := int64(11) // Spec default
 	if v := os.Getenv("THREAT_MAX_FAILED_LOGINS"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 			maxAttempts = n
@@ -52,10 +57,13 @@ func NewBruteForceDetector(redisAddr string, brokers string, groupID string, top
 		reader:      r,
 		logger:      logger,
 		maxAttempts: maxAttempts,
+		store:       store,
+		pub:         pub,
 	}, nil
 }
 
 func (d *BruteForceDetector) Start(ctx context.Context) error {
+	d.logger.Info("Starting BruteForceDetector", "max_attempts", d.maxAttempts)
 	for {
 		select {
 		case <-ctx.Done():
@@ -92,17 +100,25 @@ func (d *BruteForceDetector) processEvent(ctx context.Context, m kafka.Message) 
 	email, _ := event["email"].(string)
 
 	if ip != "" {
-		d.trackFailedAttempt(ctx, "ip:"+ip)
+		d.trackFailedAttempt(ctx, "bruteforce:ip:"+ip)
 	}
 	if email != "" {
-		d.trackFailedAttempt(ctx, "user:"+email)
+		d.trackFailedAttempt(ctx, "bruteforce:user:"+email)
 	}
 }
 
 func (d *BruteForceDetector) trackFailedAttempt(ctx context.Context, key string) {
-	pipe := d.rdb.Pipeline()
+	now := time.Now().UnixNano() / int64(time.Millisecond)
+	windowStart := now - int64(WindowSize/time.Millisecond)
 
-	incr := pipe.Incr(ctx, key)
+	pipe := d.rdb.Pipeline()
+	// Use sorted set for sliding window
+	pipe.ZAdd(ctx, key, redis.Z{
+		Score:  float64(now),
+		Member: uuid.New().String(),
+	})
+	pipe.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("%d", windowStart))
+	countCmd := pipe.ZCard(ctx, key)
 	pipe.Expire(ctx, key, WindowSize)
 
 	_, err := pipe.Exec(ctx)
@@ -111,7 +127,7 @@ func (d *BruteForceDetector) trackFailedAttempt(ctx context.Context, key string)
 		return
 	}
 
-	count := incr.Val()
+	count := countCmd.Val()
 	d.logger.Debug("failed attempt tracked", "key", key, "count", count)
 
 	if count >= d.maxAttempts {
@@ -121,17 +137,45 @@ func (d *BruteForceDetector) trackFailedAttempt(ctx context.Context, key string)
 }
 
 func (d *BruteForceDetector) publishThreatEvent(ctx context.Context, key string, count int64) {
-	threatEvent := map[string]interface{}{
-		"threat_type": "brute_force",
-		"key":         key,
-		"attempts":    count,
-		"window":      WindowSize.String(),
-		"timestamp":  time.Now().Unix(),
+	// Extract userID or IP from key
+	parts := strings.Split(key, ":")
+	userID := ""
+	if len(parts) >= 3 {
+		userID = parts[2]
 	}
 
-	payload, _ := json.Marshal(threatEvent)
+	a := &alert.Alert{
+		UserID:   userID,
+		Detector: "brute_force",
+		Score:    0.9,
+		Severity: "HIGH",
+		Metadata: map[string]interface{}{
+			"attempts": count,
+			"key":      key,
+		},
+	}
+
+	if d.store != nil {
+		if err := d.store.CreateAlert(ctx, a); err != nil {
+			d.logger.Error("failed to persist alert", "error", err)
+		}
+	}
+
+	payload, _ := json.Marshal(a)
 	d.logger.Info("threat detected", "event", string(payload))
 
+	// Publish to Kafka for alerting saga
+	if d.pub != nil {
+		alertID := a.ID.Hex()
+		if alertID == "" {
+			alertID = uuid.New().String()
+		}
+		if err := d.pub.Publish(ctx, "threat.alerts", alertID, payload); err != nil {
+			d.logger.Error("failed to publish to kafka", "error", err)
+		}
+	}
+
+	// Store in Redis for legacy/quick check
 	d.rdb.Set(ctx, "threat:"+key, payload, ThreatTTL)
 }
 
@@ -141,11 +185,9 @@ func (d *BruteForceDetector) Close() {
 }
 
 func (d *BruteForceDetector) CheckRateLimit(ctx context.Context, key string) (bool, int64) {
-	count, err := d.rdb.Get(ctx, key).Int64()
-	if err == redis.Nil {
-		return true, 0
-	}
-	if err != nil {
+	// For backward compatibility or external checks
+	count, err := d.rdb.ZCard(ctx, key).Result()
+	if err != nil && err != redis.Nil {
 		return false, 0
 	}
 	return count < d.maxAttempts, count

@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/openguard/services/alerting/pkg/handlers"
 	"github.com/openguard/services/alerting/pkg/repository"
 	"github.com/openguard/services/alerting/pkg/router"
@@ -42,6 +43,19 @@ func main() {
 	if len(kafkaBrokers) == 0 || kafkaBrokers[0] == "" {
 		kafkaBrokers = []string{"localhost:9092"}
 	}
+
+	// ── Redis (Blocklist) ────────────────────────────────────────────────────
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379/0"
+	}
+	rOptions, err := redis.ParseURL(redisURL)
+	if err != nil {
+		logger.Error("failed to parse redis url", "error", err)
+		os.Exit(1)
+	}
+	rdb := redis.NewClient(rOptions)
+	defer rdb.Close()
 	
 	var keyring []crypto.JWTKey
 	if keysJSON := os.Getenv("JWT_KEYS"); keysJSON != "" {
@@ -76,6 +90,12 @@ func main() {
 
 	// 3. Initialize SIEM
 	siem := webhook.NewSIEMDeliverer()
+	if siemURL := os.Getenv("ALERTING_SIEM_WEBHOOK_URL"); siemURL != "" {
+		if err := webhook.ValidateConfig(siemURL); err != nil {
+			logger.Error("invalid ALERTING_SIEM_WEBHOOK_URL", "error", err)
+			os.Exit(1)
+		}
+	}
 
 	// 4. Initialize Handlers
 	h := handlers.NewAlertHandler(repo)
@@ -99,7 +119,7 @@ func main() {
 	}()
 
 	// 6. Initialize Router & Start Server
-	r := router.NewRouter(h, keyring)
+	r := router.NewRouter(h, keyring, rdb)
 
 	logger.Info("alerting service starting", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

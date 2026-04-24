@@ -59,3 +59,6 @@ generate:
 
 phase5:
 	opencode run .opencode/phase5-detectors.yaml "Generate all detectors and logic defined in this spec"
+
+geo-db:
+	./scripts/download-geolite2.sh

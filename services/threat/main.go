@@ -2,23 +2,27 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
+	"github.com/openguard/services/threat/pkg/alert"
 	"github.com/openguard/services/threat/pkg/detector"
+	"github.com/openguard/services/threat/pkg/handlers"
+	"github.com/openguard/services/threat/pkg/router"
 	"github.com/openguard/services/threat/pkg/telemetry"
+	sharedkafka "github.com/openguard/shared/kafka"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	// Initialize OpenTelemetry (INFRA-04)
+	// Initialize OpenTelemetry
 	tp, err := telemetry.InitTracer()
 	if err != nil {
 		logger.Error("failed to initialize tracer", "error", err)
@@ -31,30 +35,72 @@ func main() {
 		redisAddr = "localhost:6379"
 	}
 
-	kafkaBrokers := os.Getenv("KAFKA_BROKERS")
-	if kafkaBrokers == "" {
-		kafkaBrokers = "localhost:9092"
+	kafkaBrokersStr := os.Getenv("KAFKA_BROKERS")
+	if kafkaBrokersStr == "" {
+		kafkaBrokersStr = "localhost:9092"
 	}
+	// Split for Publisher (takes []string); detectors use the raw string internally via strings.Split
+	kafkaBrokersList := strings.Split(kafkaBrokersStr, ",")
 
 	groupID := os.Getenv("KAFKA_GROUP_ID")
 	if groupID == "" {
 		groupID = "threat-detector"
 	}
 
-	topic := os.Getenv("KAFKA_TOPIC")
-	if topic == "" {
-		topic = "iam.events"
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		mongoURI = "mongodb://localhost:27017"
 	}
 
-	detector, err := detector.NewBruteForceDetector(redisAddr, kafkaBrokers, groupID, topic, logger)
-	if err != nil {
-		log.Fatalf("Failed to create detector: %v", err)
+	geoDBPath := os.Getenv("GEOLITE2_DB_PATH")
+	if geoDBPath == "" {
+		geoDBPath = "./data/GeoLite2-City.mmdb"
 	}
-	defer detector.Close()
+
+	// Topics
+	topicAuth := os.Getenv("KAFKA_TOPIC_AUTH")
+	if topicAuth == "" {
+		topicAuth = "auth.events"
+	}
+	topicPolicy := os.Getenv("KAFKA_TOPIC_POLICY")
+	if topicPolicy == "" {
+		topicPolicy = "policy.changes"
+	}
+	topicAccess := os.Getenv("KAFKA_TOPIC_ACCESS")
+	if topicAccess == "" {
+		topicAccess = "data.access"
+	}
+
+	// Initialize Alert Store
+	store, err := alert.NewStore(mongoURI)
+	if err != nil {
+		log.Fatalf("Failed to create alert store: %v", err)
+	}
+
+	// Initialize Kafka Publisher for emitting threat.alerts
+	publisher := sharedkafka.NewPublisher(kafkaBrokersList)
+	defer publisher.Close()
+
+	// Initialize Detectors
+	bfDetector, err := detector.NewBruteForceDetector(redisAddr, kafkaBrokersStr, groupID, topicAuth, store, publisher, logger)
+	if err != nil {
+		log.Fatalf("Failed to create BruteForceDetector: %v", err)
+	}
+
+	itDetector, err := detector.NewImpossibleTravelDetector(geoDBPath, redisAddr, kafkaBrokersStr, groupID, topicAuth, store, publisher, logger)
+	if err != nil {
+		logger.Warn("Failed to create ImpossibleTravelDetector (GeoDB missing?)", "error", err)
+	}
+
+	ohDetector := detector.NewOffHoursDetector(redisAddr, kafkaBrokersStr, groupID, topicAuth, store, publisher, logger)
+	deDetector := detector.NewDataExfiltrationDetector(redisAddr, kafkaBrokersStr, groupID, topicAccess, store, publisher, logger)
+	atDetector := detector.NewAccountTakeoverDetector(redisAddr, kafkaBrokersStr, groupID, topicAuth, store, publisher, logger)
+	peDetector := detector.NewPrivilegeEscalationDetector(redisAddr, kafkaBrokersStr, groupID, topicAuth, topicPolicy, store, publisher, logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Shutdown handling
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -63,35 +109,40 @@ func main() {
 		cancel()
 	}()
 
-	go func() {
-		if err := detector.Start(ctx); err != nil {
-			logger.Error("Detector error", "error", err)
-		}
-	}()
+	// Start Detectors
+	go bfDetector.Start(ctx)
+	if itDetector != nil {
+		go itDetector.Run(ctx)
+	}
+	go ohDetector.Run(ctx)
+	go deDetector.Run(ctx)
+	go atDetector.Run(ctx)
+	go peDetector.Run(ctx)
 
-	http.Handle("/metrics", promhttp.Handler())
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
+	// Initialize Handlers & Router
+	h := handlers.NewHandler(store)
+	r := router.NewRouter(h)
 
-	http.HandleFunc("/threats", func(w http.ResponseWriter, r *http.Request) {
-		threats, err := detector.GetThreats(r.Context())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, "%v", threats)
-	})
+	// Add metrics
+	r.Handle("/metrics", promhttp.Handler())
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	logger.Info("Threat detector service starting", "port", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		logger.Error("Server error", "error", err)
+	logger.Info("Threat service starting", "port", port)
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: r,
 	}
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("Server error", "error", err)
+		}
+	}()
+
+	<-ctx.Done()
+	server.Shutdown(context.Background())
 }
