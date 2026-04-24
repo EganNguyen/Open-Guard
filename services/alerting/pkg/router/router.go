@@ -5,11 +5,12 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/openguard/services/alerting/pkg/handlers"
+	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func NewRouter(h *handlers.AlertHandler, jwtSecret string) *mux.Router {
+func NewRouter(h *handlers.AlertHandler, keyring []crypto.JWTKey) *mux.Router {
 	r := mux.NewRouter()
 
 	r.Handle("/metrics", promhttp.Handler()).Methods("GET")
@@ -22,7 +23,7 @@ func NewRouter(h *handlers.AlertHandler, jwtSecret string) *mux.Router {
 	v1 := r.PathPrefix("/v1/threats").Subrouter()
 	
 	// Apply JWT authentication to all v1 routes
-	v1.Use(middleware.JWTAuth(jwtSecret))
+	v1.Use(middleware.AuthJWT(keyring))
 
 	v1.HandleFunc("/alerts", h.ListAlerts).Methods("GET")
 	v1.HandleFunc("/alerts/{id}", h.GetAlert).Methods("GET")

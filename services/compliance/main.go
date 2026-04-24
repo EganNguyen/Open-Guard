@@ -13,6 +13,8 @@ import (
 	"github.com/openguard/services/compliance/pkg/repository"
 	"github.com/openguard/services/compliance/pkg/router"
 	"github.com/openguard/services/compliance/pkg/telemetry"
+	"github.com/openguard/shared/crypto"
+	"encoding/json"
 )
 
 func main() {
@@ -35,10 +37,18 @@ func main() {
 	if kafkaBrokers == "" {
 		kafkaBrokers = "localhost:9092"
 	}
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "default-secret"
+	
+	var keyring []crypto.JWTKey
+	if keysJSON := os.Getenv("JWT_KEYS"); keysJSON != "" {
+		if err := json.Unmarshal([]byte(keysJSON), &keyring); err != nil {
+			logger.Error("failed to parse JWT_KEYS", "error", err)
+			os.Exit(1)
+		}
+	} else {
+		logger.Warn("JWT_KEYS not set, using default development key")
+		keyring = []crypto.JWTKey{{KID: "dev", Secret: "default-secret", Algorithm: "HS256", Status: "active"}}
 	}
+
 	concurrency, _ := strconv.ParseInt(os.Getenv("COMPLIANCE_REPORT_CONCURRENCY"), 10, 64)
 	if concurrency == 0 {
 		concurrency = 5
@@ -78,7 +88,7 @@ func main() {
 	h := handlers.NewComplianceHandler(repo, concurrency)
 
 	// 4. Initialize Router & Start Server
-	r := router.NewRouter(h, jwtSecret)
+	r := router.NewRouter(h, keyring)
 
 	logger.Info("compliance service starting", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

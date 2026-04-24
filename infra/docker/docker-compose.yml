@@ -313,6 +313,10 @@ services:
     ports: ["8086:8080"]
     depends_on:
       kafka-init: { condition: service_completed_successfully }
+    environment:
+      - MONGO_URI=mongodb://mongo-primary:27017
+      - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
+      - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
@@ -325,6 +329,8 @@ services:
     ports: ["8087:8080"]
     depends_on:
       kafka-init: { condition: service_completed_successfully }
+    environment:
+      - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
@@ -337,6 +343,10 @@ services:
     ports: ["8088:8080"]
     depends_on:
       kafka-init: { condition: service_completed_successfully }
+    environment:
+      - CLICKHOUSE_ADDR=clickhouse:9000
+      - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
+      - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
@@ -363,6 +373,9 @@ services:
     ports: ["8089:8080"]
     depends_on:
       kafka-init: { condition: service_completed_successfully }
+    environment:
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
@@ -375,6 +388,9 @@ services:
     ports: ["8090:8080"]
     depends_on:
       kafka-init: { condition: service_completed_successfully }
+    environment:
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s

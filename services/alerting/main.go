@@ -18,7 +18,9 @@ import (
 	"github.com/openguard/services/alerting/pkg/saga"
 	"github.com/openguard/services/alerting/pkg/webhook"
 	"github.com/openguard/services/alerting/pkg/telemetry"
+	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/kafka"
+	"encoding/json"
 )
 
 func main() {
@@ -41,10 +43,18 @@ func main() {
 	if len(kafkaBrokers) == 0 || kafkaBrokers[0] == "" {
 		kafkaBrokers = []string{"localhost:9092"}
 	}
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "default-secret"
+	
+	var keyring []crypto.JWTKey
+	if keysJSON := os.Getenv("JWT_KEYS"); keysJSON != "" {
+		if err := json.Unmarshal([]byte(keysJSON), &keyring); err != nil {
+			logger.Error("failed to parse JWT_KEYS", "error", err)
+			os.Exit(1)
+		}
+	} else {
+		logger.Warn("JWT_KEYS not set, using default development key")
+		keyring = []crypto.JWTKey{{KID: "dev", Secret: "default-secret", Algorithm: "HS256", Status: "active"}}
 	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -90,7 +100,7 @@ func main() {
 	}()
 
 	// 6. Initialize Router & Start Server
-	r := router.NewRouter(h, jwtSecret)
+	r := router.NewRouter(h, keyring)
 
 	logger.Info("alerting service starting", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

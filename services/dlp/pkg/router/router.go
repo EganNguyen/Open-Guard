@@ -5,11 +5,12 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/openguard/services/dlp/pkg/handlers"
+	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func NewRouter(h *handlers.DLPHandler, jwtSecret string) *mux.Router {
+func NewRouter(h *handlers.DLPHandler, keyring []crypto.JWTKey) *mux.Router {
 	r := mux.NewRouter()
 
 	r.Handle("/metrics", promhttp.Handler()).Methods("GET")
@@ -19,7 +20,7 @@ func NewRouter(h *handlers.DLPHandler, jwtSecret string) *mux.Router {
 	}).Methods("GET")
 
 	v1 := r.PathPrefix("/v1/dlp").Subrouter()
-	v1.Use(middleware.JWTAuth(jwtSecret))
+	v1.Use(middleware.AuthJWT(keyring))
 
 	v1.HandleFunc("/scan", h.Scan).Methods("POST")
 	v1.HandleFunc("/policies", h.ListPolicies).Methods("GET")

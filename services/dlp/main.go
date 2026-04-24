@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"github.com/openguard/services/dlp/pkg/repository"
 	"github.com/openguard/services/dlp/pkg/router"
 	"github.com/openguard/services/dlp/pkg/telemetry"
+	"github.com/openguard/shared/crypto"
 )
 
 func main() {
@@ -29,10 +31,18 @@ func main() {
 	if databaseURL == "" {
 		databaseURL = "postgres://postgres:postgres@localhost:5432/openguard_dlp?sslmode=disable"
 	}
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "default-secret"
+	
+	var keyring []crypto.JWTKey
+	if keysJSON := os.Getenv("JWT_KEYS"); keysJSON != "" {
+		if err := json.Unmarshal([]byte(keysJSON), &keyring); err != nil {
+			logger.Error("failed to parse JWT_KEYS", "error", err)
+			os.Exit(1)
+		}
+	} else {
+		logger.Warn("JWT_KEYS not set, using default development key")
+		keyring = []crypto.JWTKey{{KID: "dev", Secret: "default-secret", Algorithm: "HS256", Status: "active"}}
 	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -56,7 +66,7 @@ func main() {
 	h := handlers.NewDLPHandler(repo)
 
 	// 3. Initialize Router & Start Server
-	r := router.NewRouter(h, jwtSecret)
+	r := router.NewRouter(h, keyring)
 
 	logger.Info("dlp service starting", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
