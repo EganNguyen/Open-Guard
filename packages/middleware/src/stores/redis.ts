@@ -1,79 +1,42 @@
-import { StoreAdapter } from '@open-guard/core';
-
-interface RedisClient {
-  get(key: string): Promise<string | null>;
-  set(key: string, value: string, mode?: string, duration?: number): Promise<string>;
-  incr(key: string): Promise<number>;
-  expire(key: string, seconds: number): Promise<number>;
-  del(key: string): Promise<number>;
-}
-
-export interface RedisStoreOptions {
-  keyPrefix?: string;
-}
+import Redis from 'ioredis';
+import type { StoreAdapter } from '@open-guard/core/types';
 
 export class RedisStore implements StoreAdapter {
-  private client: RedisClient;
+  private client: Redis;
   private keyPrefix: string;
 
-  constructor(client: RedisClient, options: RedisStoreOptions = {}) {
-    this.client = client;
-    this.keyPrefix = options.keyPrefix || 'og:';
+  constructor(options: { client: Redis; keyPrefix?: string }) {
+    this.client = options.client;
+    this.keyPrefix = options.keyPrefix ?? 'og:';
   }
 
-  private prefixKey(key: string): string {
+  private prefixedKey(key: string): string {
     return `${this.keyPrefix}${key}`;
   }
 
   async get(key: string): Promise<string | null> {
-    return this.client.get(this.prefixKey(key));
+    return this.client.get(this.prefixedKey(key));
   }
 
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
+    const fullKey = this.prefixedKey(key);
     if (ttlSeconds) {
-      await this.client.set(this.prefixKey(key), value, 'EX', ttlSeconds);
+      await this.client.setex(fullKey, ttlSeconds, value);
     } else {
-      await this.client.set(this.prefixKey(key), value);
+      await this.client.set(fullKey, value);
     }
   }
 
   async incr(key: string, ttlSeconds?: number): Promise<number> {
-    const prefixedKey = this.prefixKey(key);
-    const newValue = await this.client.incr(prefixedKey);
-    if (ttlSeconds) {
-      await this.client.expire(prefixedKey, ttlSeconds);
+    const fullKey = this.prefixedKey(key);
+    const count = await this.client.incr(fullKey);
+    if (ttlSeconds && (await this.client.get(fullKey))) {
+      await this.client.expire(fullKey, ttlSeconds);
     }
-    return newValue;
+    return count;
   }
 
   async del(key: string): Promise<void> {
-    await this.client.del(this.prefixKey(key));
+    await this.client.del(this.prefixedKey(key));
   }
-}
-
-let redisClientInstance: RedisClient | null = null;
-
-export async function createRedisStore(
-  url: string,
-  options: RedisStoreOptions = {}
-): Promise<RedisStore> {
-  try {
-    const Redis = await import('ioredis');
-    const client = new Redis.default(url);
-    redisClientInstance = client;
-    return new RedisStore(client, options);
-  } catch {
-    throw new Error('ioredis is required for Redis store. Install it with: npm install ioredis');
-  }
-}
-
-export function getRedisClient(): RedisClient | null {
-  return redisClientInstance;
-}
-
-export async function disconnectRedis(): Promise<void> {
-  if (redisClientInstance && 'disconnect' in redisClientInstance) {
-    await (redisClientInstance as { disconnect: () => void }).disconnect();
-  }
-  redisClientInstance = null;
 }

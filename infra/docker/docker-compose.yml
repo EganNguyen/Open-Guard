@@ -249,6 +249,14 @@ services:
       context: ../../
       dockerfile: services/threat/Dockerfile
     ports: ["8084:8080"]
+    environment:
+      - REDIS_ADDR=redis:6379
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_GROUP_ID=threat-detector
+      - KAFKA_TOPIC=iam.events
+    depends_on:
+      redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
@@ -270,6 +278,7 @@ services:
     environment:
       - KAFKA_BROKERS=kafka:9092
       - MONGODB_URI=mongodb://mongo-primary:27017
+      - AUDIT_SECRET_KEY=${AUDIT_SECRET_KEY:-prod-secret-audit-key}
 
   alerting:
     build:

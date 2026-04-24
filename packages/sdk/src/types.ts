@@ -1,9 +1,10 @@
-import { ThreatLevel, GuardAction, DetectorKind } from '@open-guard/core';
+export type GuardAction = 'ALLOW' | 'BLOCK' | 'CHALLENGE' | 'LOG_ONLY' | 'RATE_LIMIT';
+export type ThreatLevel = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 export interface ClientGuardEvent {
   type: 'fetch_blocked' | 'challenge_shown' | 'challenge_passed' | 'manual_report';
   url: string;
-  statusCode: number;
+  statusCode?: number;
   requestId?: string;
   timestamp: number;
 }
@@ -20,7 +21,7 @@ export interface GuardStreamEvent {
 
 export interface ThreatSummary {
   detectorId: string;
-  kind: DetectorKind;
+  kind: string;
   count: number;
   percentage: number;
 }
@@ -28,16 +29,14 @@ export interface ThreatSummary {
 export interface IpSummary {
   ip: string;
   count: number;
-  blockedCount: number;
 }
 
 export interface TimelinePoint {
   timestamp: number;
-  total: number;
   blocked: number;
   rateLimited: number;
-  challenged: number;
   allowed: number;
+  challenged: number;
 }
 
 export interface GuardStats {
@@ -62,13 +61,3 @@ export interface ChallengePayload {
   type: 'captcha' | 'totp' | 'email_otp';
   expiresAt: number;
 }
-
-export interface OpenGuardClientOptions {
-  baseUrl: string;
-  apiKey?: string;
-  websocketUrl?: string;
-  autoReport?: boolean;
-  onChallenge?: (challenge: ChallengePayload) => Promise<string>;
-}
-
-export type Unsubscribe = () => void;

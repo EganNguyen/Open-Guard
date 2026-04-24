@@ -83,3 +83,17 @@ func (r *AuditRepository) FindEvents(ctx context.Context, filter bson.M, limit i
 	}
 	return events, nil
 }
+
+func (r *AuditRepository) GetLatestEvent(ctx context.Context) (map[string]interface{}, error) {
+	coll := r.db.Collection("audit_events")
+	
+	opts := options.FindOne().
+		SetSort(bson.M{"timestamp": -1})
+	
+	var event map[string]interface{}
+	err := coll.FindOne(ctx, bson.M{}, opts).Decode(&event)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	return event, err
+}

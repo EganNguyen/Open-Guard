@@ -35,6 +35,8 @@ export enum RuleOperator {
   NOT = 'NOT',
 }
 
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD';
+
 export interface GeoInfo {
   country?: string;
   region?: string;
@@ -47,7 +49,7 @@ export interface GeoInfo {
 export interface GuardRequest {
   id: string;
   ip: string;
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD';
+  method: HttpMethod;
   path: string;
   query?: Record<string, string | string[]>;
   headers: Record<string, string>;
@@ -78,13 +80,7 @@ export interface GuardResponse {
   blockedBy?: string;
 }
 
-export interface GuardConfig {
-  mode: 'enforce' | 'monitor' | 'dry_run';
-  detectors: DetectorConfig[];
-  store: StoreAdapter;
-  logger?: LoggerAdapter;
-  onBlock?: (req: GuardRequest, res: GuardResponse) => void;
-}
+export type GuardMode = 'enforce' | 'monitor' | 'dry_run';
 
 export interface DetectorConfig {
   id: string;
@@ -92,6 +88,14 @@ export interface DetectorConfig {
   enabled: boolean;
   priority: number;
   options?: Record<string, unknown>;
+}
+
+export interface GuardConfig {
+  mode: GuardMode;
+  detectors: DetectorConfig[];
+  store: StoreAdapter;
+  logger?: LoggerAdapter;
+  onBlock?: (req: GuardRequest, res: GuardResponse) => void;
 }
 
 export interface StoreAdapter {
@@ -106,5 +110,3 @@ export interface LoggerAdapter {
   warn(msg: string, meta?: Record<string, unknown>): void;
   error(msg: string, meta?: Record<string, unknown>): void;
 }
-
-export type GuardMode = 'enforce' | 'monitor' | 'dry_run';

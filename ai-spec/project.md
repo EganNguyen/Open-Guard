@@ -22,8 +22,8 @@ not a proxy.
 | `iam` | `services/iam` | Auth, OIDC/SAML, SCIM, MFA, JWT |
 | `connector-registry` | `services/connector-registry` | App registration, API credentials |
 | `policy` | `services/policy` | RBAC evaluation, cache, fail-closed |
-| `audit` | `services/audit` | Not Implemented (v1 Stub) |
-| `threat` | `services/threat` | Not Implemented (v1 Stub) |
+| `audit` | `services/audit` | Implemented (HMAC hash chain) |
+| `threat` | `services/threat` | Implemented (Brute Force Detector) |
 | `alerting` | `services/alerting` | Not Implemented (v1 Stub) |
 | `webhook-delivery` | `services/webhook-delivery` | Not Implemented (v1 Stub) |
 | `compliance` | `services/compliance` | Not Implemented (v1 Stub) |

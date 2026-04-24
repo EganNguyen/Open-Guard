@@ -1,100 +1,88 @@
-import {
-  GuardRequest,
-  GuardResponse,
-  GuardAction,
-  ThreatLevel,
-  DetectorResult,
-  DetectorKind,
-  GeoInfo,
-} from './types';
+import { v4 as uuidv4 } from 'uuid';
+import type { GuardRequest, GuardResponse, DetectorResult, GuardAction, ThreatLevel, HttpMethod } from './types.js';
+import { GuardAction, ThreatLevel } from './types.js';
 
-export function normalizeRequest(
-  raw: unknown,
-  platform: 'express' | 'fetch' | 'node'
-): GuardRequest {
-  switch (platform) {
-    case 'express': {
-      const req = raw as {
-        headers: Record<string, string | string[] | undefined>;
-        ip?: string;
-        method: string;
-        path: string;
-        query?: Record<string, string | string[]>;
-        body?: unknown;
-        params?: Record<string, string>;
-        url?: string;
-        session?: { id?: string; userId?: string };
-        user?: { id?: string };
-      };
-      return {
-        id: generateRequestId(),
-        ip: req.ip || 'unknown',
-        method: (req.method?.toUpperCase() || 'GET') as GuardRequest['method'],
-        path: req.path || req.url?.split('?')[0] || '/',
-        query: req.query || {},
-        headers: normalizeHeaders(req.headers),
-        body: req.body,
-        timestamp: Date.now(),
-        userId: req.session?.userId || req.user?.id,
-        sessionId: req.session?.id,
-      };
-    }
-    case 'fetch': {
-      const req = raw as {
-        headers: Headers;
-        ip?: string;
-        method: string;
-        url: string;
-      };
-      const url = new URL(req.url);
-      return {
-        id: generateRequestId(),
-        ip: req.ip || 'unknown',
-        method: (req.method?.toUpperCase() || 'GET') as GuardRequest['method'],
-        path: url.pathname,
-        query: Object.fromEntries(url.searchParams.entries()),
-        headers: Object.fromEntries(req.headers.entries()),
-        timestamp: Date.now(),
-      };
-    }
-    case 'node': {
-      const req = raw as {
-        headers: Record<string, string | string[] | undefined>;
-        socket?: { remoteAddress?: string };
-        method: string;
-        url?: string;
-      };
-      const url = new URL(req.url || '/', 'http://localhost');
-      return {
-        id: generateRequestId(),
-        ip: req.socket?.remoteAddress || 'unknown',
-        method: (req.method?.toUpperCase() || 'GET') as GuardRequest['method'],
-        path: url.pathname,
-        query: Object.fromEntries(url.searchParams.entries()),
-        headers: normalizeHeaders(req.headers),
-        timestamp: Date.now(),
-      };
-    }
-    default:
-      throw new Error(`Unknown platform: ${platform}`);
+export function generateRequestId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return uuidv4();
+}
+
+export function normalizeRequest(raw: unknown, platform: 'express' | 'fetch' | 'node'): GuardRequest {
+  const id = generateRequestId();
+  const timestamp = Date.now();
+
+  if (platform === 'express') {
+    return normalizeExpressRequest(raw as Record<string, unknown>, id, timestamp);
+  } else if (platform === 'fetch') {
+    return normalizeFetchRequest(raw as Request, id, timestamp);
+  } else {
+    return normalizeNodeRequest(raw as Record<string, unknown>, id, timestamp);
   }
 }
 
-function normalizeHeaders(
-  headers: Record<string, string | string[] | undefined> | Headers
-): Record<string, string> {
-  if (headers instanceof Headers) {
-    return Object.fromEntries(headers.entries());
-  }
-  const result: Record<string, string> = {};
-  for (const [key, value] of Object.entries(headers)) {
-    if (Array.isArray(value)) {
-      result[key.toLowerCase()] = value.join(', ');
-    } else if (value !== undefined) {
-      result[key.toLowerCase()] = value;
+function normalizeExpressRequest(req: Record<string, unknown>, id: string, timestamp: number): GuardRequest {
+  const headers: Record<string, string> = {};
+  const reqHeaders = req.headers as Record<string, unknown> | undefined;
+  if (reqHeaders) {
+    for (const [key, value] of Object.entries(reqHeaders)) {
+      headers[key] = String(value);
     }
   }
-  return result;
+
+  return {
+    id,
+    ip: (req.ip as string) || (req.connection as Record<string, unknown>)?.remoteAddress as string || 'unknown',
+    method: (req.method as HttpMethod) || 'GET',
+    path: req.path as string || '/',
+    query: req.query as Record<string, string | string[]> | undefined,
+    headers,
+    body: req.body,
+    timestamp,
+    userId: req.userId as string | undefined,
+    sessionId: req.sessionId as string | undefined,
+  };
+}
+
+function normalizeFetchRequest(req: Request, id: string, timestamp: number): GuardRequest {
+  const headers: Record<string, string> = {};
+  req.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
+
+  return {
+    id,
+    ip: 'unknown',
+    method: req.method as HttpMethod,
+    path: new URL(req.url).pathname,
+    query: Object.fromEntries(new URL(req.url).searchParams) as Record<string, string>,
+    headers,
+    timestamp,
+  };
+}
+
+function normalizeNodeRequest(req: Record<string, unknown>, id: string, timestamp: number): GuardRequest {
+  const headers: Record<string, string | string[] | undefined> = (req.headers as Record<string, unknown>) || {};
+  const normalizedHeaders: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(headers)) {
+    if (Array.isArray(value)) {
+      normalizedHeaders[key] = value.join(', ');
+    } else if (value !== undefined) {
+      normalizedHeaders[key] = String(value);
+    }
+  }
+
+  return {
+    id,
+    ip: ((req.socket as Record<string, unknown>)?.remoteAddress as string) || 'unknown',
+    method: (req.method as HttpMethod) || 'GET',
+    path: req.url as string || '/',
+    headers: normalizedHeaders,
+    body: req.body,
+    timestamp,
+  };
 }
 
 export function scoreToThreatLevel(score: number): ThreatLevel {
@@ -105,7 +93,7 @@ export function scoreToThreatLevel(score: number): ThreatLevel {
   return ThreatLevel.NONE;
 }
 
-const ACTION_PRIORITY: Record<GuardAction, number> = {
+const ACTION_RANK: Record<GuardAction, number> = {
   [GuardAction.BLOCK]: 5,
   [GuardAction.CHALLENGE]: 4,
   [GuardAction.RATE_LIMIT]: 3,
@@ -113,79 +101,43 @@ const ACTION_PRIORITY: Record<GuardAction, number> = {
   [GuardAction.ALLOW]: 1,
 };
 
-export function mergeResults(
-  results: DetectorResult[],
-  requestId: string
-): GuardResponse {
-  if (results.length === 0) {
-    return {
-      requestId,
-      action: GuardAction.ALLOW,
-      threatLevel: ThreatLevel.NONE,
-      results: [],
-      durationMs: 0,
-    };
-  }
+const THREAT_RANK: Record<ThreatLevel, number> = {
+  [ThreatLevel.CRITICAL]: 5,
+  [ThreatLevel.HIGH]: 4,
+  [ThreatLevel.MEDIUM]: 3,
+  [ThreatLevel.LOW]: 2,
+  [ThreatLevel.NONE]: 1,
+};
 
-  const sortedByThreat = [...results].sort(
-    (a, b) => b.threatLevel.localeCompare(a.threatLevel) || b.score - a.score
-  );
+export function mergeResults(results: DetectorResult[], requestId: string): GuardResponse {
+  let action: GuardAction = GuardAction.ALLOW;
+  let threatLevel: ThreatLevel = ThreatLevel.NONE;
+  let blockedBy: string | undefined;
 
-  const highestThreatLevel = sortedByThreat[0].threatLevel;
+  let highestThreatRank = 0;
+  let highestActionRank = 0;
 
-  const sortedByAction = [...results].sort(
-    (a, b) => ACTION_PRIORITY[b.action] - ACTION_PRIORITY[a.action]
-  );
-  const mostRestrictiveAction = sortedByAction[0].action;
+  for (const result of results) {
+    const threatRank = THREAT_RANK[result.threatLevel];
+    const actionRank = ACTION_RANK[result.action];
 
-  const totalDurationMs = results.reduce(
-    (sum, r) => sum + (r.durationMs || 0),
-    0
-  );
-
-  const blockedBy = results.find((r) => r.action === GuardAction.BLOCK)?.detectorId;
-
-  return {
-    requestId,
-    action: mostRestrictiveAction,
-    threatLevel: highestThreatLevel,
-    results,
-    durationMs: totalDurationMs,
-    blockedBy,
-  };
-}
-
-export function generateRequestId(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
-export function extractStringValues(obj: unknown, prefix = ''): string[] {
-  const values: string[] = [];
-
-  function traverse(value: unknown, key: string): void {
-    const path = prefix ? `${prefix}.${key}` : key;
-    if (value === null || value === undefined) return;
-
-    if (typeof value === 'string') {
-      values.push(value);
-    } else if (typeof value === 'number' || typeof value === 'boolean') {
-      values.push(String(value));
-    } else if (Array.isArray(value)) {
-      value.forEach((item, i) => traverse(item, `${i}`));
-    } else if (typeof value === 'object') {
-      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-        traverse(v, k);
-      }
+    if (threatRank > highestThreatRank || (threatRank === highestThreatRank && actionRank > highestActionRank)) {
+      highestThreatRank = threatRank;
+      highestActionRank = actionRank;
+      threatLevel = result.threatLevel;
+      action = result.action;
+      blockedBy = result.detectorId;
     }
   }
 
-  traverse(obj, '');
-  return values;
+  const durationMs = results.reduce((sum, r) => sum + (r.durationMs || 0), 0);
+
+  return {
+    requestId,
+    action,
+    threatLevel,
+    results,
+    durationMs,
+    blockedBy,
+  };
 }

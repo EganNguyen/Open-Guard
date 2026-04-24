@@ -1,9 +1,6 @@
-export { openGuard } from './openGuard';
-export { enforceAction } from './enforce';
-export { globalEventEmitter, OpenGuardEventEmitter } from './events';
-export { MemoryStore } from './stores/memory';
-export { RedisStore, createRedisStore, getRedisClient, disconnectRedis } from './stores/redis';
-export { UpstashStore, createUpstashStore } from './stores/upstash';
-export type { OpenGuardOptions } from './openGuard';
-export type { GuardEventType, GuardBlockEvent, GuardErrorEvent, GuardRateLimitEvent } from './events';
-export type { EnforceOptions } from './enforce';
+export { openGuard } from './openGuard.js';
+export { enforceAction } from './enforce.js';
+export { guardEvents, emitGuardResult, emitGuardBlock, emitGuardError, emitGuardRateLimit } from './events.js';
+export { MemoryStore } from './stores/memory.js';
+export { RedisStore } from './stores/redis.js';
+export { UpstashStore } from './stores/upstash.js';

@@ -1,0 +1,45 @@
+# OpenGuard Remediation: Phase 4 & 5 Gaps
+# This job file targets the architectural gaps identified in the Senior Architect Review.
+
+spec_version: "1.0"
+name: architecture-remediation
+description: "Fixing security gaps and implementing missing Phase 5 logic"
+
+jobs:
+  - id: fix-audit-integrity
+    name: "Implement Audit Hash Chain"
+    description: "Add HMAC-SHA256 hash chaining to the audit service to ensure tamper-evidence."
+    tasks:
+      - action: modify
+        file: "services/audit/pkg/repository/mongo.go"
+        instruction: "Add GetLatestEvent(ctx) method to retrieve the last event's hash for chaining."
+      - action: modify
+        file: "services/audit/pkg/consumer/consumer.go"
+        instruction: "Update flush() logic to compute HMAC-SHA256 of (current_event + previous_hash) and store it as 'integrity_hash'."
+
+  - id: implement-brute-force-detector
+    name: "Implement Phase 5 Brute Force Detector"
+    description: "Transition threat-service from stub to real detector for brute force attacks."
+    tasks:
+      - action: modify
+        file: "services/threat/main.go"
+        instruction: "Add Kafka consumer for 'iam.events' and implement sliding-window rate limiting for failed logins."
+      - action: create
+        file: "services/threat/pkg/detector/brute_force.go"
+        instruction: "Implement detector logic using Redis to track failed attempts per IP/User."
+
+  - id: fix-iam-dev-cookies
+    name: "Conditional Secure Cookies"
+    description: "Make Secure flag on cookies conditional for dev/prod compatibility."
+    tasks:
+      - action: modify
+        file: "services/iam/pkg/handlers/handler.go"
+        instruction: "Use os.Getenv('COOKIE_SECURE') or check if ENV=prod to set Secure flag."
+
+  - id: sync-specs
+    name: "Synchronize AI Specs"
+    description: "Update project.md to accurately reflect implementation status."
+    tasks:
+      - action: modify
+        file: "ai-spec/project.md"
+        instruction: "Remove 'v1 Stub' from audit service; update Phase 4 status to 'Implemented'."

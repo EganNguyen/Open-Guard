@@ -1,24 +1,16 @@
-import { StoreAdapter } from '@open-guard/core';
-
-export interface UpstashStoreOptions {
-  url?: string;
-  token?: string;
-  keyPrefix?: string;
-}
+import type { StoreAdapter } from '@open-guard/core/types';
 
 export class UpstashStore implements StoreAdapter {
   private url: string;
   private token: string;
-  private keyPrefix: string;
 
-  constructor(options: UpstashStoreOptions = {}) {
-    this.url = options.url || process.env.UPSTASH_REDIS_REST_URL || '';
-    this.token = options.token || process.env.UPSTASH_REDIS_REST_TOKEN || '';
-    this.keyPrefix = options.keyPrefix || 'og:';
+  constructor(options: { url: string; token: string }) {
+    this.url = options.url;
+    this.token = options.token;
   }
 
   private async request(command: string[]): Promise<unknown> {
-    const response = await fetch(`${this.url}`, {
+    const response = await fetch(this.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -28,55 +20,39 @@ export class UpstashStore implements StoreAdapter {
     });
 
     if (!response.ok) {
-      throw new Error(`Upstash request failed: ${response.statusText}`);
+      throw new Error(`Upstash error: ${response.status}`);
     }
 
-    return response.json();
-  }
-
-  private prefixKey(key: string): string {
-    return `${this.keyPrefix}${key}`;
+    const result = await response.json();
+    return result;
   }
 
   async get(key: string): Promise<string | null> {
-    try {
-      const result = await this.request(['GET', this.prefixKey(key)]) as { result: string | null };
-      return result.result;
-    } catch {
-      return null;
-    }
+    const result = await this.request(['get', key]);
+    return (result as { result: string | null })?.result ?? null;
   }
 
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
-    const prefixedKey = this.prefixKey(key);
     if (ttlSeconds) {
-      await this.request(['SET', prefixedKey, value, 'EX', String(ttlSeconds)]);
+      await this.request(['set', key, value, 'ex', ttlSeconds]);
     } else {
-      await this.request(['SET', prefixedKey, value]);
+      await this.request(['set', key, value]);
     }
   }
 
   async incr(key: string, ttlSeconds?: number): Promise<number> {
-    const prefixedKey = this.prefixKey(key);
-    const result = await this.request(['INCR', prefixedKey]) as { result: number };
+    const result = await this.request(['incr', key]);
+    const value = (result as { result: string })?.result;
+    const count = parseInt(value || '0', 10);
+    
     if (ttlSeconds) {
-      await this.request(['EXPIRE', prefixedKey, String(ttlSeconds)]);
+      await this.request(['expire', key, ttlSeconds]);
     }
-    return result.result;
+    
+    return count;
   }
 
   async del(key: string): Promise<void> {
-    await this.request(['DEL', this.prefixKey(key)]);
+    await this.request(['del', key]);
   }
-}
-
-export async function createUpstashStore(options: UpstashStoreOptions = {}): Promise<UpstashStore> {
-  const url = options.url || process.env.UPSTASH_REDIS_REST_URL;
-  const token = options.token || process.env.UPSTASH_REDIS_REST_TOKEN;
-
-  if (!url || !token) {
-    throw new Error('UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required');
-  }
-
-  return new UpstashStore({ ...options, url, token });
 }

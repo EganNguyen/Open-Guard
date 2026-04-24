@@ -1,9 +1,9 @@
 import { EventEmitter } from 'events';
-import { GuardResponse, GuardRequest } from '@open-guard/core';
+import type { GuardResponse, GuardRequest } from '@open-guard/core/types';
 
-export type GuardEventType = 'guard:result' | 'guard:block' | 'guard:error' | 'guard:ratelimit';
+export const guardEvents = new EventEmitter();
 
-export interface GuardBlockEvent {
+export interface GuardResultEvent {
   request: GuardRequest;
   response: GuardResponse;
 }
@@ -20,38 +20,30 @@ export interface GuardRateLimitEvent {
   ttl: number;
 }
 
-export class OpenGuardEventEmitter extends EventEmitter {
-  emitGuardResult(response: GuardResponse): void {
-    this.emit('guard:result', response);
-  }
+guardEvents.on('guard:result', (response: GuardResponse) => {
+});
 
-  emitGuardBlock(event: GuardBlockEvent): void {
-    this.emit('guard:block', event);
-  }
+guardEvents.on('guard:block', (event: GuardResultEvent) => {
+});
 
-  emitGuardError(event: GuardErrorEvent): void {
-    this.emit('guard:error', event);
-  }
+guardEvents.on('guard:error', (event: GuardErrorEvent) => {
+});
 
-  emitGuardRateLimit(event: GuardRateLimitEvent): void {
-    this.emit('guard:ratelimit', event);
-  }
+guardEvents.on('guard:ratelimit', (event: GuardRateLimitEvent) => {
+});
 
-  onGuardResult(handler: (response: GuardResponse) => void): this {
-    return this.on('guard:result', handler);
-  }
-
-  onGuardBlock(handler: (event: GuardBlockEvent) => void): this {
-    return this.on('guard:block', handler);
-  }
-
-  onGuardError(handler: (event: GuardErrorEvent) => void): this {
-    return this.on('guard:error', handler);
-  }
-
-  onGuardRateLimit(handler: (event: GuardRateLimitEvent) => void): this {
-    return this.on('guard:ratelimit', handler);
-  }
+export function emitGuardResult(response: GuardResponse): void {
+  guardEvents.emit('guard:result', response);
 }
 
-export const globalEventEmitter = new OpenGuardEventEmitter();
+export function emitGuardBlock(request: GuardRequest, response: GuardResponse): void {
+  guardEvents.emit('guard:block', { request, response });
+}
+
+export function emitGuardError(detectorId: string, error: Error, request: GuardRequest): void {
+  guardEvents.emit('guard:error', { detectorId, error, request });
+}
+
+export function emitGuardRateLimit(request: GuardRequest, detectorId: string, ttl: number): void {
+  guardEvents.emit('guard:ratelimit', { request, detectorId, ttl });
+}

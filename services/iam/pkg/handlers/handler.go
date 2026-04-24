@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -65,12 +66,18 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set HttpOnly cookie for session management per spec §5
+	env := os.Getenv("ENV")
+	secure := env == "prod"
+	if cookieSecure := os.Getenv("COOKIE_SECURE"); cookieSecure != "" {
+		secure = cookieSecure == "true"
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "openguard_session",
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true, // Should be true in prod, but for dev it might need adjustment if not using HTTPS
+		Secure:   secure,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   3600, // 1 hour
 	})

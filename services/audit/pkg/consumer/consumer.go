@@ -2,8 +2,13 @@ package consumer
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -74,6 +79,11 @@ func (c *AuditConsumer) Start(ctx context.Context) error {
 func (c *AuditConsumer) flush(ctx context.Context, batch []kafka.Message) {
 	c.logger.Info("flushing audit batch to mongodb", "size", len(batch))
 	
+	secretKey := os.Getenv("AUDIT_SECRET_KEY")
+	if secretKey == "" {
+		c.logger.Warn("AUDIT_SECRET_KEY not set, skipping hash chain")
+	}
+
 	var events []interface{}
 	for _, m := range batch {
 		var event map[string]interface{}
@@ -81,6 +91,25 @@ func (c *AuditConsumer) flush(ctx context.Context, batch []kafka.Message) {
 			c.logger.Error("failed to unmarshal kafka message", "error", err)
 			continue
 		}
+		event["timestamp"] = time.Now()
+
+		if secretKey != "" {
+			prevHash := ""
+			lastEvent, err := c.repo.GetLatestEvent(ctx)
+			if err != nil {
+				c.logger.Error("failed to get latest event", "error", err)
+			} else if lastEvent != nil {
+				if h, ok := lastEvent["integrity_hash"].(string); ok {
+					prevHash = h
+				}
+			}
+
+			eventData := fmt.Sprintf("%s|%s", event["event_id"], prevHash)
+			mac := hmac.New(sha256.New, []byte(secretKey))
+			mac.Write([]byte(eventData))
+			event["integrity_hash"] = hex.EncodeToString(mac.Sum(nil))
+		}
+
 		events = append(events, event)
 	}
 
