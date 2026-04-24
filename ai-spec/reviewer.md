@@ -9,7 +9,7 @@ Act as a senior system architect and perform a production-level review of this p
     * Suggest improvements to make the ai-spec fully reflect the system.
 4. Phase Completeness
     * Highlight missing components, edge cases, or unfinished work.
-    * Scope: Full codebase + AI-spec (BE + FE), Phase 1, 2, 3, 4, 5 completeness, connected example app
+    * Scope: Full codebase + AI-spec (BE + FE), Open Guard BE + FE Phase 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 completeness, connected example app
 5. Actionable Recommendations
     * Provide clear, prioritized recommendations to reach production-grade quality.
     * For every problem identified (bug, gap, redundancy, inconsistency, or incomplete feature) provide a concrete, actionable solution.
