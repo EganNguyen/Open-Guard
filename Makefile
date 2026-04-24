@@ -20,7 +20,7 @@ check-env:
 	@grep -q "JWT_KEYS=$$" .env && echo "ERROR: JWT_KEYS not set in .env" && exit 1 || true
 
 dev: check-env
-	docker compose up -d
+	cd infra/docker && docker compose up -d
 
 test:
 	go test -v ./...

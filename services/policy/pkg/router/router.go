@@ -12,7 +12,6 @@ import (
 	"github.com/openguard/services/policy/pkg/handlers"
 	"github.com/openguard/shared/crypto"
 	shared_middleware "github.com/openguard/shared/middleware"
-	"github.com/openguard/shared/resilience"
 )
 
 // NewRouter wires up the chi router for the policy service.

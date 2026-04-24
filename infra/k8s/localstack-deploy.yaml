@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openguard
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openguard-iam
+  namespace: openguard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iam
+  template:
+    metadata:
+      labels:
+        app: iam
+    spec:
+      containers:
+      - name: iam
+        image: openguard/iam:latest
+        env:
+        - name: USE_AWS_SECRETS_MANAGER
+          value: "true"
+        - name: AWS_SECRETSMANAGER_ENDPOINT
+          value: "http://localstack:4566"
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: AWS_ACCESS_KEY_ID
+          value: "test"
+        - name: AWS_SECRET_ACCESS_KEY
+          value: "test"
+        - name: DATABASE_URL
+          value: "postgres://openguard:openguard@postgres:5432/openguard?sslmode=disable"
+        - name: REDIS_URL
+          value: "redis://redis:6379/0"
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iam
+  namespace: openguard
+spec:
+  selector:
+    app: iam
+  ports:
+  - port: 8080
+    targetPort: 8080

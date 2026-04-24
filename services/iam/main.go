@@ -27,6 +27,7 @@ import (
 	"github.com/openguard/shared/database"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/kafka/outbox"
+	"github.com/openguard/shared/secrets"
 )
 
 func main() {
@@ -117,12 +118,19 @@ func main() {
 	// Initialize AuthWorkerPool
 	authPool := service.NewAuthWorkerPool(2 * runtime.NumCPU())
 
+	// Initialize Secrets Provider
+	secretProvider, err := secrets.GetProvider(ctx)
+	if err != nil {
+		logger.Error("failed to initialize secrets provider", "error", err)
+		os.Exit(1)
+	}
+
 	// Load JWT Keyring
-	keyringJSON := os.Getenv("IAM_JWT_KEYS")
-	if keyringJSON == "" {
+	keyringJSON, err := secretProvider.GetSecret(ctx, "IAM_JWT_KEYS")
+	if err != nil {
 		// Default dev key if not provided - NOT FOR PRODUCTION
 		keyringJSON = `[{"kid":"dev-key","secret":"dev-secret-at-least-32-chars-long-!!","algorithm":"HS256","status":"active"}]`
-		logger.Warn("IAM_JWT_KEYS not set, using default dev key")
+		logger.Warn("IAM_JWT_KEYS not found in secrets provider, using default dev key", "error", err)
 	}
 	keyring, err := crypto.LoadKeyring(keyringJSON)
 	if err != nil {
@@ -131,11 +139,11 @@ func main() {
 	}
 
 	// Load AES Keyring for MFA
-	aesKeyringJSON := os.Getenv("IAM_AES_KEYS")
-	if aesKeyringJSON == "" {
+	aesKeyringJSON, err := secretProvider.GetSecret(ctx, "IAM_AES_KEYS")
+	if err != nil {
 		// Default dev key - 32 bytes base64 encoded
 		aesKeyringJSON = `[{"kid":"dev-aes","key":"YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=","status":"active"}]`
-		logger.Warn("IAM_AES_KEYS not set, using default dev key")
+		logger.Warn("IAM_AES_KEYS not found in secrets provider, using default dev key", "error", err)
 	}
 	aesKeyring, err := crypto.LoadAESKeyring(aesKeyringJSON)
 	if err != nil {

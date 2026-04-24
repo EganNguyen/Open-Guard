@@ -20,6 +20,7 @@ import (
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/resilience"
+	"github.com/openguard/shared/secrets"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -135,10 +136,16 @@ func main() {
 	}
 
 	// ── Auth Configuration ───────────────────────────────────────────────────
-	keyringJSON := os.Getenv("IAM_JWT_KEYS")
-	if keyringJSON == "" {
+	secretProvider, err := secrets.GetProvider(ctx)
+	if err != nil {
+		logger.Error("failed to initialize secrets provider", "error", err)
+		os.Exit(1)
+	}
+
+	keyringJSON, err := secretProvider.GetSecret(ctx, "IAM_JWT_KEYS")
+	if err != nil {
 		keyringJSON = `[{"kid":"dev-key","secret":"dev-secret-at-least-32-chars-long-!!","algorithm":"HS256","status":"active"}]`
-		logger.Warn("IAM_JWT_KEYS not set, using default dev key")
+		logger.Warn("IAM_JWT_KEYS not found in secrets provider, using default dev key", "error", err)
 	}
 	keyring, err := crypto.LoadKeyring(keyringJSON)
 	if err != nil {

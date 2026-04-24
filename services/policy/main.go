@@ -18,9 +18,11 @@ import (
 	"github.com/openguard/services/policy/pkg/repository"
 	"github.com/openguard/services/policy/pkg/router"
 	"github.com/openguard/services/policy/pkg/service"
+	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/database"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/kafka/outbox"
+	"github.com/openguard/shared/secrets"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -119,10 +121,16 @@ func main() {
 	h := handlers.NewHandler(svc, repo, logger)
 
 	// ── Auth Configuration ───────────────────────────────────────────────────
-	keyringJSON := os.Getenv("IAM_JWT_KEYS")
-	if keyringJSON == "" {
+	secretProvider, err := secrets.GetProvider(ctx)
+	if err != nil {
+		logger.Error("failed to initialize secrets provider", "error", err)
+		os.Exit(1)
+	}
+
+	keyringJSON, err := secretProvider.GetSecret(ctx, "IAM_JWT_KEYS")
+	if err != nil {
 		keyringJSON = `[{"kid":"dev-key","secret":"dev-secret-at-least-32-chars-long-!!","algorithm":"HS256","status":"active"}]`
-		logger.Warn("IAM_JWT_KEYS not set, using default dev key")
+		logger.Warn("IAM_JWT_KEYS not found in secrets provider, using default dev key", "error", err)
 	}
 	keyring, err := crypto.LoadKeyring(keyringJSON)
 	if err != nil {

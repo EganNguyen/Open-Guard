@@ -56,3 +56,10 @@ Desktop.ini
 *.key
 *.csr
 *.srl
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate*
+
+

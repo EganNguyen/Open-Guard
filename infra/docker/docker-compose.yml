@@ -1,4 +1,5 @@
-version: '3.8'
+# Removed obsolete version attribute
+
 
 services:
   # --- Infrastructure ---
@@ -10,6 +11,8 @@ services:
       POSTGRES_DB: openguard
     ports:
       - "5432:5432"
+    volumes:
+      - ./postgres-init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openguard"]
       interval: 5s
@@ -46,14 +49,20 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 9092"]
+      test: ["CMD-SHELL", "nc -z localhost 29092 || exit 1"]
       interval: 10s
+      timeout: 5s
       retries: 5
+    restart: always
 
   kafka-init:
     image: confluentinc/cp-kafka:7.4.0
@@ -129,35 +138,26 @@ services:
       - "8123:8123"
       - "9000:9000"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8123/ping"]
       interval: 5s
       retries: 5
 
-  minio:
-    image: minio/minio
+  localstack:
+    image: localstack/localstack:3.0
     ports:
-      - "9001:9001"
-      - "9002:9000"
+      - "4566:4566"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    command: server /data --console-address ":9001"
+      - SERVICES=s3,secretsmanager
+      - DEBUG=1
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      - "./localstack-init:/etc/localstack/init/ready.d"
+      - "/var/run/docker.sock:/var/run/docker.sock"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
       interval: 5s
       retries: 5
-
-  minio-init:
-    image: minio/mc
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin;
-      /usr/bin/mc mb --ignore-existing local/compliance-reports;
-      exit 0;
-      "
 
   jaeger:
     image: jaegertracing/all-in-one:1.45
@@ -260,17 +260,22 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
       retries: 5
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
-      kafka-init: { condition: service_completed_successfully }
     volumes:
       - ../certs:/certs:ro
     environment:
-      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - DATABASE_URL=${IAM_DATABASE_URL:?IAM_DATABASE_URL is required}
       - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
-      - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
+      - USE_AWS_SECRETS_MANAGER=true
+      - AWS_SECRETSMANAGER_ENDPOINT=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
       - SEED_DB=true
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      localstack: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
 
   policy:
     build:
@@ -281,10 +286,6 @@ services:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
       retries: 5
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
-      kafka-init: { condition: service_completed_successfully }
     volumes:
       - ../certs:/certs:ro
     environment:
@@ -292,7 +293,16 @@ services:
       - POLICY_DATABASE_URL=${POLICY_DATABASE_URL:?POLICY_DATABASE_URL is required}
       - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
       - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
-      - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
+      - USE_AWS_SECRETS_MANAGER=true
+      - AWS_SECRETSMANAGER_ENDPOINT=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      localstack: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
 
   threat:
     build:
@@ -301,7 +311,7 @@ services:
     ports: ["8084:8080"]
     environment:
       - REDIS_ADDR=redis:6379
-      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_BROKERS=kafka:29092
       - KAFKA_GROUP_ID=threat-detector
       - KAFKA_TOPIC_AUTH=auth.events
       - KAFKA_TOPIC_POLICY=policy.changes
@@ -338,9 +348,15 @@ services:
       - MONGODB_URI=mongodb://mongo-primary:27017
       - AUDIT_SECRET_KEY=${AUDIT_SECRET_KEY:?AUDIT_SECRET_KEY is required}
       - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
+      - USE_AWS_SECRETS_MANAGER=true
+      - AWS_SECRETSMANAGER_ENDPOINT=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
     depends_on:
       mongo-primary: { condition: service_healthy }
       redis: { condition: service_healthy }
+      localstack: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
 
   alerting:
@@ -351,11 +367,16 @@ services:
     environment:
       - MONGO_URI=mongodb://mongo-primary:27017
       - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
-      - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
+      - USE_AWS_SECRETS_MANAGER=true
+      - AWS_SECRETSMANAGER_ENDPOINT=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
       - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
     depends_on:
       mongo-primary: { condition: service_healthy }
       redis: { condition: service_healthy }
+      localstack: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
@@ -387,16 +408,15 @@ services:
       - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
       - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
       - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
-      - S3_ENDPOINT=http://minio:9000
-      - S3_ACCESS_KEY=minioadmin
-      - S3_SECRET_KEY=minioadmin
+      - S3_ENDPOINT=http://localstack:4566
+      - S3_ACCESS_KEY=test
+      - S3_SECRET_KEY=test
       - S3_BUCKET=compliance-reports
-      - COMPLIANCE_REPORT_MAX_CONCURRENT=10
     depends_on:
       clickhouse: { condition: service_healthy }
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-      minio-init: { condition: service_completed_successfully }
+      localstack: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
@@ -417,13 +437,25 @@ services:
     networks:
       - default
 
+  task-frontend:
+    build:
+      context: ../../examples/task-management-app
+      dockerfile: Dockerfile
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3005
+      - OPENGUARD_API_URL=http://localhost:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      task-backend: { condition: service_started }
+
   dlp:
     build:
       context: ../../
       dockerfile: services/dlp/Dockerfile
     ports: ["8089:8080"]
     environment:
-      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - DATABASE_URL=${DLP_DATABASE_URL:?DLP_DATABASE_URL is required}
       - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
       - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
     depends_on:
@@ -441,7 +473,7 @@ services:
       dockerfile: services/connector-registry/Dockerfile
     ports: ["8090:8080"]
     environment:
-      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - DATABASE_URL=${REGISTRY_DATABASE_URL:?REGISTRY_DATABASE_URL is required}
       - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
       - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
     depends_on:
@@ -451,6 +483,19 @@ services:
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
+      retries: 5
+
+  dashboard:
+    build:
+      context: ../../web
+      dockerfile: Dockerfile
+    ports:
+      - "4200:80"
+    depends_on:
+      gateway: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 10s
       retries: 5
 
 volumes:

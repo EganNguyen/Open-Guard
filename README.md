@@ -214,77 +214,53 @@ cp .env.example .env
 make certs
 ```
 
-### 2. Start Infrastructure
+### 2. Start Everything (Docker)
 
 ```bash
-# Start all infrastructure (PostgreSQL, MongoDB replica set,
-# Kafka 3-broker cluster, Redis, ClickHouse, Prometheus, Grafana)
-cd infra/docker
-docker compose up -d
+# This starts ALL services: Infrastructure, Backend, and Dashboard
+make dev
 
 # Verify all containers are healthy
+cd infra/docker
 docker compose ps
-
-# Initialize Kafka topics
-make create-topics
-
-# Download MaxMind GeoLite2 database (required for Impossible Travel detector)
-# Set MAXMIND_LICENSE_KEY in .env first
-make geo-db
 ```
 
-### 3. Run Migrations & Seed
+### 3. Initialize Data
 
 ```bash
-# Run all service migrations (uses distributed Redis lock — safe to run concurrently)
-make migrate
+# Initialize Kafka topics (run once)
+make create-topics
 
-# Seed dev data (creates Acme Corp org + admin user + example connector)
+# Download MaxMind GeoLite2 database
+make geo-db
+
+# Run migrations & seed (already handled by Docker on startup, but can be run manually)
+make migrate
 make seed
 ```
 
-Default seed credentials:
-- **Admin:** `admin@acme.example` / `changeme123!`
-- **Org:** `acme-corp`
-- **Connector API Key:** printed to stdout once — store it securely
-
-### 4. Start Backend Services
-
-```bash
-# Start all services (builds from source)
-make dev
-
-# Or start individually
-go run ./services/iam/...
-go run ./services/policy/...
-# etc.
-```
-
-### 5. Start the Dashboard
-
-```bash
-cd web
-npm install
-npm start
-```
+### 4. Access the Dashboard
 
 Open [http://localhost:4200](http://localhost:4200) and log in with the seeded admin credentials.
 
-### 6. Run the Example App
+**Default Seed Credentials:**
+- **Admin:** `admin@acme.example`
+- **Password:** `changeme123!`
+- **Org:** `acme-corp`
+
+### 5. Run the Example App (Optional)
+
+The example app demonstrates full OAuth flow, SDK-based policy enforcement, and event ingestion.
 
 ```bash
-cd examples/task-management-app
-
-# Backend (Go — uses OpenGuard SDK)
-cd backend && go run . &
-
-# Frontend (Next.js)
-npm install && npm run dev
+# Start the example backend and frontend via Docker
+cd infra/docker
+docker compose up task-backend task-frontend -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The example app demonstrates full OAuth flow, SDK-based policy enforcement, and event ingestion.
+Open [http://localhost:3000](http://localhost:3000) to interact with the task management app.
 
-### 7. Verify Everything Is Working
+### 6. Verify Everything Is Working
 
 ```bash
 # Run the full acceptance test suite

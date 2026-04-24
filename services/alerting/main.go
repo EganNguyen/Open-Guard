@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
@@ -20,18 +22,22 @@ import (
 	"github.com/openguard/services/alerting/pkg/telemetry"
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/kafka"
+	"github.com/openguard/shared/secrets"
 	"encoding/json"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	// Initialize OpenTelemetry (INFRA-04)
 	tp, err := telemetry.InitTracer()
 	if err != nil {
 		logger.Error("failed to initialize tracer", "error", err)
 	} else {
-		defer tp.Shutdown(context.Background())
+		defer tp.Shutdown(ctx)
 	}
 	
 	// Config
@@ -58,13 +64,19 @@ func main() {
 	defer rdb.Close()
 	
 	var keyring []crypto.JWTKey
-	if keysJSON := os.Getenv("JWT_KEYS"); keysJSON != "" {
+	secretProvider, err := secrets.GetProvider(ctx)
+	if err != nil {
+		logger.Error("failed to initialize secrets provider", "error", err)
+		os.Exit(1)
+	}
+
+	if keysJSON, err := secretProvider.GetSecret(ctx, "IAM_JWT_KEYS"); err == nil {
 		if err := json.Unmarshal([]byte(keysJSON), &keyring); err != nil {
-			logger.Error("failed to parse JWT_KEYS", "error", err)
+			logger.Error("failed to parse IAM_JWT_KEYS", "error", err)
 			os.Exit(1)
 		}
 	} else {
-		logger.Warn("JWT_KEYS not set, using default development key")
+		logger.Warn("IAM_JWT_KEYS not found in secrets provider, using default development key", "error", err)
 		keyring = []crypto.JWTKey{{Kid: "dev", Secret: "default-secret", Algorithm: "HS256", Status: "active"}}
 	}
 
@@ -74,10 +86,10 @@ func main() {
 	}
 
 	// 1. Initialize MongoDB
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	mongoCtx, mongoCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer mongoCancel()
 	
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
+	client, err := mongo.Connect(mongoCtx, options.Client().ApplyURI(mongoURI))
 	if err != nil {
 		logger.Error("failed to connect to mongodb", "error", err)
 		os.Exit(1)
@@ -113,7 +125,7 @@ func main() {
 	
 	go func() {
 		logger.Info("starting alert saga")
-		if err := alertSaga.Start(context.Background()); err != nil {
+		if err := alertSaga.Start(ctx); err != nil {
 			logger.Error("alert saga failed", "error", err)
 		}
 	}()
@@ -121,9 +133,24 @@ func main() {
 	// 6. Initialize Router & Start Server
 	r := router.NewRouter(h, keyring, rdb)
 
-	logger.Info("alerting service starting", "port", port)
-	if err := http.ListenAndServe(":"+port, r); err != nil {
-		logger.Error("server failed", "error", err)
-		os.Exit(1)
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: r,
 	}
+
+	go func() {
+		logger.Info("alerting service starting", "port", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("server failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-ctx.Done()
+	logger.Info("shutting down alerting service")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	srv.Shutdown(shutdownCtx)
+	logger.Info("alerting service exited")
 }
