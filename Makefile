@@ -1,4 +1,4 @@
-.PHONY: dev test lint build migrate seed load-test certs help
+.PHONY: dev test lint build migrate seed load-test certs help generate generate-phase-5
 
 help:
 	@echo "OpenGuard Makefile Targets:"
@@ -10,6 +10,8 @@ help:
 	@echo "  seed       - Seed the database with initial data"
 	@echo "  load-test  - Run k6 load tests"
 	@echo "  certs      - Generate mTLS and JWT certificates/keys"
+	@echo "  generate   - Run opencode to generate all phases"
+	@echo "  phase5     - Run opencode to generate Phase 5 (Detectors)"
 
 dev:
 	docker compose up -d
@@ -45,3 +47,9 @@ load-test:
 certs:
 	@echo "Generating certificates..."
 	./scripts/gen-mtls-certs.sh
+
+generate:
+	opencode run .opencode/opencode.manifest.yaml "Generate all code defined in the manifest"
+
+phase5:
+	opencode run .opencode/phase5-detectors.yaml "Generate all detectors and logic defined in this spec"

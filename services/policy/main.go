@@ -17,6 +17,7 @@ import (
 	"github.com/openguard/services/policy/pkg/repository"
 	"github.com/openguard/services/policy/pkg/router"
 	"github.com/openguard/services/policy/pkg/service"
+	"github.com/openguard/shared/database"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/kafka/outbox"
 	"github.com/redis/go-redis/v9"
@@ -61,6 +62,11 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("connected to database")
+
+	// Run Migrations
+	if err := database.Migrate(ctx, pool, "migrations"); err != nil {
+		logger.Error("migrations failed", "error", err)
+	}
 
 	// ── Redis ─────────────────────────────────────────────────────────────────
 	redisURL := os.Getenv("REDIS_URL")

@@ -1,0 +1,261 @@
+# Phase 4: Dashboard UI
+# OpenGuard — React admin dashboard for real-time monitoring and configuration
+
+spec_version: "1.0"
+phase: 4
+name: dashboard-ui
+description: >
+  A self-contained React dashboard (Vite + Tailwind + shadcn/ui) that
+  embeds into any app or runs standalone. Provides real-time request
+  monitoring, threat analytics, IP management, and detector configuration.
+
+depends_on: [phase_1, phase_3]
+
+tech_stack:
+  framework: React 18
+  bundler: Vite
+  styling: Tailwind CSS + shadcn/ui
+  charting: Recharts
+  state: Zustand
+  data_fetching: TanStack Query v5
+  routing: React Router v6
+
+# ─────────────────────────────────────────────
+# PAGES
+# ─────────────────────────────────────────────
+pages:
+  - name: OverviewPage
+    route: /
+    description: High-level KPIs, live feed, threat distribution chart
+    components:
+      - KpiCards
+      - ThreatTimeline
+      - LiveRequestFeed
+      - ThreatDistributionPie
+
+  - name: RequestsPage
+    route: /requests
+    description: Paginated table of all guard-evaluated requests
+    components:
+      - RequestFilterBar
+      - RequestTable
+      - RequestDetailDrawer
+
+  - name: ThreatsPage
+    route: /threats
+    description: Aggregated threat analysis by detector, IP, path
+    components:
+      - ThreatHeatmap
+      - TopThreatsTable
+      - DetectorBreakdownChart
+
+  - name: IpManagementPage
+    route: /ips
+    description: Manual block/allowlist management
+    components:
+      - IpSearchBar
+      - IpStatusTable
+      - AddIpModal
+      - IpReputationCard
+
+  - name: ConfigPage
+    route: /config
+    description: Live detector enable/disable and options editor
+    components:
+      - DetectorList
+      - DetectorConfigEditor
+      - ConfigSaveToast
+
+  - name: AlertsPage
+    route: /alerts
+    description: Configure alert thresholds and notification channels
+    components:
+      - AlertRuleList
+      - CreateAlertModal
+      - AlertHistoryTable
+
+# ─────────────────────────────────────────────
+# COMPONENTS
+# ─────────────────────────────────────────────
+components:
+  - name: KpiCards
+    description: Row of metric cards — Total, Blocked, Rate Limited, Challenged
+    props:
+      - stats: GuardStats
+      - loading: boolean
+    display:
+      - card: Total Requests | value: stats.totalRequests | icon: Activity
+      - card: Blocked | value: stats.blockedRequests | color: red | icon: ShieldX
+      - card: Rate Limited | value: stats.rateLimitedRequests | color: yellow | icon: Clock
+      - card: Challenged | value: stats.challengedRequests | color: blue | icon: AlertTriangle
+
+  - name: ThreatTimeline
+    description: Area chart of requests over time, stacked by action
+    props:
+      - timeline: TimelinePoint[]
+      - range: "1h | 6h | 24h | 7d"
+    chart_type: AreaChart (Recharts)
+    series:
+      - key: blocked | color: "#ef4444"
+      - key: rateLimited | color: "#f59e0b"
+      - key: allowed | color: "#10b981"
+
+  - name: LiveRequestFeed
+    description: Auto-scrolling live feed of guard events via WebSocket
+    props:
+      - maxItems: number (default 50)
+    uses_hook: useGuardStream
+    item_display:
+      - timestamp (relative)
+      - method + path (truncated)
+      - ip
+      - action badge (colored)
+      - detectorId
+      - threatLevel badge
+
+  - name: RequestTable
+    description: Sortable, filterable table of historical requests
+    columns:
+      - Time
+      - Method
+      - Path
+      - IP
+      - Action
+      - Detector
+      - Threat Level
+      - Duration
+    features:
+      - Column sorting
+      - Pagination (25/50/100 per page)
+      - Row click → RequestDetailDrawer
+      - CSV export
+
+  - name: RequestDetailDrawer
+    description: Side drawer showing full GuardResponse for a request
+    sections:
+      - Request metadata (id, ip, method, path, headers)
+      - Detector results (table of all detector results)
+      - Raw JSON toggle
+
+  - name: DetectorList
+    description: List of all configured detectors with toggle switch
+    item_props:
+      - id, kind, enabled, priority
+      - Toggle → calls PATCH /api/guard/config/detectors/:id
+      - Edit icon → opens DetectorConfigEditor
+
+  - name: DetectorConfigEditor
+    description: JSON schema form for editing detector options
+    uses: react-hook-form + zod validation
+    saves_to: PATCH /api/guard/config/detectors/:id/options
+
+  - name: IpStatusTable
+    description: Table of blocked/allowlisted IPs
+    columns:
+      - IP
+      - Status (blocked/allowlisted)
+      - Reason
+      - Added At
+      - Actions (remove)
+
+  - name: AddIpModal
+    description: Modal to add an IP to block or allowlist
+    fields:
+      - ip: string (validated)
+      - action: block | allowlist
+      - reason: string (optional)
+
+  - name: ThreatDistributionPie
+    description: Donut chart of threats by detector kind
+    chart_type: PieChart (Recharts)
+
+  - name: AlertRuleList
+    description: CRUD list of alert threshold rules
+
+  - name: CreateAlertModal
+    fields:
+      - name: string
+      - metric: enum (blocked_rate, rate_limit_rate, threat_level)
+      - threshold: number
+      - window_minutes: number
+      - channel: enum (email, slack, webhook)
+      - channel_config: Record<string, string>
+
+# ─────────────────────────────────────────────
+# STATE MANAGEMENT (Zustand stores)
+# ─────────────────────────────────────────────
+stores:
+  - name: useGuardConfigStore
+    state:
+      - detectors: DetectorConfig[]
+      - mode: GuardMode
+      - dirty: boolean
+    actions:
+      - setDetectorEnabled(id, enabled)
+      - updateDetectorOptions(id, options)
+      - resetToSaved()
+      - save() → PATCH /api/guard/config
+
+  - name: useIpStore
+    state:
+      - blocked: string[]
+      - allowlisted: string[]
+    actions:
+      - blockIp(ip, reason)
+      - allowlistIp(ip)
+      - removeIp(ip)
+
+  - name: useLiveFeedStore
+    state:
+      - events: GuardStreamEvent[]
+      - paused: boolean
+    actions:
+      - push(event)
+      - clear()
+      - togglePause()
+
+# ─────────────────────────────────────────────
+# API ROUTES (served by BE)
+# ─────────────────────────────────────────────
+api_routes:
+  base: /api/guard
+  endpoints:
+    - GET /stats
+    - GET /requests
+    - GET /requests/:id
+    - GET /config
+    - PATCH /config/detectors/:id
+    - PATCH /config/detectors/:id/options
+    - GET /ips
+    - POST /ips/block
+    - POST /ips/allowlist
+    - DELETE /ips/:ip
+    - GET /alerts
+    - POST /alerts
+    - DELETE /alerts/:id
+    - GET /ws (WebSocket upgrade)
+
+# ─────────────────────────────────────────────
+# OUTPUTS
+# ─────────────────────────────────────────────
+outputs:
+  - path: packages/dashboard/src/pages/OverviewPage.tsx
+  - path: packages/dashboard/src/pages/RequestsPage.tsx
+  - path: packages/dashboard/src/pages/ThreatsPage.tsx
+  - path: packages/dashboard/src/pages/IpManagementPage.tsx
+  - path: packages/dashboard/src/pages/ConfigPage.tsx
+  - path: packages/dashboard/src/pages/AlertsPage.tsx
+  - path: packages/dashboard/src/components/KpiCards.tsx
+  - path: packages/dashboard/src/components/ThreatTimeline.tsx
+  - path: packages/dashboard/src/components/LiveRequestFeed.tsx
+  - path: packages/dashboard/src/components/RequestTable.tsx
+  - path: packages/dashboard/src/components/RequestDetailDrawer.tsx
+  - path: packages/dashboard/src/components/DetectorList.tsx
+  - path: packages/dashboard/src/components/DetectorConfigEditor.tsx
+  - path: packages/dashboard/src/components/IpStatusTable.tsx
+  - path: packages/dashboard/src/components/AddIpModal.tsx
+  - path: packages/dashboard/src/stores/useGuardConfigStore.ts
+  - path: packages/dashboard/src/stores/useIpStore.ts
+  - path: packages/dashboard/src/stores/useLiveFeedStore.ts
+  - path: packages/dashboard/src/App.tsx
+  - path: packages/dashboard/src/router.tsx

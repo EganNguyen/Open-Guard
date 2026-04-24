@@ -1,0 +1,41 @@
+# OpenCode Generator Manifest — OpenGuard Full Codebase
+# Scope: BE + FE, Phase 1-5 completeness + connected example app
+# Version: 1.0.0
+
+name: open-guard
+version: "1.0.0"
+description: >
+  OpenGuard is a full-stack security guard library providing
+  request validation, rate limiting, auth middleware, anomaly detection,
+  and a React-based dashboard for real-time monitoring.
+
+phases:
+  - id: phase_1
+    name: Core Primitives
+    spec: phase1-core-primitives.yaml
+  - id: phase_2
+    name: Backend Middleware
+    spec: phase2-backend-middleware.yaml
+  - id: phase_3
+    name: Frontend SDK
+    spec: phase3-frontend-sdk.yaml
+  - id: phase_4
+    name: Dashboard UI
+    spec: phase4-dashboard-ui.yaml
+  - id: phase_5
+    name: Detectors & Logic
+    spec: phase5-detectors.yaml
+
+examples:
+  - id: example_app
+    name: Connected Example App
+    spec: example-app.yaml
+
+generators:
+  - id: detector_codegen
+    spec: phase5-detectors.yaml
+    output_dir: packages/detectors/src
+    template_engine: opencode/v1
+
+architecture:
+  spec: architecture-review.yaml

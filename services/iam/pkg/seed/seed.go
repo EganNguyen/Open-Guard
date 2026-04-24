@@ -58,7 +58,11 @@ func Seed(ctx context.Context, pool *pgxpool.Pool) error {
 		_, err = pool.Exec(ctx, `
 			INSERT INTO users (org_id, email, password_hash, display_name, role)
 			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (email) DO UPDATE SET org_id = EXCLUDED.org_id
+			ON CONFLICT (org_id, email) DO UPDATE SET 
+				password_hash = EXCLUDED.password_hash,
+				display_name = EXCLUDED.display_name,
+				role = EXCLUDED.role,
+				updated_at = NOW()
 		`, user.orgID, user.email, string(hash), user.name, user.role)
 		if err != nil {
 			return fmt.Errorf("failed to create user %s: %w", user.email, err)

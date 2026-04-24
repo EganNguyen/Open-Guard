@@ -1,0 +1,231 @@
+# Architecture Review Spec
+# OpenGuard — Structural completeness, contracts, and integration checks
+
+spec_version: "1.0"
+name: architecture-review
+description: >
+  Declarative architecture review checklist and contract definitions.
+  Used by OpenCode to validate generated code against architectural rules
+  before emitting final files.
+
+# ─────────────────────────────────────────────
+# PACKAGE STRUCTURE
+# ─────────────────────────────────────────────
+monorepo:
+  root: open-guard/
+  package_manager: pnpm
+  workspace_config: pnpm-workspace.yaml
+
+packages:
+  - name: "@open-guard/core"
+    path: packages/core
+    description: Types, interfaces, utils — isomorphic, zero dependencies
+    has_tests: true
+    dependencies: []
+    exports:
+      - GuardRequest, GuardResponse, DetectorResult, GuardConfig
+      - DetectorKind, GuardAction, ThreatLevel
+      - StoreAdapter, LoggerAdapter
+      - normalizeRequest, mergeResults, scoreToThreatLevel
+
+  - name: "@open-guard/detectors"
+    path: packages/detectors
+    description: All detector implementations
+    has_tests: true
+    dependencies:
+      - "@open-guard/core"
+    exports:
+      - BaseDetector
+      - All detector classes
+      - DetectorRegistry
+
+  - name: "@open-guard/middleware"
+    path: packages/middleware
+    description: Express/Node middleware factory + store adapters
+    has_tests: true
+    dependencies:
+      - "@open-guard/core"
+      - "@open-guard/detectors"
+    peer_dependencies:
+      - express: ">=4.18"
+    optional_dependencies:
+      - ioredis
+      - "@upstash/redis"
+    exports:
+      - openGuard (factory)
+      - MemoryStore, RedisStore, UpstashStore
+      - OpenGuardEventEmitter
+
+  - name: "@open-guard/sdk"
+    path: packages/sdk
+    description: Browser/isomorphic client SDK + React hooks
+    has_tests: true
+    dependencies:
+      - "@open-guard/core"
+    peer_dependencies:
+      - react: ">=18"
+    exports:
+      - OpenGuardClient
+      - GuardProvider, useGuard
+      - useGuardStats, useGuardStream, useGuardChallenge
+      - installGuardInterceptor
+
+  - name: "@open-guard/dashboard"
+    path: packages/dashboard
+    description: React admin dashboard (Vite app)
+    has_tests: true
+    dependencies:
+      - "@open-guard/core"
+      - "@open-guard/sdk"
+      - recharts
+      - zustand
+      - "@tanstack/react-query"
+      - react-router-dom
+    build_output: dist/
+
+  - name: "@open-guard/example-app"
+    path: apps/example
+    description: Connected example Express + React app
+    dependencies:
+      - "@open-guard/core"
+      - "@open-guard/detectors"
+      - "@open-guard/middleware"
+      - "@open-guard/sdk"
+      - "@open-guard/dashboard"
+
+# ─────────────────────────────────────────────
+# DEPENDENCY RULES (enforced by OpenCode)
+# ─────────────────────────────────────────────
+dependency_rules:
+  - rule: "core has ZERO runtime dependencies"
+    enforce: "packages/core/package.json dependencies must be empty"
+
+  - rule: "detectors ONLY depend on core"
+    enforce: "packages/detectors/package.json dependencies = ['@open-guard/core']"
+
+  - rule: "sdk has NO Node.js-only imports"
+    enforce: "No imports of fs, path, net, crypto (Node built-ins) in packages/sdk/src"
+
+  - rule: "dashboard has NO direct middleware imports"
+    enforce: "packages/dashboard must not import @open-guard/middleware"
+
+  - rule: "No circular dependencies"
+    enforce: "Run madge --circular on all packages"
+
+# ─────────────────────────────────────────────
+# INTERFACE CONTRACTS (cross-package)
+# ─────────────────────────────────────────────
+interface_contracts:
+  - contract: DetectorContract
+    implementors: "All classes in packages/detectors/src/*.ts"
+    required_methods:
+      - "evaluate(req: GuardRequest): Promise<DetectorResult>"
+      - "buildResult(partial): DetectorResult"
+      - "isEnabled(): boolean"
+    validation: "instanceof BaseDetector"
+
+  - contract: StoreAdapterContract
+    implementors: [MemoryStore, RedisStore, UpstashStore]
+    required_methods:
+      - "get(key: string): Promise<string | null>"
+      - "set(key: string, value: string, ttl?: number): Promise<void>"
+      - "incr(key: string, ttl?: number): Promise<number>"
+      - "del(key: string): Promise<void>"
+    validation: "duck-typing check at runtime"
+
+# ─────────────────────────────────────────────
+# PERFORMANCE REQUIREMENTS
+# ─────────────────────────────────────────────
+performance:
+  pipeline_p99_ms: 10
+    description: "All detectors combined must complete in < 10ms p99 (excl. network calls)"
+
+  detector_timeout_ms: 5000
+    description: Individual detector timeout before LOG_ONLY fallback
+
+  memory_store_max_keys: 10000
+    description: MemoryStore evicts LRU entries beyond this
+
+  rate_limiter_store_ops: 1
+    description: Rate limiter must use at most 1 store roundtrip (atomic INCR)
+
+# ─────────────────────────────────────────────
+# SECURITY REQUIREMENTS
+# ─────────────────────────────────────────────
+security:
+  - req: "CSRF token comparison must be constant-time"
+    pattern: "Use crypto.timingSafeEqual, not === comparison"
+
+  - req: "No secrets in GuardResponse or DetectorResult"
+    pattern: "Strip store adapter credentials from metadata"
+
+  - req: "SQL injection patterns must use case-insensitive flags"
+    pattern: "All regex patterns in SqlInjectionDetector must have (?i) flag"
+
+  - req: "Rate limiter keys must not include PII beyond IP"
+    pattern: "userId keys are opt-in only"
+
+  - req: "Detector errors must not leak stack traces in API responses"
+    pattern: "Error messages in 403/429 bodies must be generic"
+
+# ─────────────────────────────────────────────
+# TEST COVERAGE REQUIREMENTS
+# ─────────────────────────────────────────────
+test_coverage:
+  minimum_overall: 80
+  minimum_per_detector: 90
+  required_test_cases_per_detector:
+    - "allows clean/safe input"
+    - "blocks on clear attack payload"
+    - "respects enabled=false config"
+    - "handles store errors gracefully"
+    - "respects skipPaths/skipMethods if applicable"
+
+# ─────────────────────────────────────────────
+# PHASE COMPLETENESS CHECKLIST
+# ─────────────────────────────────────────────
+completeness_checklist:
+  phase_1:
+    - "[ ] All enums defined and exported"
+    - "[ ] GuardRequest, GuardResponse, DetectorResult interfaces complete"
+    - "[ ] StoreAdapter and LoggerAdapter interfaces defined"
+    - "[ ] normalizeRequest handles express, fetch, node platforms"
+    - "[ ] mergeResults implements most-restrictive-action logic"
+    - "[ ] Error hierarchy defined and exported"
+
+  phase_2:
+    - "[ ] openGuard() factory returns Express RequestHandler"
+    - "[ ] Pipeline runs detectors in parallel with timeout"
+    - "[ ] All 5 GuardAction responses correctly enforced"
+    - "[ ] MemoryStore, RedisStore, UpstashStore all implemented"
+    - "[ ] EventEmitter emits guard:result, guard:block, guard:error, guard:ratelimit"
+    - "[ ] Response headers set correctly per action"
+
+  phase_3:
+    - "[ ] OpenGuardClient implements all 6 methods"
+    - "[ ] useGuardStats hook with auto-refresh"
+    - "[ ] useGuardStream opens/closes WebSocket correctly"
+    - "[ ] GuardProvider + useGuard context"
+    - "[ ] installGuardInterceptor patches and restores fetch"
+
+  phase_4:
+    - "[ ] All 6 pages implemented"
+    - "[ ] LiveRequestFeed connects to WebSocket"
+    - "[ ] RequestTable supports sorting, pagination, CSV export"
+    - "[ ] DetectorConfigEditor validates with zod"
+    - "[ ] All Zustand stores implemented"
+    - "[ ] Dashboard embeddable as component or standalone app"
+
+  phase_5:
+    - "[ ] All 12 detectors implemented"
+    - "[ ] DetectorRegistry resolves all built-in detector IDs"
+    - "[ ] BaseDetector abstract class with buildResult helper"
+    - "[ ] Every detector has unit tests"
+    - "[ ] Pattern tests cover all regex patterns in SQL/XSS detectors"
+
+  example_app:
+    - "[ ] Express server with openGuard() middleware"
+    - "[ ] All 12 detectors configured"
+    - "[ ] Dashboard mounted at /guard"
+    - "[ ] Example attack endpoints for testing each detector"
+    - "[ ] README with curl examples for each attack type"

@@ -1,0 +1,44 @@
+# OpenCode Runnable Jobs for OpenGuard
+# Usage: opencode run .opencode/jobs.yaml --job <job_id>
+
+jobs:
+  - id: generate-phase-1
+    name: "Phase 1: Core Primitives"
+    description: "Generates core types, utils, and errors for OpenGuard."
+    command: "opencode run phase1-core-primitives.yaml"
+
+  - id: generate-phase-2
+    name: "Phase 2: Backend Middleware"
+    description: "Generates auth and security middleware."
+    command: "opencode run phase2-backend-middleware.yaml"
+
+  - id: generate-phase-3
+    name: "Phase 3: Frontend SDK"
+    description: "Generates the TypeScript SDK for frontend integration."
+    command: "opencode run phase3-frontend-sdk.yaml"
+
+  - id: generate-phase-4
+    name: "Phase 4: Dashboard UI"
+    description: "Generates Angular dashboard components and services."
+    command: "opencode run phase4-dashboard-ui.yaml"
+
+  - id: generate-phase-5
+    name: "Phase 5: Detectors & Logic"
+    description: "Generates all threat detection logic and the detector registry."
+    command: "opencode run phase5-detectors.yaml"
+
+  - id: complete-phase-5
+    name: "Complete Phase 5: End-to-End"
+    description: "Runs all generation and validation steps for Phase 5 completion."
+    steps:
+      - name: "Generate Detectors"
+        command: "opencode run phase5-detectors.yaml"
+      - name: "Verify Generated Code"
+        command: "npm run lint && npm test"
+      - name: "Architecture Review"
+        command: "opencode run architecture-review.yaml"
+
+  - id: build-example
+    name: "Build Example App"
+    description: "Generates the connected example application."
+    command: "opencode run example-app.yaml"

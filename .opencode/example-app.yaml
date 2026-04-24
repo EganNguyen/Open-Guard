@@ -1,0 +1,351 @@
+# Connected Example App
+# OpenGuard — Full-stack demonstration app (Express BE + React FE)
+
+spec_version: "1.0"
+name: example-app
+description: >
+  A minimal but complete Express + React application that demonstrates
+  OpenGuard in action. Includes a backend with all 12 detectors configured,
+  a React frontend with the OpenGuard SDK and Dashboard embedded,
+  and test endpoints that trigger each detector.
+
+# ─────────────────────────────────────────────
+# BACKEND (apps/example/server)
+# ─────────────────────────────────────────────
+backend:
+  framework: Express
+  port: 3001
+  entry: apps/example/server/index.ts
+
+  middleware_order:
+    - cors
+    - express.json
+    - openGuard()           # Guard middleware — runs all detectors
+    - app routes
+    - error handler
+
+  guard_config:
+    mode: enforce
+    store: MemoryStore (dev) / RedisStore (prod, via REDIS_URL env)
+
+    detectors:
+      - id: payload-size
+        kind: PAYLOAD_SIZE
+        priority: 5
+        options:
+          maxBodyBytes: 1048576
+          maxUrlLength: 2048
+
+      - id: rate-limiter
+        kind: RATE_LIMIT
+        priority: 10
+        options:
+          windowSeconds: 60
+          maxRequests: 100
+          keyBy: [ip]
+
+      - id: auth-brute-force
+        kind: AUTH_BRUTE_FORCE
+        priority: 15
+        options:
+          watchPaths: ["/api/login"]
+          maxAttemptsPerIp: 5
+          windowSeconds: 300
+
+      - id: path-traversal
+        kind: PATH_TRAVERSAL
+        priority: 18
+        options:
+          inspectQuery: true
+
+      - id: sql-injection
+        kind: SQL_INJECTION
+        priority: 20
+        options:
+          sensitivity: medium
+
+      - id: header-injection
+        kind: HEADER_INJECTION
+        priority: 22
+        options:
+          allowedHosts: ["localhost:3001", "example.openguard.dev"]
+
+      - id: xss
+        kind: XSS
+        priority: 25
+        options:
+          sensitivity: medium
+
+      - id: csrf
+        kind: CSRF
+        priority: 30
+        options:
+          skipPaths: ["/api/login", "/api/webhooks/*"]
+
+      - id: bot-detection
+        kind: BOT
+        priority: 40
+        options:
+          blockKnownBots: false
+          challengeSuspicious: true
+
+      - id: geo-block
+        kind: GEO_BLOCK
+        priority: 50
+        options:
+          blockedCountries: []  # Empty by default — configure as needed
+
+      - id: ip-reputation
+        kind: IP_REPUTATION
+        priority: 55
+
+      - id: anomaly
+        kind: ANOMALY
+        priority: 80
+        options:
+          enabled: false  # Off by default, toggle via dashboard
+
+  routes:
+    # ─── Public ───────────────────────────────
+    - method: GET
+      path: /api/health
+      description: Health check (skipped by rate limiter)
+      response: "{ status: 'ok', timestamp }"
+
+    - method: POST
+      path: /api/login
+      description: Fake login endpoint for brute-force testing
+      body: "{ username: string, password: string }"
+      logic:
+        - Validate credentials (hardcoded demo: admin/password)
+        - On success: return 200 + set CSRF token in store
+        - On failure: return 401 (triggers brute-force counter)
+
+    # ─── Authenticated ─────────────────────────
+    - method: GET
+      path: /api/user
+      description: Returns current user (requires session)
+      requires_auth: true
+
+    - method: POST
+      path: /api/comment
+      description: Submit a comment (XSS + CSRF test target)
+      requires_auth: true
+      body: "{ content: string }"
+      csrf_protected: true
+
+    # ─── Guard Admin API ───────────────────────
+    - method: GET
+      path: /api/guard/stats
+      description: Guard statistics endpoint (proxied to GuardStore)
+
+    - method: GET
+      path: /api/guard/requests
+      description: Request history with filters
+
+    - method: GET
+      path: /api/guard/config
+      description: Current detector configuration
+
+    - method: PATCH
+      path: /api/guard/config/detectors/:id
+      description: Toggle detector enabled/options
+
+    - method: GET
+      path: /api/guard/ips
+      description: Block/allowlist management
+
+    - method: POST
+      path: /api/guard/ips/block
+      body: "{ ip: string, reason?: string }"
+
+    - method: POST
+      path: /api/guard/ips/allowlist
+      body: "{ ip: string }"
+
+    - method: DELETE
+      path: /api/guard/ips/:ip
+
+    # ─── Test/Demo Endpoints ──────────────────
+    - method: GET
+      path: /api/test/sqli
+      description: Endpoint that reflects query param — for SQLi testing
+      response: "{ echo: req.query.q }"
+
+    - method: GET
+      path: /api/test/xss
+      description: Endpoint that reflects query param — for XSS testing
+
+    - method: GET
+      path: /api/test/rate-limit
+      description: Endpoint with tight rate limit for demo (5 req/min)
+      detector_override:
+        rate-limiter:
+          maxRequests: 5
+          windowSeconds: 60
+
+    - method: GET
+      path: /api/test/bot
+      description: Endpoint to trigger bot detection
+
+    - method: GET
+      path: /api/test/path
+      description: Endpoint for path traversal testing
+
+  websocket:
+    path: /ws
+    description: Real-time guard event stream
+    implementation: ws library
+    on_connect: Subscribe to OpenGuardEventEmitter guard:result
+    on_event: JSON.stringify(event) → send to client
+    on_disconnect: Unsubscribe
+
+# ─────────────────────────────────────────────
+# FRONTEND (apps/example/client)
+# ─────────────────────────────────────────────
+frontend:
+  framework: React 18 + Vite
+  port: 3000
+  proxy: /api → http://localhost:3001
+  entry: apps/example/client/src/main.tsx
+
+  pages:
+    - route: /
+      component: HomePage
+      description: Landing page with attack demo controls
+
+    - route: /guard/*
+      component: GuardDashboard (embedded @open-guard/dashboard)
+      description: Full OpenGuard dashboard
+
+    - route: /login
+      component: LoginPage
+
+  components:
+    - name: HomePage
+      description: Interactive attack simulator
+      sections:
+        - name: AttackSimulator
+          description: >
+            Grid of buttons to trigger each detector type.
+            Each button sends a crafted fetch request and shows the guard response.
+          attacks:
+            - label: "SQL Injection"
+              request: "GET /api/test/sqli?q=1' UNION SELECT * FROM users--"
+              expected: BLOCK by sql-injection
+
+            - label: "XSS Payload"
+              request: "GET /api/test/xss?q=<script>alert(1)</script>"
+              expected: BLOCK by xss
+
+            - label: "Rate Limit"
+              request: "GET /api/test/rate-limit (×10 rapid)"
+              expected: RATE_LIMIT by rate-limiter
+
+            - label: "Bot UA"
+              request: "GET /api/test/bot (User-Agent: python-requests/2.28)"
+              expected: CHALLENGE by bot-detection
+
+            - label: "Path Traversal"
+              request: "GET /api/test/path?file=../../etc/passwd"
+              expected: BLOCK by path-traversal
+
+            - label: "Large Payload"
+              request: "POST /api/comment (body: 2MB)"
+              expected: BLOCK by payload-size
+
+            - label: "Brute Force"
+              request: "POST /api/login (×6 wrong passwords)"
+              expected: BLOCK by auth-brute-force
+
+        - name: LiveGuardFeed
+          description: Embedded LiveRequestFeed component showing real-time results
+
+    - name: GuardDashboard
+      description: >
+        @open-guard/dashboard mounted with OpenGuardClient configured to
+        the local API. Provides full monitoring + configuration UI.
+
+  sdk_setup:
+    client_init: |
+      const client = new OpenGuardClient({
+        baseUrl: '/api/guard',
+        websocketUrl: 'ws://localhost:3001/ws',
+        autoReport: true,
+      });
+    provider_wrap: GuardProvider wraps entire app
+    interceptor: installGuardInterceptor(client) called in main.tsx
+
+# ─────────────────────────────────────────────
+# ENVIRONMENT CONFIG
+# ─────────────────────────────────────────────
+environment:
+  development:
+    GUARD_MODE: monitor
+    REDIS_URL: ""  # Uses MemoryStore
+    NODE_ENV: development
+
+  production:
+    GUARD_MODE: enforce
+    REDIS_URL: required
+    GUARD_IP_REPUTATION_API_KEY: optional
+    NODE_ENV: production
+
+# ─────────────────────────────────────────────
+# README REQUIREMENTS
+# ─────────────────────────────────────────────
+readme:
+  path: apps/example/README.md
+  sections:
+    - Quick Start (pnpm install + pnpm dev)
+    - Architecture diagram (ASCII)
+    - How to trigger each detector (curl examples)
+    - Dashboard walkthrough
+    - Environment variables reference
+    - Extending with custom detectors
+
+  curl_examples:
+    - name: Trigger SQL Injection detector
+      cmd: |
+        curl "http://localhost:3001/api/test/sqli?q=1'+UNION+SELECT+*+FROM+users--"
+
+    - name: Trigger XSS detector
+      cmd: |
+        curl "http://localhost:3001/api/test/xss?q=%3Cscript%3Ealert(1)%3C/script%3E"
+
+    - name: Trigger rate limiter
+      cmd: |
+        for i in {1..10}; do curl -s http://localhost:3001/api/test/rate-limit; done
+
+    - name: Trigger bot detection
+      cmd: |
+        curl -H "User-Agent: python-requests/2.28.0" http://localhost:3001/api/test/bot
+
+    - name: Trigger path traversal
+      cmd: |
+        curl "http://localhost:3001/api/test/path?file=../../etc/passwd"
+
+    - name: Trigger brute force
+      cmd: |
+        for i in {1..6}; do
+          curl -X POST http://localhost:3001/api/login \
+            -H "Content-Type: application/json" \
+            -d '{"username":"admin","password":"wrong"}';
+        done
+
+# ─────────────────────────────────────────────
+# OUTPUTS
+# ─────────────────────────────────────────────
+outputs:
+  - path: apps/example/server/index.ts
+  - path: apps/example/server/routes/api.ts
+  - path: apps/example/server/routes/guard-admin.ts
+  - path: apps/example/server/websocket.ts
+  - path: apps/example/server/guard.config.ts
+  - path: apps/example/client/src/main.tsx
+  - path: apps/example/client/src/pages/HomePage.tsx
+  - path: apps/example/client/src/pages/LoginPage.tsx
+  - path: apps/example/client/src/components/AttackSimulator.tsx
+  - path: apps/example/client/src/components/LiveGuardFeed.tsx
+  - path: apps/example/vite.config.ts
+  - path: apps/example/README.md

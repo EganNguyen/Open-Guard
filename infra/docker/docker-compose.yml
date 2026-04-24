@@ -267,6 +267,9 @@ services:
       mongo-primary: { condition: service_healthy }
     volumes:
       - ../certs:/certs:ro
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - MONGODB_URI=mongodb://mongo-primary:27017
 
   alerting:
     build:

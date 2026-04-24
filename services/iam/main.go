@@ -23,6 +23,7 @@ import (
 	"github.com/openguard/services/iam/pkg/service"
 	"github.com/openguard/services/iam/pkg/telemetry"
 	"github.com/openguard/shared/crypto"
+	"github.com/openguard/shared/database"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/kafka/outbox"
 )
@@ -87,6 +88,11 @@ func main() {
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		logger.Warn("redis connection check failed", "error", err)
+	}
+
+	// Run Migrations
+	if err := database.Migrate(ctx, pool, "migrations"); err != nil {
+		logger.Error("migrations failed", "error", err)
 	}
 
 	// Auto-seed if requested
