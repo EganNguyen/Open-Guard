@@ -5,6 +5,9 @@ import { UsersComponent } from './users/users';
 import { PoliciesComponent } from './policies/policies';
 import { AuditLogComponent } from './audit-logs/audit-logs';
 import { ThreatsComponent } from './threats/threats';
+import { ComplianceComponent } from './compliance/compliance';
+import { DlpComponent } from './dlp/dlp';
+import { AdminComponent } from './admin/admin';
 import { LoginComponent } from './features/login/login';
 import { LayoutComponent } from './core/layout/layout';
 import { authGuard } from './core/guards/auth.guard';
@@ -22,6 +25,9 @@ export const routes: Routes = [
       { path: 'policies', component: PoliciesComponent },
       { path: 'audit', component: AuditLogComponent },
       { path: 'threats', component: ThreatsComponent },
+      { path: 'compliance', component: ComplianceComponent },
+      { path: 'dlp', component: DlpComponent },
+      { path: 'admin', component: AdminComponent },
     ]
   },
   { path: '**', redirectTo: '' }

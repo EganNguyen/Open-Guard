@@ -1,0 +1,169 @@
+id: JOB-01
+title: "Critical Security Fixes"
+priority: P0
+phase_impact: [2, 3, 4, 5]
+severity: CRITICAL
+estimated_effort: 3d
+
+summary: |
+  Five security vulnerabilities must be fixed before any production deployment.
+  These are not theoretical risks — each has a direct exploit path in the
+  current codebase.
+
+problems:
+  - id: SEC-01
+    title: "Timing attack in VerifyPBKDF2"
+    file: shared/crypto/keys.go
+    line: 43
+    severity: CRITICAL
+    description: |
+      VerifyPBKDF2 compares hashes with `string(actualHash) == string(expectedHash)`.
+      This is a byte-by-byte comparison that short-circuits on the first mismatch,
+      leaking timing information. An attacker can use this to enumerate valid API key
+      prefixes via timing side-channel.
+    fix: |
+      Replace the comparison with `subtle.ConstantTimeCompare`:
+      ```go
+      import "crypto/subtle"
+
+      // Replace:
+      return string(actualHash) == string(expectedHash)
+
+      // With:
+      return subtle.ConstantTimeCompare(actualHash, expectedHash) == 1
+      ```
+
+  - id: SEC-02
+    title: "Rate limiter uses RemoteAddr (bypassable behind proxy)"
+    file: services/iam/pkg/middleware/ratelimit.go
+    line: 56
+    severity: HIGH
+    description: |
+      `ip := r.RemoteAddr` returns the immediate TCP peer, which behind nginx or any
+      load balancer is always the proxy IP. Every request from every user shares the
+      same bucket. The rate limiter is effectively disabled in any real deployment.
+      Also, RemoteAddr includes the port (e.g. "1.2.3.4:54321") which makes every
+      connection a unique key.
+    fix: |
+      Use the `X-Real-IP` header set by nginx (already configured in nginx.conf), with
+      a fallback to RemoteAddr stripped of the port:
+      ```go
+      func extractIP(r *http.Request) string {
+          if ip := r.Header.Get("X-Real-IP"); ip != "" {
+              return ip
+          }
+          if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+              // X-Forwarded-For can be a comma-separated list; take the first
+              return strings.TrimSpace(strings.Split(ip, ",")[0])
+          }
+          host, _, err := net.SplitHostPort(r.RemoteAddr)
+          if err != nil {
+              return r.RemoteAddr
+          }
+          return host
+      }
+      ```
+      Update `Limit()` to call `extractIP(r)` instead of `r.RemoteAddr`.
+
+  - id: SEC-03
+    title: "SSE endpoint accepts unauthenticated org_id query param"
+    file: services/audit/pkg/handlers/sse.go
+    line: 18
+    severity: CRITICAL
+    description: |
+      `GET /v1/events/stream?org_id=<anything>` accepts an arbitrary org_id from the
+      query string with no authentication or authorization check. Any unauthenticated
+      caller can stream audit events for any organization. This is a complete multi-
+      tenant isolation breach.
+    fix: |
+      1. Add auth middleware to the audit service HTTP router (same JWT pattern as IAM).
+      2. Extract org_id from the verified JWT claims in context, NOT from the query string:
+      ```go
+      func (h *SseHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
+          orgID := middleware.GetOrgID(r.Context()) // from JWT, not query param
+          if orgID == "" {
+              http.Error(w, "Unauthorized", http.StatusUnauthorized)
+              return
+          }
+          // ... rest of handler
+      }
+      ```
+      3. Add `wildcard CORS` (`Access-Control-Allow-Origin: *`) is currently set in the
+         SSE handler — replace with the specific allowed origin from env config.
+
+  - id: SEC-04
+    title: "Policy service has no authentication middleware"
+    file: services/policy/pkg/router/router.go
+    severity: CRITICAL
+    description: |
+      All policy endpoints (`/v1/policies`, `/v1/policy/evaluate`, `/v1/assignments`)
+      are exposed with zero authentication. The control-plane does proxy them, but the
+      policy service itself has no auth, meaning internal network access bypasses all
+      security. In a Kubernetes cluster, any pod can call the policy service directly.
+      The evaluate endpoint is especially dangerous — it reveals what actions are
+      permitted for any org.
+    fix: |
+      Add the shared API-key middleware (already exists in `shared/middleware/apikey.go`)
+      to the policy router for internal service-to-service calls:
+      ```go
+      // In NewRouter(), wrap the /v1 group:
+      r.Route("/v1", func(r chi.Router) {
+          r.Use(shared_middleware.APIKeyAuth(os.Getenv("INTERNAL_API_KEY")))
+          // ... existing routes
+      })
+      ```
+      The control-plane must forward the internal API key header when proxying.
+      For the evaluate endpoint specifically, also validate that `org_id` in the
+      request body matches the org_id from the API key context.
+
+  - id: SEC-05
+    title: "MFA backup codes missing from IAM service implementation"
+    file: services/iam/pkg/service/service.go
+    severity: HIGH
+    description: |
+      The spec (§10.3.2) requires HMAC-SHA256 backup codes for MFA. The migration
+      `005_create_mfa_configs.up.sql` has the `backup_code_hashes TEXT[]` column, but
+      there is no service method to generate, store, or verify backup codes. The TOTP
+      enable flow does not generate backup codes, so users who lose their authenticator
+      app have no recovery path. This will be a support crisis in production.
+    fix: |
+      Add the following to `service.go`:
+      ```go
+      // GenerateBackupCodes generates 8 single-use 8-character backup codes.
+      // Returns plaintext codes (shown to user once) and stores HMAC hashes.
+      func (s *Service) GenerateBackupCodes(ctx context.Context, orgID, userID string) ([]string, error) {
+          secret := os.Getenv("IAM_MFA_BACKUP_CODE_HMAC_SECRET")
+          codes := make([]string, 8)
+          hashes := make([]string, 8)
+          for i := range codes {
+              raw := crypto.GenerateRandomString(8)
+              codes[i] = raw
+              mac := hmac.New(sha256.New, []byte(secret))
+              mac.Write([]byte(raw))
+              hashes[i] = hex.EncodeToString(mac.Sum(nil))
+          }
+          if err := s.repo.StoreBackupCodes(ctx, userID, hashes); err != nil {
+              return nil, err
+          }
+          return codes, nil
+      }
+
+      // VerifyBackupCode verifies and consumes a single backup code.
+      func (s *Service) VerifyBackupCode(ctx context.Context, userID, code string) (bool, error) {
+          secret := os.Getenv("IAM_MFA_BACKUP_CODE_HMAC_SECRET")
+          mac := hmac.New(sha256.New, []byte(secret))
+          mac.Write([]byte(code))
+          codeHash := hex.EncodeToString(mac.Sum(nil))
+          return s.repo.ConsumeBackupCode(ctx, userID, codeHash)
+      }
+      ```
+      Call `GenerateBackupCodes` at the end of `EnableTOTP` and return codes in the
+      response. Add a `POST /auth/mfa/backup-verify` endpoint and wire it to
+      `VerifyBackupCode`.
+
+acceptance_criteria:
+  - "VerifyPBKDF2 uses crypto/subtle.ConstantTimeCompare — verified by unit test"
+  - "Rate limiter correctly extracts IP behind nginx — verified by test with X-Real-IP header"
+  - "SSE /v1/events/stream returns 401 with no auth token"
+  - "Policy service /v1/policy/evaluate returns 401 with no API key"
+  - "EnableTOTP response includes backup codes array; POST /auth/mfa/backup-verify accepts them"

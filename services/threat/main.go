@@ -11,10 +11,20 @@ import (
 	"syscall"
 
 	"github.com/openguard/services/threat/pkg/detector"
+	"github.com/openguard/services/threat/pkg/telemetry"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	// Initialize OpenTelemetry (INFRA-04)
+	tp, err := telemetry.InitTracer()
+	if err != nil {
+		logger.Error("failed to initialize tracer", "error", err)
+	} else {
+		defer tp.Shutdown(context.Background())
+	}
 
 	redisAddr := os.Getenv("REDIS_ADDR")
 	if redisAddr == "" {
@@ -59,6 +69,7 @@ func main() {
 		}
 	}()
 
+	http.Handle("/metrics", promhttp.Handler())
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))

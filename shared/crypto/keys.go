@@ -3,6 +3,7 @@ package crypto
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"strings"
@@ -52,7 +53,7 @@ func VerifyPBKDF2(password, encodedHash string) bool {
 
 	actualHash := pbkdf2.Key([]byte(password), salt, iterations, len(expectedHash), sha256.New)
 	
-	return string(actualHash) == string(expectedHash)
+	return subtle.ConstantTimeCompare(actualHash, expectedHash) == 1
 }
 
 // GenerateRandomString generates a random string of the given length.

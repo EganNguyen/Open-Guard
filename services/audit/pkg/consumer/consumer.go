@@ -14,15 +14,19 @@ import (
 
 	"github.com/segmentio/kafka-go"
 	"github.com/openguard/services/audit/pkg/repository"
+	"github.com/openguard/services/audit/pkg/telemetry"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type AuditConsumer struct {
 	reader *kafka.Reader
-	repo   *repository.AuditRepository
+	repo   *repository.AuditWriteRepository
 	logger *slog.Logger
 }
 
-func NewAuditConsumer(brokers string, groupID string, topic string, repo *repository.AuditRepository, logger *slog.Logger) (*AuditConsumer, error) {
+func NewAuditConsumer(brokers string, groupID string, topic string, repo *repository.AuditWriteRepository, logger *slog.Logger) (*AuditConsumer, error) {
 	brokerList := strings.Split(brokers, ",")
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:  brokerList,
@@ -77,6 +81,7 @@ func (c *AuditConsumer) Start(ctx context.Context) error {
 }
 
 func (c *AuditConsumer) flush(ctx context.Context, batch []kafka.Message) {
+	start := time.Now()
 	c.logger.Info("flushing audit batch to mongodb", "size", len(batch))
 	
 	secretKey := os.Getenv("AUDIT_SECRET_KEY")
@@ -84,50 +89,93 @@ func (c *AuditConsumer) flush(ctx context.Context, batch []kafka.Message) {
 		c.logger.Warn("AUDIT_SECRET_KEY not set, skipping hash chain")
 	}
 
-	var events []interface{}
+	var events []map[string]interface{}
 	for _, m := range batch {
+		// Extract tracing context from Kafka headers (INFRA-04)
+		headerMap := make(map[string]string)
+		for _, h := range m.Headers {
+			headerMap[h.Key] = string(h.Value)
+		}
+		
+		prop := otel.GetTextMapPropagator()
+		msgCtx := prop.Extract(ctx, propagation.MapCarrier(headerMap))
+		
+		_, span := otel.Tracer("audit-consumer").Start(msgCtx, "consume-audit-event", trace.WithSpanKind(trace.SpanKindConsumer))
+		defer span.End()
+
 		var event map[string]interface{}
 		if err := json.Unmarshal(m.Value, &event); err != nil {
 			c.logger.Error("failed to unmarshal kafka message", "error", err)
+			span.RecordError(err)
 			continue
 		}
 		event["timestamp"] = time.Now()
-
-		if secretKey != "" {
-			prevHash := ""
-			lastEvent, err := c.repo.GetLatestEvent(ctx)
-			if err != nil {
-				c.logger.Error("failed to get latest event", "error", err)
-			} else if lastEvent != nil {
-				if h, ok := lastEvent["integrity_hash"].(string); ok {
-					prevHash = h
-				}
-			}
-
-			eventData := fmt.Sprintf("%s|%s", event["event_id"], prevHash)
-			mac := hmac.New(sha256.New, []byte(secretKey))
-			mac.Write([]byte(eventData))
-			event["integrity_hash"] = hex.EncodeToString(mac.Sum(nil))
-		}
-
 		events = append(events, event)
+
+		// Metrics
+		orgID, _ := event["org_id"].(string)
+		telemetry.EventsIngested.WithLabelValues(orgID, m.Topic).Inc()
 	}
 
 	if len(events) == 0 {
 		return
 	}
 
-	err := c.repo.BulkWrite(ctx, events)
-	if err != nil {
-		c.logger.Error("failed to bulk write to mongodb", "error", err)
+	// 1. Reserve sequence range atomically
+	orgID, _ := events[0]["org_id"].(string)
+	if orgID == "" {
+		c.logger.Error("missing org_id in audit event")
 		return
 	}
 
-	// Commit messages after successful DB write (R-07)
-	err = c.reader.CommitMessages(ctx, batch...)
+	startSeq, prevHash, err := c.repo.ReserveSequence(ctx, orgID, int64(len(events)))
 	if err != nil {
-		c.logger.Error("failed to commit kafka offsets", "error", err)
+		c.logger.Error("failed to reserve sequence", "error", err)
+		telemetry.BatchFlushDuration.WithLabelValues("error").Observe(time.Since(start).Seconds())
+		return
 	}
+
+	// 2. Compute chain locally
+	var currentHash string
+	for i, event := range events {
+		event["sequence"] = startSeq + int64(i)
+		
+		if secretKey != "" {
+			eventData := fmt.Sprintf("%v|%s", event["event_id"], prevHash)
+			mac := hmac.New(sha256.New, []byte(secretKey))
+			mac.Write([]byte(eventData))
+			currentHash = hex.EncodeToString(mac.Sum(nil))
+			event["integrity_hash"] = currentHash
+			prevHash = currentHash
+		}
+	}
+
+	// 3. Update the latest hash in hash_chains
+	if secretKey != "" && currentHash != "" {
+		if err := c.repo.UpdateHashChain(ctx, orgID, currentHash); err != nil {
+			c.logger.Error("failed to update hash chain head", "error", err)
+		}
+		telemetry.HashChainLength.WithLabelValues(orgID).Set(float64(events[len(events)-1]["sequence"].(int64)))
+	}
+
+	// 4. BulkWrite all events
+	var interfaceEvents []interface{}
+	for _, e := range events {
+		interfaceEvents = append(interfaceEvents, e)
+	}
+
+	if err := c.repo.BulkWrite(ctx, interfaceEvents); err != nil {
+		c.logger.Error("bulk write failed", "error", err)
+		telemetry.BatchFlushDuration.WithLabelValues("error").Observe(time.Since(start).Seconds())
+		return
+	}
+
+	// 5. Commit offsets after successful write
+	if err := c.reader.CommitMessages(ctx, batch...); err != nil {
+		c.logger.Error("offset commit failed", "error", err)
+	}
+
+	telemetry.BatchFlushDuration.WithLabelValues("success").Observe(time.Since(start).Seconds())
 }
 
 func (c *AuditConsumer) Close() {

@@ -3,8 +3,9 @@ package detector
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,9 +20,10 @@ const (
 )
 
 type BruteForceDetector struct {
-	rdb    *redis.Client
-	reader *kafka.Reader
-	logger *slog.Logger
+	rdb         *redis.Client
+	reader      *kafka.Reader
+	logger      *slog.Logger
+	maxAttempts int64
 }
 
 func NewBruteForceDetector(redisAddr string, brokers string, groupID string, topic string, logger *slog.Logger) (*BruteForceDetector, error) {
@@ -38,10 +40,18 @@ func NewBruteForceDetector(redisAddr string, brokers string, groupID string, top
 		MaxBytes: 10e6,
 	})
 
+	maxAttempts := int64(10)
+	if v := os.Getenv("THREAT_MAX_FAILED_LOGINS"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			maxAttempts = n
+		}
+	}
+
 	return &BruteForceDetector{
-		rdb:    rdb,
-		reader: r,
-		logger: logger,
+		rdb:         rdb,
+		reader:      r,
+		logger:      logger,
+		maxAttempts: maxAttempts,
 	}, nil
 }
 
@@ -104,7 +114,7 @@ func (d *BruteForceDetector) trackFailedAttempt(ctx context.Context, key string)
 	count := incr.Val()
 	d.logger.Debug("failed attempt tracked", "key", key, "count", count)
 
-	if count >= MaxAttempts {
+	if count >= d.maxAttempts {
 		d.logger.Warn("brute force attack detected", "key", key, "attempts", count)
 		d.publishThreatEvent(ctx, key, count)
 	}
@@ -138,7 +148,7 @@ func (d *BruteForceDetector) CheckRateLimit(ctx context.Context, key string) (bo
 	if err != nil {
 		return false, 0
 	}
-	return count < MaxAttempts, count
+	return count < d.maxAttempts, count
 }
 
 func (d *BruteForceDetector) GetThreats(ctx context.Context) ([]map[string]interface{}, error) {

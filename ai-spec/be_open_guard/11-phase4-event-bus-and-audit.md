@@ -37,6 +37,25 @@ partition.assignment.strategy: cooperative-sticky  # Incremental rebalance — m
 
 The `CooperativeStickyAssignor` is mandatory. With eager rebalancing (default), all consumers stop during rebalancing. With incremental rebalancing, only partitions that move are paused.
 
+### 12.1.1.1 Library Note: Cooperative Sticky Assignor
+
+kafka-go (`github.com/segmentio/kafka-go`) does not implement
+CooperativeStickyAssignor. Two options:
+
+**Option A (Recommended):** Migrate consumers to `github.com/confluentinc/confluent-kafka-go/v2`.
+This is the only Go library with full cooperative-sticky support.
+Trade-off: Requires librdkafka CGO dependency. Use the static build tag:
+`CGO_ENABLED=1 go build -tags static`.
+
+**Option B:** Accept eager rebalancing with kafka-go. Mitigate by:
+- Setting `session.timeout.ms = 45000` (reduce rebalance window)
+- Using `MaxWait = 1s` on FetchMessage to reduce pause during rebalance
+- Monitoring `kafka_consumer_group_rebalances_total` metric
+
+The Dockerfile base image must include build-essential for Option A.
+The current codebase uses kafka-go. **Migration to confluent-kafka-go is
+required before Phase 4 acceptance criteria can be met for cooperative rebalancing.**
+
 ---
 
 ## 12.2 Audit Log Service — CQRS Architecture

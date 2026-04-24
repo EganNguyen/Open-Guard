@@ -9,62 +9,75 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type AuditRepository struct {
-	db *mongo.Database
+type AuditWriteRepository struct {
+	DB *mongo.Database
 }
 
-func NewAuditRepository(client *mongo.Client, dbName string) *AuditRepository {
-	return &AuditRepository{
-		db: client.Database(dbName),
+type AuditReadRepository struct {
+	DB *mongo.Database
+}
+
+func NewAuditWriteRepository(client *mongo.Client, dbName string) *AuditWriteRepository {
+	return &AuditWriteRepository{
+		DB: client.Database(dbName),
 	}
 }
 
-func (r *AuditRepository) BulkWrite(ctx context.Context, events []interface{}) error {
-	coll := r.db.Collection("audit_events")
+func NewAuditReadRepository(client *mongo.Client, dbName string) *AuditReadRepository {
+	return &AuditReadRepository{
+		DB: client.Database(dbName),
+	}
+}
+
+func (r *AuditWriteRepository) BulkWrite(ctx context.Context, events []interface{}) error {
+	coll := r.DB.Collection("audit_events")
 	
 	var models []mongo.WriteModel
 	for _, event := range events {
 		models = append(models, mongo.NewInsertOneModel().SetDocument(event))
 	}
 
-	opts := options.BulkWrite().SetOrdered(false) // R-07 requirement
+	opts := options.BulkWrite().SetOrdered(true) // Ordered for chain integrity
 	_, err := coll.BulkWrite(ctx, models, opts)
 	return err
 }
 
-func (r *AuditRepository) GetLatestHash(ctx context.Context, orgID string) (string, int64, error) {
-	coll := r.db.Collection("hash_chains")
-	
+func (r *AuditWriteRepository) ReserveSequence(ctx context.Context, orgID string, count int64) (startSeq int64, prevHash string, err error) {
+	coll := r.DB.Collection("hash_chains")
 	var result struct {
 		Hash     string `bson:"hash"`
 		Sequence int64  `bson:"sequence"`
 	}
-	
-	err := coll.FindOne(ctx, bson.M{"org_id": orgID}).Decode(&result)
-	if err == mongo.ErrNoDocuments {
-		return "", 0, nil
+	opts := options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After)
+	err = coll.FindOneAndUpdate(ctx,
+		bson.M{"org_id": orgID},
+		bson.M{
+			"$inc": bson.M{"sequence": count},
+			"$setOnInsert": bson.M{"hash": "", "created_at": time.Now()},
+		},
+		opts,
+	).Decode(&result)
+	if err != nil {
+		return 0, "", err
 	}
-	return result.Hash, result.Sequence, err
+	return result.Sequence - count, result.Hash, nil // startSeq is BEFORE increment
 }
 
-func (r *AuditRepository) UpdateHashChain(ctx context.Context, orgID, newHash string) error {
-	coll := r.db.Collection("hash_chains")
+func (r *AuditWriteRepository) UpdateHashChain(ctx context.Context, orgID, newHash string) error {
+	coll := r.DB.Collection("hash_chains")
 	
 	_, err := coll.UpdateOne(
 		ctx,
 		bson.M{"org_id": orgID},
 		bson.M{
 			"$set": bson.M{"hash": newHash},
-			"$inc": bson.M{"sequence": 1},
-			"$setOnInsert": bson.M{"created_at": time.Now()},
 		},
-		options.Update().SetUpsert(true),
 	)
 	return err
 }
 
-func (r *AuditRepository) FindEvents(ctx context.Context, filter bson.M, limit int64, offset int64) ([]map[string]interface{}, error) {
-	coll := r.db.Collection("audit_events")
+func (r *AuditReadRepository) FindEvents(ctx context.Context, filter bson.M, limit int64, offset int64) ([]map[string]interface{}, error) {
+	coll := r.DB.Collection("audit_events")
 	
 	opts := options.Find().
 		SetLimit(limit).
@@ -84,16 +97,17 @@ func (r *AuditRepository) FindEvents(ctx context.Context, filter bson.M, limit i
 	return events, nil
 }
 
-func (r *AuditRepository) GetLatestEvent(ctx context.Context) (map[string]interface{}, error) {
-	coll := r.db.Collection("audit_events")
+func (r *AuditReadRepository) GetLatestHash(ctx context.Context, orgID string) (string, int64, error) {
+	coll := r.DB.Collection("hash_chains")
 	
-	opts := options.FindOne().
-		SetSort(bson.M{"timestamp": -1})
-	
-	var event map[string]interface{}
-	err := coll.FindOne(ctx, bson.M{}, opts).Decode(&event)
-	if err == mongo.ErrNoDocuments {
-		return nil, nil
+	var result struct {
+		Hash     string `bson:"hash"`
+		Sequence int64  `bson:"sequence"`
 	}
-	return event, err
+	
+	err := coll.FindOne(ctx, bson.M{"org_id": orgID}).Decode(&result)
+	if err == mongo.ErrNoDocuments {
+		return "", 0, nil
+	}
+	return result.Hash, result.Sequence, err
 }

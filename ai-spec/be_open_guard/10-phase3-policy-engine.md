@@ -91,15 +91,38 @@ CREATE TABLE policy_eval_log (
 - SDK uses local cache if available.
 - After SDK cache TTL expires with no successful re-fetch: SDK returns `DenyDecision`.
 
+## 11.4 SDK Resilience Behavior
+
+When the policy service is unavailable, the SDK behavior depends on configuration:
+
+- `FailOpen: false` (default): Return error to caller. Application MUST treat
+  error as DENY. This is the recommended setting for security-sensitive resources.
+- `FailOpen: true`: Return `EvaluateResponse{Effect: "allow"}` to caller with a
+  `CacheHit: "failopen"` marker. Use only for non-security-critical paths where
+  availability is more important than access control.
+
+The SDK MUST include a circuit breaker (3 failures in 10s → open for 30s) and
+exponential retry (2 attempts, 50ms base delay) before triggering the fail-open/
+fail-closed behavior.
+
+SDK initialization:
+```go
+og := sdk.NewClient(policyURL, apiKey,
+    sdk.WithFailOpen(false),          // fail closed on policy service outage
+    sdk.WithCircuitBreaker(3, 30*time.Second),
+    sdk.WithRetry(2, 50*time.Millisecond),
+)
+```
+
 ---
 
-## 11.4 Policy Webhook to Connectors
+## 11.5 Policy Webhook to Connectors
 
 When a policy changes, connected apps with scope `policy:read` receive a signed outbound webhook within 5 seconds.
 
 ---
 
-## 11.5 Policy Management API
+## 11.6 Policy Management API
 
 | Method | Path | Description |
 |---|---|---|
@@ -113,7 +136,7 @@ When a policy changes, connected apps with scope `policy:read` receive a signed 
 
 ---
 
-## 11.6 Phase 3 Acceptance Criteria
+## 11.7 Phase 3 Acceptance Criteria
 
 - [ ] `POST /v1/policy/evaluate` p99 < 30ms (uncached) under 500 concurrent requests.
 - [ ] `POST /v1/policy/evaluate` p99 < 5ms (Redis cached) under 500 concurrent requests.

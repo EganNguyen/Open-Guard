@@ -10,7 +10,55 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+	"time"
 )
+
+// RunWithLock executes the migration with a distributed Redis lock.
+func RunWithLock(ctx context.Context, rdb *redis.Client, lockKey string, logger *slog.Logger, task func(ctx context.Context) error) error {
+	lockTTL := 60 * time.Second
+
+	// Acquire lock (SET NX with TTL)
+	acquired, err := rdb.SetNX(ctx, lockKey, "1", lockTTL).Result()
+	if err != nil {
+		return fmt.Errorf("redis lock error: %w", err)
+	}
+	if !acquired {
+		logger.Info("migration lock held by another instance, waiting...", "key", lockKey)
+		// Wait and poll
+		for i := 0; i < 30; i++ {
+			time.Sleep(2 * time.Second)
+			exists, _ := rdb.Exists(ctx, lockKey).Result()
+			if exists == 0 {
+				break
+			}
+		}
+		return nil // Other instance ran migrations
+	}
+
+	// Heartbeat goroutine: extend TTL every 10s
+	stopHeartbeat := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				rdb.Expire(ctx, lockKey, lockTTL)
+			case <-stopHeartbeat:
+				return
+			}
+		}
+	}()
+	defer func() {
+		close(stopHeartbeat)
+		rdb.Del(ctx, lockKey)
+	}()
+
+	// Run migrations task
+	return task(ctx)
+}
+
 
 // Migrate runs all .sql files in the specified directory against the pool.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, migrationsDir string) error {

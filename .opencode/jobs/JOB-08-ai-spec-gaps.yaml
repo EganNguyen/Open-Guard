@@ -1,0 +1,208 @@
+id: JOB-08
+title: "AI-Spec Gaps — Undocumented Implementation Decisions & Missing Clarity"
+priority: P2
+phase_impact: [all]
+severity: MEDIUM
+estimated_effort: 2d
+
+summary: |
+  The ai-spec is comprehensive but contains several gaps where the implementation
+  made reasonable decisions that are not documented, and ambiguities that led to
+  spec deviations. These gaps should be closed to keep the spec as the authoritative
+  source of truth for future AI-assisted development.
+
+problems:
+  - id: SPEC-01
+    title: "Connector registry vs IAM connector management — dual ownership not documented"
+    description: |
+      The codebase has TWO places that manage connectors:
+      1. `services/iam/pkg/repository/repository.go` — CreateConnector, UpdateConnector, DeleteConnector
+      2. `services/connector-registry/` — a fully separate microservice with its own DB
+
+      The IAM service's connector management appears to be leftover from an earlier
+      design. The spec (§05, §FE-05) describes the connector-registry as the authority
+      for connector CRUD. But the IAM service also exposes connector endpoints at
+      `/mgmt/connectors`. This creates two sources of truth for connector state.
+
+    spec_update: |
+      Add to `ai-spec/be_open_guard/02-repository-layout.md`:
+      ```markdown
+      ## Connector Ownership
+
+      The **connector-registry** service is the sole authority for connector CRUD.
+      The IAM service's `/mgmt/connectors` endpoints are **deprecated** and will be
+      removed in Phase 3. During the transition period:
+      - The IAM router routes `/mgmt/connectors/*` to the connector-registry via
+        HTTP proxy (not direct DB access).
+      - The IAM `connectors` table migration (008_create_connectors.up.sql) should be
+        removed once the connector-registry migration is stable.
+      - API key validation for connector authentication MUST go through the
+        connector-registry's `ValidateAPIKey` path, not the IAM service.
+      ```
+
+  - id: SPEC-02
+    title: "SDK circuit breaker and retry behavior undocumented"
+    description: |
+      The SDK (`sdk/client.go`) has a local 60-second cache but no circuit breaker
+      or retry logic. If the policy service is unreachable, `Evaluate()` immediately
+      returns an error. The spec does not specify what the SDK's default behavior
+      should be when the policy service is unavailable — fail open or fail closed?
+
+    spec_update: |
+      Add to `ai-spec/be_open_guard/10-phase3-policy-engine.md` §11.4 (SDK Spec):
+      ```markdown
+      ## SDK Resilience Behavior
+
+      When the policy service is unavailable, the SDK behavior depends on configuration:
+
+      - `FailOpen: false` (default): Return error to caller. Application MUST treat
+        error as DENY. This is the recommended setting for security-sensitive resources.
+      - `FailOpen: true`: Return `EvaluateResponse{Effect: "allow"}` to caller with a
+        `CacheHit: "failopen"` marker. Use only for non-security-critical paths where
+        availability is more important than access control.
+
+      The SDK MUST include a circuit breaker (3 failures in 10s → open for 30s) and
+      exponential retry (2 attempts, 50ms base delay) before triggering the fail-open/
+      fail-closed behavior.
+
+      SDK initialization:
+      ```go
+      og := sdk.NewClient(policyURL, apiKey,
+          sdk.WithFailOpen(false),          // fail closed on policy service outage
+          sdk.WithCircuitBreaker(3, 30*time.Second),
+          sdk.WithRetry(2, 50*time.Millisecond),
+      )
+      ```
+      ```
+
+  - id: SPEC-03
+    title: "SCIM auth mechanism not specified — implementation uses no auth"
+    description: |
+      The IAM SCIM endpoints (`/auth/scim/v2/Users`) have no authentication middleware
+      in the current implementation. The spec §10.3 mentions SCIM provisioning but
+      does not specify how SCIM requests should be authenticated. The SCIM v2 standard
+      uses Bearer tokens — but which tokens? Service-to-service API keys? OAuth2?
+
+    spec_update: |
+      Add to `ai-spec/be_open_guard/09-phase2-foundation-and-auth.md` §10.3.4:
+      ```markdown
+      ## SCIM Authentication
+
+      SCIM endpoints authenticate via Bearer token using a dedicated SCIM API key:
+      - The key is provisioned per-org via `POST /mgmt/connectors` with `scopes: ["scim:write"]`.
+      - The `shared/middleware/scim.go` middleware validates the key against the
+        connector-registry `ValidateAPIKey` path.
+      - SCIM tokens are stored with type `scim` in the api_tokens table.
+      - IdP (Okta, Azure AD) provides the Bearer token in the `Authorization` header.
+      - SCIM requests without a valid token MUST return 401 with WWW-Authenticate header.
+
+      Route protection:
+      ```go
+      r.Route("/auth/scim/v2", func(r chi.Router) {
+          r.Use(shared_middleware.SCIMAuth(connectorRegistry))
+          r.Get("/Users", h.ListScimUsers)
+          r.Post("/Users", h.CreateScimUser)
+          r.Get("/Users/{id}", h.GetScimUser)
+          r.Patch("/Users/{id}", h.PatchScimUser)
+      })
+      ```
+      ```
+
+  - id: SPEC-04
+    title: "Threat detector thresholds hardcoded in code — should be env-configurable"
+    description: |
+      The brute force detector hardcodes `MaxAttempts = 5` and `WindowSize = 5 minutes`.
+      The spec §13.1 specifies `THREAT_MAX_FAILED_LOGINS` env var and
+      `THREAT_ANOMALY_WINDOW_MINUTES`. The code does not read these env vars.
+      The spec table also says brute force threshold is `THREAT_MAX_FAILED_LOGINS` logins
+      within `THREAT_ANOMALY_WINDOW_MINUTES` — the defaults should be 11 and 5 minutes
+      respectively (spec acceptance criteria: "11 failed logins within window → HIGH alert").
+
+    spec_update: |
+      Add to `ai-spec/be_open_guard/12-phase5-threat-and-alerting.md` §13.1.2:
+      ```markdown
+      ## Detector Configuration (Environment Variables)
+
+      All detector thresholds MUST be configurable via environment variables.
+      The code MUST NOT use hardcoded values for thresholds.
+
+      | Variable | Default | Description |
+      |---|---|---|
+      | `THREAT_MAX_FAILED_LOGINS` | `11` | Brute force login attempts before alert |
+      | `THREAT_ANOMALY_WINDOW_MINUTES` | `5` | Time window for counting failures |
+      | `THREAT_GEO_CHANGE_THRESHOLD_KM` | `500` | Distance for impossible travel |
+      | `THREAT_OFF_HOURS_START` | `22` | Hour (UTC) when off-hours begins |
+      | `THREAT_OFF_HOURS_END` | `6` | Hour (UTC) when off-hours ends |
+      | `ALERTING_SIEM_REPLAY_TOLERANCE_SECONDS` | `300` | Max age for SIEM webhooks |
+      | `ALERTING_SIEM_WEBHOOK_HMAC_SECRET` | (required) | HMAC key for signing |
+      ```
+
+  - id: SPEC-05
+    title: "Example app uses string context keys — data race and type collision risk"
+    description: |
+      In `examples/task-management-app/backend/main.go`, context values are stored
+      with plain string keys:
+      ```go
+      ctx = context.WithValue(ctx, "user_id", claims.UserID)
+      ctx = context.WithValue(ctx, "org_id", claims.OrgID)
+      ```
+      Using untyped string keys is a known Go anti-pattern. The Go docs explicitly warn
+      that string keys can collide with keys from other packages. The IAM service itself
+      uses typed `contextKey` — the example app should follow the same pattern.
+
+    spec_update: |
+      Add to `ai-spec/be_open_guard/00-code-quality-standards.md`:
+      ```markdown
+      ## Context Key Convention
+
+      All context values MUST use typed unexported keys to prevent collisions:
+      ```go
+      // CORRECT
+      type contextKey string
+      const userIDKey contextKey = "user_id"
+      ctx = context.WithValue(ctx, userIDKey, userID)
+
+      // WRONG — string key collides with any package using "user_id"
+      ctx = context.WithValue(ctx, "user_id", userID)
+      ```
+      This applies to all services including example apps. The shared middleware
+      package provides `GetUserID(ctx)` and `GetOrgID(ctx)` helpers — use these
+      instead of reading from context directly.
+      ```
+
+  - id: SPEC-06
+    title: "No spec for Kafka consumer group cooperative sticky assignor"
+    description: |
+      The spec §12.1.1 mandates `cooperative-sticky` partition assignment strategy.
+      kafka-go does not support `CooperativeStickyAssignor` natively. The codebase uses
+      kafka-go for all consumers but the spec requirement can only be met with Confluent's
+      go-kafka or sarama. This is an unresolved library conflict in the spec.
+
+    spec_update: |
+      Add to `ai-spec/be_open_guard/11-phase4-event-bus-and-audit.md` §12.1.1:
+      ```markdown
+      ## Library Note: Cooperative Sticky Assignor
+
+      kafka-go (`github.com/segmentio/kafka-go`) does not implement
+      CooperativeStickyAssignor. Two options:
+
+      **Option A (Recommended):** Migrate consumers to `github.com/confluentinc/confluent-kafka-go/v2`.
+      This is the only Go library with full cooperative-sticky support.
+      Trade-off: Requires librdkafka CGO dependency. Use the static build tag:
+      `CGO_ENABLED=1 go build -tags static`.
+
+      **Option B:** Accept eager rebalancing with kafka-go. Mitigate by:
+      - Setting `session.timeout.ms = 45000` (reduce rebalance window)
+      - Using `MaxWait = 1s` on FetchMessage to reduce pause during rebalance
+      - Monitoring `kafka_consumer_group_rebalances_total` metric
+
+      The Dockerfile base image must include build-essential for Option A.
+      The current codebase uses kafka-go. **Migration to confluent-kafka-go is
+      required before Phase 4 acceptance criteria can be met for cooperative rebalancing.**
+      ```
+
+acceptance_criteria:
+  - "All 6 spec updates merged into their respective ai-spec markdown files"
+  - "Spec update for SDK resilience includes code example that compiles against actual SDK API"
+  - "SCIM auth section includes a concrete test case (Bearer token → 200 vs missing → 401)"
+  - "Kafka library decision (Option A or B) documented and confirmed in spec before Phase 4 begins"

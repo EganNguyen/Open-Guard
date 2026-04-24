@@ -349,12 +349,65 @@ func (h *Handler) TOTPEnable(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	orgID := middleware.GetOrgID(r.Context())
 
-	if err := h.svc.EnableTOTP(r.Context(), orgID, userID, body.Code, body.Secret); err != nil {
+	backupCodes, err := h.svc.EnableTOTP(r.Context(), orgID, userID, body.Code, body.Secret)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]string{"status": "mfa_enabled"})
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":       "mfa_enabled",
+		"backup_codes": backupCodes,
+	})
+}
+
+func (h *Handler) VerifyBackupCode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ChallengeToken string `json:"mfa_challenge"`
+		Code           string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// 1. Get userID from challenge (logic repeated from VerifyMFA for simplicity)
+	// Ideally VerifyMFAAndLogin should handle both TOTP and Backup Codes
+	// But the spec says POST /auth/mfa/backup-verify
+	
+	// I'll update VerifyMFAAndLogin in service.go to handle both, 
+	// OR I'll implement the logic here.
+	
+	// Actually, let's keep it simple as per prompt:
+	// "Add a POST /auth/mfa/backup-verify endpoint and wire it to VerifyBackupCode"
+	
+	// Wait, VerifyBackupCode in service.go takes userID. 
+	// I need to get userID from challengeToken first.
+	
+	// I'll add a helper to service.go to get userID from challenge or just use VerifyBackupCode.
+	// Actually, I'll update the handler to use a new service method that handles the challenge too.
+	
+	user, token, err := h.svc.VerifyBackupCodeAndLogin(r.Context(), body.ChallengeToken, body.Code, r.UserAgent(), r.RemoteAddr)
+	if err != nil {
+		http.Error(w, "Invalid backup code", http.StatusUnauthorized)
+		return
+	}
+
+	// Set session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "openguard_session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   3600,
+	})
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"user":         user,
+		"access_token": token,
+	})
 }
 
 func (h *Handler) UpdateConnector(w http.ResponseWriter, r *http.Request) {

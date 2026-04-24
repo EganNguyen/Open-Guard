@@ -26,7 +26,13 @@ func (t *CircuitBreakerTransport) RoundTrip(req *http.Request) (*http.Response, 
 }
 
 func NewProxy(targetURL string, cb *gobreaker.CircuitBreaker) http.HandlerFunc {
-	parsedURL, _ := url.Parse(targetURL)
+	parsedURL, err := url.Parse(targetURL)
+	if err != nil {
+		panic(fmt.Sprintf("invalid proxy target URL %q: %v", targetURL, err))
+	}
+	if parsedURL.Host == "" {
+		panic(fmt.Sprintf("proxy target URL %q has empty host", targetURL))
+	}
 	proxy := httputil.NewSingleHostReverseProxy(parsedURL)
 	
 	// Default transport wrapped with circuit breaker

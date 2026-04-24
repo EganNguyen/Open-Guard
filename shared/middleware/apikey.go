@@ -39,23 +39,31 @@ const (
 	apiKeyPrefixLen   = 8            // "ogk_" + 4 chars = 8 chars for prefix matching
 )
 
-type contextKeyType string
+// APIKeyAuth is a middleware that authenticates requests using a simple fixed API key.
+// Used for internal service-to-service calls per spec §11.
+func APIKeyAuth(expectedKey string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := r.Header.Get("X-Internal-Key")
+			if key == "" || subtle.ConstantTimeCompare([]byte(key), []byte(expectedKey)) != 1 {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
 
-const (
-	ConnectorIDKey contextKeyType = "connector_id"
-	OrgIDKey       contextKeyType = "org_id_api"
-)
+			// For internal calls, we trust the org ID header if the internal key is valid.
+			if orgID := r.Header.Get("X-OpenGuard-Org-ID"); orgID != "" {
+				ctx := context.WithValue(r.Context(), OrgIDKey, orgID)
+				r = r.WithContext(ctx)
+			}
 
-// APIKeyAuth is a middleware that authenticates connector requests using the
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// APIKeyAuthComplex is a middleware that authenticates connector requests using the
 // fast-hash prefix → Redis → PBKDF2 fallback chain per spec §2.6.
-//
-// Flow:
-//  1. Extract key from X-OpenGuard-Key header
-//  2. Compute SHA-256 of the full key for Redis lookup (fast path)
-//  3. If Redis cache hit, return cached connector/org IDs
-//  4. Fall back to DB: look up by 8-char prefix, then PBKDF2 verify
-//  5. On success, cache the result in Redis for 5 minutes
-func APIKeyAuth(lookup APIKeyLookup) func(http.Handler) http.Handler {
+func APIKeyAuthComplex(lookup APIKeyLookup) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			rawKey := r.Header.Get(apiKeyHeaderName)
@@ -158,12 +166,4 @@ func derivePBKDF2(key, saltHex string, iterations int) string {
 // constantTimeCompare does a constant-time string comparison.
 func constantTimeCompare(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
-}
-
-// GetConnectorID retrieves the connector ID from the context.
-func GetConnectorID(ctx context.Context) string {
-	if id, ok := ctx.Value(ConnectorIDKey).(string); ok {
-		return id
-	}
-	return ""
 }

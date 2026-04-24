@@ -58,6 +58,13 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
+type contextKey string
+
+const (
+	userIDKey contextKey = "user_id"
+	orgIDKey  contextKey = "org_id"
+)
+
 	authMiddleware := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -74,8 +81,8 @@ func main() {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), "user_id", claims.UserID)
-			ctx = context.WithValue(ctx, "org_id", claims.OrgID)
+			ctx := context.WithValue(r.Context(), userIDKey, claims.UserID)
+			ctx = context.WithValue(ctx, orgIDKey, claims.OrgID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -83,7 +90,7 @@ func main() {
 	policyMiddleware := func(action string) func(http.Handler) http.Handler {
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				userID := r.Context().Value("user_id").(string)
+				userID, _ := r.Context().Value(userIDKey).(string)
 
 				// Use SDK for policy evaluation (R-15)
 				allowed, err := og.Allow(r.Context(), userID, action, "task:*")
@@ -106,8 +113,8 @@ func main() {
 		r.Use(authMiddleware)
 
 		r.With(policyMiddleware("task:list")).Get("/", func(w http.ResponseWriter, r *http.Request) {
-			userID := r.Context().Value("user_id").(string)
-			orgID := r.Context().Value("org_id").(string)
+			userID, _ := r.Context().Value(userIDKey).(string)
+			orgID, _ := r.Context().Value(orgIDKey).(string)
 			var tasks []map[string]interface{}
 			// In production, we'd filter by org_id too
 			rows, err := pool.Query(r.Context(), "SELECT id, title, status FROM tasks WHERE owner_id = $1", userID)
@@ -126,7 +133,7 @@ func main() {
 		})
 
 		r.With(policyMiddleware("task:create")).Post("/", func(w http.ResponseWriter, r *http.Request) {
-			userID := r.Context().Value("user_id").(string)
+			userID := r.Context().Value(userIDKey).(string)
 			var body struct {
 				Title string `json:"title"`
 			}
@@ -144,7 +151,7 @@ func main() {
 		})
 
 		r.With(policyMiddleware("task:update")).Put("/{id}", func(w http.ResponseWriter, r *http.Request) {
-			userID := r.Context().Value("user_id").(string)
+			userID := r.Context().Value(userIDKey).(string)
 			taskID := chi.URLParam(r, "id")
 			var body struct {
 				Status string `json:"status"`
@@ -160,7 +167,7 @@ func main() {
 		})
 
 		r.With(policyMiddleware("task:delete")).Delete("/{id}", func(w http.ResponseWriter, r *http.Request) {
-			userID := r.Context().Value("user_id").(string)
+			userID := r.Context().Value(userIDKey).(string)
 			taskID := chi.URLParam(r, "id")
 
 			_, err := pool.Exec(r.Context(), "DELETE FROM tasks WHERE id = $1 AND owner_id = $2", taskID, userID)

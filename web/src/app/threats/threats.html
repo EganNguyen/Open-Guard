@@ -16,7 +16,7 @@
   <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
     <div class="bg-white p-6 rounded-lg border border-[#DFE1E6] shadow-sm">
       <div class="flex items-center justify-between mb-2">
-        <span class="text-[#6B778C] text-sm font-medium">Total Events</span>
+        <span class="text-[#6B778C] text-sm font-medium">Total Alerts</span>
         <span class="material-symbols-outlined text-blue-500">security</span>
       </div>
       <div class="text-2xl font-bold">{{ stats().total }}</div>
@@ -32,25 +32,25 @@
 
     <div class="bg-white p-6 rounded-lg border border-[#DFE1E6] shadow-sm">
       <div class="flex items-center justify-between mb-2">
-        <span class="text-[#6B778C] text-sm font-medium">Blocked</span>
-        <span class="material-symbols-outlined text-orange-500">block</span>
+        <span class="text-[#6B778C] text-sm font-medium">Open</span>
+        <span class="material-symbols-outlined text-orange-500">pending</span>
       </div>
-      <div class="text-2xl font-bold text-orange-600">{{ stats().blocked }}</div>
+      <div class="text-2xl font-bold text-orange-600">{{ stats().open }}</div>
     </div>
 
     <div class="bg-white p-6 rounded-lg border border-[#DFE1E6] shadow-sm">
       <div class="flex items-center justify-between mb-2">
-        <span class="text-[#6B778C] text-sm font-medium">Rate Limited</span>
-        <span class="material-symbols-outlined text-yellow-500">speed</span>
+        <span class="text-[#6B778C] text-sm font-medium">Resolved</span>
+        <span class="material-symbols-outlined text-green-500">check_circle</span>
       </div>
-      <div class="text-2xl font-bold text-yellow-600">{{ stats().rateLimited }}</div>
+      <div class="text-2xl font-bold text-green-600">{{ stats().resolved }}</div>
     </div>
   </div>
 
   <!-- Threats Table -->
   <div class="bg-white rounded-lg border border-[#DFE1E6] shadow-sm overflow-hidden">
     <div class="p-4 border-b border-[#DFE1E6] bg-[#FAFBFC] flex justify-between items-center">
-      <h3 class="font-semibold">Recent Detections</h3>
+      <h3 class="font-semibold">Security Alerts</h3>
       <div class="flex items-center space-x-2">
         <span class="text-xs text-[#6B778C]">Live Updates Enabled</span>
         <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
@@ -61,64 +61,65 @@
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="text-xs font-semibold text-[#6B778C] uppercase tracking-wider bg-[#FAFBFC] border-b border-[#DFE1E6]">
-            <th class="px-6 py-3">Time</th>
+            <th class="px-6 py-3">Created</th>
+            <th class="px-6 py-3">Title</th>
             <th class="px-6 py-3">Detector</th>
-            <th class="px-6 py-3">Source IP</th>
-            <th class="px-6 py-3">Target Path</th>
-            <th class="px-6 py-3">Action</th>
-            <th class="px-6 py-3">Level</th>
+            <th class="px-6 py-3">Status</th>
+            <th class="px-6 py-3">Severity</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-[#DFE1E6]">
           @if (loading()) {
             <tr>
-              <td colspan="6" class="px-6 py-12 text-center">
+              <td colspan="5" class="px-6 py-12 text-center">
                 <div class="flex flex-col items-center justify-center space-y-3">
                   <div class="w-8 h-8 border-4 border-[#0747A6] border-t-transparent rounded-full animate-spin"></div>
-                  <span class="text-sm text-[#6B778C]">Loading threat data...</span>
+                  <span class="text-sm text-[#6B778C]">Loading alerts...</span>
                 </div>
               </td>
             </tr>
           } @else if (error()) {
             <tr>
-              <td colspan="6" class="px-6 py-12 text-center text-red-500">
+              <td colspan="5" class="px-6 py-12 text-center text-red-500">
                 <span class="material-symbols-outlined text-4xl mb-2">error</span>
                 <p>{{ error() }}</p>
               </td>
             </tr>
-          } @else if (threats().length === 0) {
+          } @else if (alerts().length === 0) {
             <tr>
-              <td colspan="6" class="px-6 py-12 text-center text-[#6B778C]">
+              <td colspan="5" class="px-6 py-12 text-center text-[#6B778C]">
                 <span class="material-symbols-outlined text-4xl mb-2">shield_check</span>
-                <p>No threats detected in the last 24 hours. Your system is safe!</p>
+                <p>No threats detected. Your system is safe!</p>
               </td>
             </tr>
           } @else {
-            @for (threat of threats(); track threat.id) {
+            @for (alert of alerts(); track alert.id) {
               <tr class="hover:bg-[#FAFBFC] transition-colors group cursor-pointer">
                 <td class="px-6 py-4 text-sm whitespace-nowrap">
-                  {{ threat.timestamp | date:'MMM d, HH:mm:ss' }}
+                  {{ alert.created_at | date:'MMM d, HH:mm:ss' }}
                 </td>
                 <td class="px-6 py-4">
                   <div class="flex items-center">
-                    <span class="text-sm font-medium">{{ threat.detector_id }}</span>
+                    <span class="text-sm font-medium">{{ alert.title }}</span>
                   </div>
                 </td>
                 <td class="px-6 py-4 text-sm font-mono text-[#42526E]">
-                  {{ threat.source_ip }}
-                </td>
-                <td class="px-6 py-4 text-sm truncate max-w-xs text-[#6B778C]">
-                  {{ threat.path }}
+                  {{ alert.detector_id }}
                 </td>
                 <td class="px-6 py-4 text-sm">
-                  <span [class]="getActionClass(threat.action)">
-                    {{ threat.action }}
+                  <span class="px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider"
+                        [ngClass]="{
+                          'bg-blue-100 text-blue-800': alert.status === 'OPEN',
+                          'bg-purple-100 text-purple-800': alert.status === 'ACKNOWLEDGED',
+                          'bg-green-100 text-green-800': alert.status === 'RESOLVED'
+                        }">
+                    {{ alert.status }}
                   </span>
                 </td>
                 <td class="px-6 py-4 text-xs">
                   <span class="px-2 py-1 rounded-full border font-semibold"
-                        [ngClass]="getThreatLevelClass(threat.threat_level)">
-                    {{ threat.threat_level }}
+                        [ngClass]="getThreatLevelClass(alert.severity)">
+                    {{ alert.severity }}
                   </span>
                 </td>
               </tr>
@@ -129,7 +130,7 @@
     </div>
     
     <div class="p-4 bg-[#FAFBFC] border-t border-[#DFE1E6] flex justify-between items-center">
-      <span class="text-xs text-[#6B778C]">Showing {{ threats().length }} most recent events</span>
+      <span class="text-xs text-[#6B778C]">Showing {{ alerts().length }} alerts</span>
       <div class="flex space-x-1">
         <button class="p-1 rounded hover:bg-[#EBECF0] disabled:opacity-50" disabled>
           <span class="material-symbols-outlined text-sm">chevron_left</span>

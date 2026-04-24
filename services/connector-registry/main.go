@@ -14,12 +14,22 @@ import (
 	"github.com/openguard/services/connector-registry/pkg/repository"
 	"github.com/openguard/services/connector-registry/pkg/router"
 	"github.com/openguard/services/connector-registry/pkg/service"
+	"github.com/openguard/services/connector-registry/pkg/telemetry"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+
+	// Initialize OpenTelemetry (INFRA-04)
+	tp, err := telemetry.InitTracer()
+	if err != nil {
+		logger.Error("failed to initialize tracer", "error", err)
+	} else {
+		defer tp.Shutdown(context.Background())
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -239,3 +239,15 @@ services/<name>/
 └── testdata/
     └── fixtures/
 ```
+
+## 3.6 Connector Ownership
+
+The **connector-registry** service is the sole authority for connector CRUD.
+The IAM service's `/mgmt/connectors` endpoints are **deprecated** and will be
+removed in Phase 3. During the transition period:
+- The IAM router routes `/mgmt/connectors/*` to the connector-registry via
+  HTTP proxy (not direct DB access).
+- The IAM `connectors` table migration (008_create_connectors.up.sql) should be
+  removed once the connector-registry migration is stable.
+- API key validation for connector authentication MUST go through the
+  connector-registry's `ValidateAPIKey` path, not the IAM service.

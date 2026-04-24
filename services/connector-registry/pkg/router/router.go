@@ -4,6 +4,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/openguard/services/connector-registry/pkg/handlers"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func NewRouter(h *handlers.Handler) *chi.Mux {
@@ -14,6 +15,7 @@ func NewRouter(h *handlers.Handler) *chi.Mux {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
+	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/health", h.Health)
 
 	r.Route("/v1/connectors", func(r chi.Router) {

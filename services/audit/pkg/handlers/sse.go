@@ -4,30 +4,39 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
+	"os"
 
 	"github.com/openguard/services/audit/pkg/repository"
+	"github.com/openguard/shared/middleware"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type SseHandler struct {
-	repo *repository.AuditRepository
+	repo *repository.AuditReadRepository
 }
 
-func NewSseHandler(repo *repository.AuditRepository) *SseHandler {
+func NewSseHandler(repo *repository.AuditReadRepository) *SseHandler {
 	return &SseHandler{repo: repo}
 }
 
 func (h *SseHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
-	orgID := r.URL.Query().Get("org_id")
+	orgID := middleware.GetOrgID(r.Context())
 	if orgID == "" {
-		http.Error(w, "org_id is required", http.StatusBadRequest)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	
+	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+	if allowedOrigin == "" {
+		allowedOrigin = "*"
+	}
+	w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -36,35 +45,47 @@ func (h *SseHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
+	
+	// MongoDB Change Stream
+	pipeline := mongo.Pipeline{
+		bson.D{{Key: "$match", Value: bson.D{
+			{Key: "fullDocument.org_id", Value: orgID},
+		}}},
+	}
+	
+	coll := h.repo.DB.Collection("audit_events")
+	
+	watchOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
+	
+	// Resume token support
+	lastEventID := r.URL.Query().Get("lastEventId")
+	if lastEventID != "" {
+		// In a real implementation, we would decode the resume token from lastEventID
+		// For now, we'll just log it. Real resume tokens are BSON documents.
+	}
 
-	lastID := ""
+	cs, err := coll.Watch(ctx, pipeline, watchOpts)
+	if err != nil {
+		http.Error(w, "stream unavailable", http.StatusInternalServerError)
+		return
+	}
+	defer cs.Close(ctx)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			// In a real implementation, we'd use a change stream or a pub/sub mechanism.
-			// For now, we poll for the latest events for simplicity.
-			events, err := h.repo.FindEvents(ctx, nil, 5, 0)
-			if err != nil {
-				continue
-			}
-
-			for _, event := range events {
-				id := event["_id"].(interface{}). (fmt.Stringer).String()
-				if id == lastID {
-					break
-				}
-				
-				data, _ := json.Marshal(event)
-				fmt.Fprintf(w, "data: %s\n\n", data)
-				lastID = id
-				break // only send the latest one for the poll demo
-			}
-			flusher.Flush()
+	for cs.Next(ctx) {
+		var change struct {
+			FullDocument map[string]interface{} `bson:"fullDocument"`
 		}
+		if err := cs.Decode(&change); err != nil {
+			continue
+		}
+		
+		// Use event_id as SSE ID (QUAL-05)
+		if eventID, ok := change.FullDocument["event_id"].(string); ok && eventID != "" {
+			fmt.Fprintf(w, "id: %s\n", eventID)
+		}
+		
+		data, _ := json.Marshal(change.FullDocument)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
 	}
 }

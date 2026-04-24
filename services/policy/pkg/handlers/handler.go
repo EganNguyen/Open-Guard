@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/openguard/services/policy/pkg/repository"
 	"github.com/openguard/services/policy/pkg/service"
+	"github.com/openguard/shared/middleware"
 )
 
 // Handler manages HTTP requests for the policy service.
@@ -51,6 +52,12 @@ func (h *Handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 
 	if req.OrgID == "" || req.SubjectID == "" || req.Action == "" || req.Resource == "" {
 		h.writeError(w, http.StatusBadRequest, "org_id, subject_id, action, and resource are required")
+		return
+	}
+
+	// Validate org_id matches context from internal API key
+	if ctxOrgID := middleware.GetOrgID(r.Context()); ctxOrgID != "" && ctxOrgID != req.OrgID {
+		h.writeError(w, http.StatusForbidden, "org_id mismatch")
 		return
 	}
 

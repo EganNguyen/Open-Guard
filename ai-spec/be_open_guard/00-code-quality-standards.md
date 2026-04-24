@@ -588,3 +588,21 @@ func (h *Handler) handleServiceError(w http.ResponseWriter, r *http.Request, err
 **Interfaces & DI**
 - [ ] Interfaces defined in the consuming package
 - [ ] No `init()` for side effects; no `log.Fatal` / `os.Exit` outside `main`
+
+---
+
+## 0.15 Context Key Convention
+
+All context values MUST use typed unexported keys to prevent collisions:
+```go
+// CORRECT
+type contextKey string
+const userIDKey contextKey = "user_id"
+ctx = context.WithValue(ctx, userIDKey, userID)
+
+// WRONG — string key collides with any package using "user_id"
+ctx = context.WithValue(ctx, "user_id", userID)
+```
+This applies to all services including example apps. The shared middleware
+package provides `GetUserID(ctx)` and `GetOrgID(ctx)` helpers — use these
+instead of reading from context directly.

@@ -215,6 +215,32 @@ if user == nil {
 | `auth.token.created` | `auth.events` | — |
 | `user.created`, `user.deleted`, `user.scim.provisioned` | `audit.trail` | `saga.orchestration` |
 
+### 10.3.12 SCIM Authentication
+
+SCIM endpoints authenticate via Bearer token using a dedicated SCIM API key:
+- The key is provisioned per-org via `POST /mgmt/connectors` with `scopes: ["scim:write"]`.
+- The `shared/middleware/scim.go` middleware validates the key against the
+  connector-registry `ValidateAPIKey` path.
+- SCIM tokens are stored with type `scim` in the api_tokens table.
+- IdP (Okta, Azure AD) provides the Bearer token in the `Authorization` header.
+- SCIM requests without a valid token MUST return 401 with WWW-Authenticate header.
+
+Route protection:
+```go
+r.Route("/auth/scim/v2", func(r chi.Router) {
+    r.Use(shared_middleware.SCIMAuth(connectorRegistry))
+    r.Get("/Users", h.ListScimUsers)
+    r.Post("/Users", h.CreateScimUser)
+    r.Get("/Users/{id}", h.GetScimUser)
+    r.Patch("/Users/{id}", h.PatchScimUser)
+})
+```
+
+#### Test Case: SCIM Authentication
+1. **Unauthorized:** `GET /auth/scim/v2/Users` without `Authorization` header → `401 Unauthorized` with `WWW-Authenticate: Bearer` header.
+2. **Authorized:** `GET /auth/scim/v2/Users` with `Authorization: Bearer <valid_scim_key>` → `200 OK` with SCIM ListResponse.
+3. **Invalid Token:** `GET /auth/scim/v2/Users` with `Authorization: Bearer invalid` → `401 Unauthorized`.
+
 ---
 
 ## 10.4 Control Plane Foundation

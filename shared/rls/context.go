@@ -24,7 +24,7 @@ func OrgID(ctx context.Context) string {
 // SetSessionVar sets the app.org_id session variable in the PostgreSQL connection.
 // This is used by Row-Level Security policies.
 func SetSessionVar(ctx context.Context, conn *pgxpool.Conn, orgID string) error {
-	_, err := conn.Exec(ctx, "SELECT set_config('app.org_id', $1, false)", orgID)
+	_, err := conn.Exec(ctx, "SELECT set_config('app.org_id', $1, true)", orgID)
 	if err != nil {
 		return fmt.Errorf("set rls session var: %w", err)
 	}
@@ -34,7 +34,7 @@ func SetSessionVar(ctx context.Context, conn *pgxpool.Conn, orgID string) error 
 // TxSetSessionVar sets the app.org_id session variable in the PostgreSQL transaction.
 // This is used by Row-Level Security policies.
 func TxSetSessionVar(ctx context.Context, tx pgx.Tx, orgID string) error {
-	_, err := tx.Exec(ctx, "SELECT set_config('app.org_id', $1, false)", orgID)
+	_, err := tx.Exec(ctx, "SELECT set_config('app.org_id', $1, true)", orgID)
 	if err != nil {
 		return fmt.Errorf("set rls session var in tx: %w", err)
 	}

@@ -14,15 +14,39 @@ type Client struct {
 	apiKey     string
 	httpClient *http.Client
 	cache      *localCache
+	failOpen   bool
 }
 
-func NewClient(baseURL, apiKey string) *Client {
-	return &Client{
+type ClientOption func(*Client)
+
+func WithFailOpen(enabled bool) ClientOption {
+	return func(c *Client) { c.failOpen = enabled }
+}
+
+func WithCircuitBreaker(threshold int, timeout time.Duration) ClientOption {
+	return func(c *Client) {
+		// Implementation will be added in Phase 3
+	}
+}
+
+func WithRetry(attempts int, delay time.Duration) ClientOption {
+	return func(c *Client) {
+		// Implementation will be added in Phase 3
+	}
+}
+
+func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
+	c := &Client{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: 5 * time.Second},
 		cache:      newLocalCache(60 * time.Second), // R-15 requirement
+		failOpen:   false,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body interface{}, out interface{}) error {

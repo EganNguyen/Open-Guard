@@ -33,6 +33,7 @@ export type EvaluateRequest = z.infer<typeof EvaluateRequestSchema>;
 export interface EvaluateResponse {
   effect: 'allow' | 'deny';
   matched_policy_ids: string[];
-  cache_hit: boolean;
+  max_version: number;
+  cache_hit: 'none' | 'redis' | 'sdk';
   latency_ms: number;
 }

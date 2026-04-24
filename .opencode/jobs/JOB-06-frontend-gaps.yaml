@@ -1,0 +1,269 @@
+id: JOB-06
+title: "Frontend — Missing Routes, Hardcoded URLs, Spec Deviations"
+priority: P2
+phase_impact: [2, 3, 4, 5, 6, 10]
+severity: HIGH
+estimated_effort: 5d
+
+summary: |
+  The Angular frontend is missing 3 spec-required pages (compliance, DLP, observability
+  admin), has hardcoded backend URLs in component logic, lacks the global UiService state
+  layer, misses token-refresh logic, and the threats page calls the wrong API endpoint.
+  These gaps mean the frontend cannot serve as a production dashboard.
+
+problems:
+  - id: FE-01
+    title: "Missing routes: /compliance, /dlp, /admin"
+    file: web/src/app/app.routes.ts
+    severity: HIGH
+    description: |
+      The spec (§FE-09, §FE-10, §FE-12) requires three routes that are completely absent:
+      - /compliance — compliance posture dashboard + report generation
+      - /dlp        — DLP overview, findings, policy management
+      - /admin      — observability dashboard (metrics, log viewer, trace links)
+
+      The routes.ts only has: /, /connectors, /users, /policies, /audit, /threats, /login.
+
+    fix: |
+      1. Create the three missing feature modules:
+
+         web/src/app/compliance/
+         ├── compliance.ts      (ComplianceComponent)
+         ├── compliance.html
+         └── compliance.css
+
+         web/src/app/dlp/
+         ├── dlp.ts             (DlpComponent)
+         ├── dlp.html
+         └── dlp.css
+
+         web/src/app/admin/
+         ├── admin.ts           (AdminComponent)
+         ├── admin.html
+         └── admin.css
+
+      2. Register routes in app.routes.ts:
+         ```typescript
+         { path: 'compliance', component: ComplianceComponent },
+         { path: 'dlp', component: DlpComponent },
+         { path: 'admin', component: AdminComponent },
+         ```
+
+      3. Add nav links to the layout sidebar (layout.html):
+         ```html
+         <a routerLink="/compliance" routerLinkActive="active">
+           <span class="icon">🛡️</span> Compliance
+         </a>
+         <a routerLink="/dlp" routerLinkActive="active">
+           <span class="icon">🔍</span> DLP
+         </a>
+         <a routerLink="/admin" routerLinkActive="active">
+           <span class="icon">⚙️</span> Admin
+         </a>
+         ```
+
+  - id: FE-02
+    title: "Threats component calls wrong hardcoded API URL"
+    file: web/src/app/threats/threats.ts
+    line: 63
+    severity: HIGH
+    description: |
+      The threats component directly calls `http://localhost:8080/v1/events` — the
+      audit service events endpoint, not the threat alerts endpoint. This is the wrong
+      service. The correct endpoint is `/v1/threats/alerts` (alerting service, proxied
+      through the gateway). The component also injects HttpClient directly instead of
+      using ApiService, bypassing the auth interceptor.
+
+    fix: |
+      1. Create `web/src/app/core/services/threat.service.ts`:
+         ```typescript
+         @Injectable({ providedIn: 'root' })
+         export class ThreatService {
+           private api = inject(ApiService);
+
+           listAlerts(params?: { status?: string; severity?: string }): Observable<any> {
+             let httpParams = new HttpParams();
+             if (params?.status) httpParams = httpParams.set('status', params.status);
+             if (params?.severity) httpParams = httpParams.set('severity', params.severity);
+             return this.api.get('/v1/threats/alerts', httpParams);
+           }
+
+           acknowledgeAlert(id: string): Observable<any> {
+             return this.api.post(`/v1/threats/alerts/${id}/acknowledge`, {});
+           }
+
+           resolveAlert(id: string): Observable<any> {
+             return this.api.post(`/v1/threats/alerts/${id}/resolve`, {});
+           }
+
+           getStats(): Observable<any> {
+             return this.api.get('/v1/threats/stats');
+           }
+         }
+         ```
+
+      2. Rewrite threats.ts to inject ThreatService instead of HttpClient.
+
+  - id: FE-03
+    title: "No global UiService — sidebar state lost on navigation"
+    file: web/src/app/core/
+    severity: MEDIUM
+    description: |
+      The spec (§FE-16) requires a UiService with signal-based state for:
+      - Sidebar collapsed state (persisted to localStorage)
+      - Active drawer (audit event detail, alert detail)
+      - Global toast/notification queue
+
+      Currently there is no UiService. The layout component presumably manages
+      sidebar state locally, which means it resets on every navigation.
+
+    fix: |
+      Create `web/src/app/core/state/ui.service.ts`:
+      ```typescript
+      @Injectable({ providedIn: 'root' })
+      export class UiService {
+        readonly sidebarCollapsed = signal(
+          JSON.parse(localStorage.getItem('og:ui:sidebar') ?? 'false')
+        );
+
+        readonly activeDrawer = signal<{
+          type: 'audit' | 'alert' | null;
+          id: string | null;
+        }>({ type: null, id: null });
+
+        readonly toasts = signal<Toast[]>([]);
+
+        constructor() {
+          effect(() => {
+            localStorage.setItem('og:ui:sidebar',
+              JSON.stringify(this.sidebarCollapsed()));
+          });
+        }
+
+        toggleSidebar() { this.sidebarCollapsed.update(v => !v); }
+
+        openDrawer(type: 'audit' | 'alert', id: string) {
+          this.activeDrawer.set({ type, id });
+        }
+
+        closeDrawer() { this.activeDrawer.set({ type: null, id: null }); }
+
+        addToast(toast: Toast) {
+          this.toasts.update(ts => [...ts, { ...toast, id: Date.now() }]);
+          setTimeout(() => this.dismissToast(toast.id!), toast.duration ?? 4000);
+        }
+
+        dismissToast(id: number) {
+          this.toasts.update(ts => ts.filter(t => t.id !== id));
+        }
+      }
+      ```
+
+  - id: FE-04
+    title: "No access token auto-refresh — users silently log out after 1 hour"
+    file: web/src/app/core/interceptors/
+    severity: HIGH
+    description: |
+      JWT access tokens expire after 1 hour. The auth interceptor only sets
+      `withCredentials: true` — it has no 401 handling or refresh logic.
+      After 1 hour, all API calls will silently fail with 401 and the user
+      remains stuck on a broken page until they manually log out and back in.
+
+    fix: |
+      Update `web/src/app/core/interceptors/error.interceptor.ts` to handle 401s:
+      ```typescript
+      export const errorInterceptor: HttpInterceptorFn = (req, next) => {
+        return next(req).pipe(
+          catchError((err: HttpErrorResponse) => {
+            if (err.status === 401 && !req.url.includes('/auth/refresh')) {
+              // Attempt token refresh
+              return inject(ApiService).post('/auth/refresh', {}).pipe(
+                switchMap(() => next(req)),  // retry original request
+                catchError(() => {
+                  // Refresh also failed — redirect to login
+                  inject(AuthService).setCurrentUser(null);
+                  inject(Router).navigate(['/login']);
+                  return throwError(() => err);
+                })
+              );
+            }
+            return throwError(() => err);
+          })
+        );
+      };
+      ```
+      Register this interceptor in app.config.ts alongside authInterceptor.
+
+  - id: FE-05
+    title: "Missing production environment file"
+    file: web/src/environments/
+    severity: MEDIUM
+    description: |
+      There is only `environment.ts` (dev, pointing to localhost:8080). There is no
+      `environment.prod.ts`. The angular.json fileReplacements for production build
+      will fail — the app cannot be built for production. Additionally, the dev
+      environment hardcodes `http://localhost:8080` which must be a relative URL
+      (`/`) when the frontend is served behind nginx alongside the API.
+
+    fix: |
+      1. Create `web/src/environments/environment.prod.ts`:
+         ```typescript
+         export const environment = {
+           production: true,
+           apiUrl: '',  // relative URL — nginx proxies /auth, /v1 to backend
+         };
+         ```
+
+      2. Verify angular.json has the production fileReplacement:
+         ```json
+         "fileReplacements": [
+           {
+             "replace": "src/environments/environment.ts",
+             "with": "src/environments/environment.prod.ts"
+           }
+         ]
+         ```
+
+      3. Update nginx.conf to serve the Angular app and proxy API requests:
+         ```nginx
+         location / {
+             root /usr/share/nginx/html;
+             try_files $uri $uri/ /index.html;
+         }
+         location ~ ^/(auth|v1|mgmt)/ {
+             proxy_pass http://iam:8080;
+         }
+         ```
+
+  - id: FE-06
+    title: "EvaluateResponse type mismatch between FE model and BE response"
+    file: web/src/app/core/models/policy.model.ts
+    line: 45
+    severity: MEDIUM
+    description: |
+      The frontend `EvaluateResponse` interface has `cache_hit: boolean` but the
+      backend `EvaluateResponse` has `cache_hit: string` ("none" | "redis" | "sdk").
+      This means the cache_hit field is always truthy in the UI (non-empty string)
+      even when there's no cache hit.
+
+    fix: |
+      Update the frontend model to match the backend:
+      ```typescript
+      export interface EvaluateResponse {
+        effect: 'allow' | 'deny';
+        matched_policy_ids: string[];
+        max_version: number;
+        cache_hit: 'none' | 'redis' | 'sdk';  // string enum, not boolean
+        latency_ms: number;
+      }
+      ```
+      Update the policy playground UI to display cache_hit as a badge
+      (e.g., "Redis Cache" / "No Cache" / "SDK Cache") rather than a boolean.
+
+acceptance_criteria:
+  - "Routes /compliance, /dlp, /admin render without errors"
+  - "Sidebar collapsed state persists across page navigation and browser refresh"
+  - "Threats page calls /v1/threats/alerts and renders alert severity badges"
+  - "After 1-hour token expiry, a 401 triggers silent refresh; user remains logged in"
+  - "npm run build --configuration=production succeeds with environment.prod.ts"
+  - "EvaluateResponse cache_hit displays 'Redis Cache' / 'No Cache' / 'SDK Cache' in UI"

@@ -67,7 +67,7 @@ func (r *Repository) Pool() *pgxpool.Pool {
 
 // SetRLS sets the RLS org_id context variable on a connection.
 func SetRLS(ctx context.Context, tx pgx.Tx, orgID string) error {
-	_, err := tx.Exec(ctx, "SELECT set_config('app.org_id', $1, false)", orgID)
+	_, err := tx.Exec(ctx, "SELECT set_config('app.org_id', $1, true)", orgID)
 	return err
 }
 

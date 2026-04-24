@@ -1,17 +1,13 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
+import { ThreatService } from '../core/services/threat.service';
 import { finalize } from 'rxjs';
 
-interface ThreatEvent {
+interface ThreatAlert {
   id: string;
-  timestamp: string;
-  type: string;
-  source_ip: string;
-  path: string;
-  action: string;
+  title: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  status: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
   detector_id: string;
-  threat_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  created_at: string;
   metadata: any;
 }
 
@@ -23,17 +19,17 @@ interface ThreatEvent {
   styleUrls: ['./threats.css']
 })
 export class ThreatsComponent implements OnInit {
-  private http = inject(HttpClient);
+  private threatService = inject(ThreatService);
   
-  threats = signal<ThreatEvent[]>([]);
+  alerts = signal<ThreatAlert[]>([]);
   loading = signal(false);
   error = signal<string | null>(null);
 
   stats = signal({
     total: 0,
     critical: 0,
-    blocked: 0,
-    rateLimited: 0
+    open: 0,
+    resolved: 0
   });
 
   ngOnInit(): void {
@@ -42,12 +38,13 @@ export class ThreatsComponent implements OnInit {
 
   fetchThreats(): void {
     this.loading.set(true);
-    this.http.get<{events: ThreatEvent[]}>('http://localhost:8080/v1/events')
+    this.threatService.listAlerts()
       .pipe(finalize(() => this.loading.set(false)))
       .subscribe({
         next: (res) => {
-          this.threats.set(res.events || []);
-          this.calculateStats(res.events || []);
+          const alerts = res.alerts || [];
+          this.alerts.set(alerts);
+          this.calculateStats(alerts);
         },
         error: (err) => {
           console.error('Failed to fetch threats', err);
@@ -56,12 +53,12 @@ export class ThreatsComponent implements OnInit {
       });
   }
 
-  private calculateStats(events: ThreatEvent[]): void {
+  private calculateStats(alerts: ThreatAlert[]): void {
     const stats = {
-      total: events.length,
-      critical: events.filter(e => e.threat_level === 'CRITICAL' || e.threat_level === 'HIGH').length,
-      blocked: events.filter(e => e.action === 'BLOCK' || e.action === 'DENY').length,
-      rateLimited: events.filter(e => e.action === 'RATE_LIMIT').length
+      total: alerts.length,
+      critical: alerts.filter(a => a.severity === 'CRITICAL' || a.severity === 'HIGH').length,
+      open: alerts.filter(a => a.status === 'OPEN').length,
+      resolved: alerts.filter(a => a.status === 'RESOLVED').length
     };
     this.stats.set(stats);
   }

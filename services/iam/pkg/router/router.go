@@ -14,7 +14,7 @@ import (
 )
 
 // Router sets up the HTTP routes for the IAM service.
-func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) *chi.Mux {
+func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, stop <-chan struct{}) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -40,7 +40,7 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) 
 		r.Post("/users/mfa/totp/enable", h.TOTPEnable)
 	})
 	
-	authRateLimiter := iam_middleware.NewRateLimiter(rate.Limit(1), 5) // 1 req/sec, burst 5
+	authRateLimiter := iam_middleware.NewRateLimiter(rate.Limit(1), 5, stop) // 1 req/sec, burst 5
 	r.Route("/auth", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
 			r.Use(authRateLimiter.Limit)
@@ -48,6 +48,7 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) 
 			r.Post("/oauth/login", h.OAuthLogin)
 			r.Post("/refresh", h.Refresh)
 			r.Post("/mfa/verify", h.VerifyMFA)
+			r.Post("/mfa/backup-verify", h.VerifyBackupCode)
 		})
 		r.Post("/logout", h.Logout)
 		r.Get("/authorize", h.Authorize)

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -65,6 +66,12 @@ func main() {
 	config.MinConns = 5
 	config.MaxConnLifetime = 30 * time.Minute
 	config.MaxConnIdleTime = 5 * time.Minute
+	
+	config.AfterRelease = func(conn *pgx.Conn) bool {
+		ctx := context.Background()
+		conn.Exec(ctx, "SELECT set_config('app.org_id', '', false)")
+		return true
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
@@ -90,9 +97,14 @@ func main() {
 		logger.Warn("redis connection check failed", "error", err)
 	}
 
-	// Run Migrations
-	if err := database.Migrate(ctx, pool, "migrations"); err != nil {
+	// Run Migrations with distributed lock (INFRA-02)
+	lockKey := "migrate:lock:iam"
+	err = database.RunWithLock(ctx, rdb, lockKey, logger, func(ctx context.Context) error {
+		return database.Migrate(ctx, pool, "migrations")
+	})
+	if err != nil {
 		logger.Error("migrations failed", "error", err)
+		os.Exit(1)
 	}
 
 	// Auto-seed if requested
@@ -137,7 +149,7 @@ func main() {
 	h := handlers.NewHandler(svc)
 
 	// Setup Router
-	r := router.NewRouter(h, keyring, rdb)
+	r := router.NewRouter(h, keyring, rdb, ctx.Done())
 
 	// Initialize Kafka and Outbox Relay
 	brokers := os.Getenv("KAFKA_BROKERS")

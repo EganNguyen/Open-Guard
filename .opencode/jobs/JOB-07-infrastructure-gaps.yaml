@@ -1,0 +1,303 @@
+id: JOB-07
+title: "Infrastructure — Kafka Config, Migration Lock, Secrets, Observability Gaps"
+priority: P2
+phase_impact: [1, 2, 4]
+severity: MEDIUM
+estimated_effort: 4d
+
+summary: |
+  Multiple infrastructure-level issues: Kafka topics are created manually via script
+  but docker-compose has no topic auto-creation, the Redis migration lock specified
+  in the spec is not implemented, secrets management uses placeholder values in
+  docker-compose, and observability is wired up for control-plane and IAM but missing
+  from audit, threat, and the new stub services.
+
+problems:
+  - id: INFRA-01
+    title: "Kafka replication factor=3 set on single-broker docker-compose"
+    file: infra/docker/docker-compose.yml
+    severity: HIGH
+    description: |
+      The `scripts/create-topics.sh` creates topics with `replication-factor 3` (from
+      the spec §12.1), but docker-compose only starts 1 Kafka broker. Topic creation
+      will fail with "Replication factor: 3 larger than available brokers: 1".
+      The spec notes: "Replication factor 3 requires 3 brokers in staging/production.
+      create-topics.sh detects broker count and adjusts automatically." The script
+      does not implement this detection.
+
+    fix: |
+      1. Update `scripts/create-topics.sh` to detect broker count and adjust replication:
+         ```bash
+         #!/bin/bash
+         BROKERS=$(kafka-broker-api-versions.sh --bootstrap-server localhost:9092 2>/dev/null | grep -c "id:")
+         REPLICATION=$([ "$BROKERS" -ge 3 ] && echo 3 || echo 1)
+         echo "Detected $BROKERS brokers, using replication-factor=$REPLICATION"
+
+         TOPICS=(
+           "auth.events:12"
+           "policy.changes:6"
+           "data.access:24"
+           "threat.alerts:12"
+           "audit.trail:24"
+           "notifications.outbound:6"
+           "saga.orchestration:12"
+           "outbox.dlq:3"
+           "connector.events:24"
+           "webhook.delivery:12"
+           "webhook.dlq:3"
+         )
+
+         for TOPIC_DEF in "${TOPICS[@]}"; do
+           TOPIC="${TOPIC_DEF%%:*}"
+           PARTITIONS="${TOPIC_DEF##*:}"
+           kafka-topics.sh --bootstrap-server localhost:9092 \
+             --create --if-not-exists \
+             --topic "$TOPIC" \
+             --partitions "$PARTITIONS" \
+             --replication-factor "$REPLICATION" \
+             --config compression.type=lz4
+           echo "Created topic: $TOPIC"
+         done
+         ```
+
+      2. Add a `kafka-init` service to docker-compose that runs topic creation:
+         ```yaml
+         kafka-init:
+           image: confluentinc/cp-kafka:7.4.0
+           depends_on:
+             kafka: { condition: service_healthy }
+           command: >
+             bash -c "
+               /usr/bin/kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic auth.events --partitions 12 --replication-factor 1 --config compression.type=lz4 &&
+               /usr/bin/kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic policy.changes --partitions 6 --replication-factor 1 --config compression.type=lz4 &&
+               /usr/bin/kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic audit.trail --partitions 24 --replication-factor 1 --config compression.type=lz4 &&
+               /usr/bin/kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic threat.alerts --partitions 12 --replication-factor 1 --config compression.type=lz4 &&
+               /usr/bin/kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic webhook.delivery --partitions 12 --replication-factor 1 --config compression.type=lz4 &&
+               /usr/bin/kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic outbox.dlq --partitions 3 --replication-factor 1
+             "
+           restart: on-failure
+         ```
+         Add `kafka-init: { condition: service_completed_successfully }` to all
+         services that produce to Kafka.
+
+  - id: INFRA-02
+    title: "Migration distributed Redis lock not implemented"
+    file: services/iam/main.go
+    severity: MEDIUM
+    description: |
+      The spec (§10.2) requires migrations to run at startup with a distributed Redis
+      lock (SET NX + heartbeat goroutine extending TTL every 10s) to prevent multiple
+      pods running migrations simultaneously in Kubernetes. Currently, if two IAM pods
+      start simultaneously during a rolling deploy, both will attempt to run migrations
+      at the same time, which can cause data corruption or constraint errors.
+
+    fix: |
+      Add the migration lock to both IAM and policy service main.go:
+      ```go
+      // shared/database/migrate.go — add RunWithLock:
+      func RunWithLock(ctx context.Context, rdb *redis.Client, dbURL, migrationsPath string, logger *slog.Logger) error {
+          lockKey := "migrate:lock:" + migrationsPath
+          lockTTL := 60 * time.Second
+
+          // Acquire lock (SET NX with TTL)
+          acquired, err := rdb.SetNX(ctx, lockKey, "1", lockTTL).Result()
+          if err != nil {
+              return fmt.Errorf("redis lock error: %w", err)
+          }
+          if !acquired {
+              logger.Info("migration lock held by another instance, waiting...")
+              // Wait and poll
+              for i := 0; i < 30; i++ {
+                  time.Sleep(2 * time.Second)
+                  exists, _ := rdb.Exists(ctx, lockKey).Result()
+                  if exists == 0 {
+                      break
+                  }
+              }
+              return nil // Other instance ran migrations
+          }
+
+          // Heartbeat goroutine: extend TTL every 10s
+          stopHeartbeat := make(chan struct{})
+          go func() {
+              ticker := time.NewTicker(10 * time.Second)
+              defer ticker.Stop()
+              for {
+                  select {
+                  case <-ticker.C:
+                      rdb.Expire(ctx, lockKey, lockTTL)
+                  case <-stopHeartbeat:
+                      return
+                  }
+              }
+          }()
+          defer func() {
+              close(stopHeartbeat)
+              rdb.Del(ctx, lockKey)
+          }()
+
+          // Run migrations
+          m, err := migrate.New("file://"+migrationsPath, dbURL)
+          if err != nil {
+              return fmt.Errorf("create migrator: %w", err)
+          }
+          if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+              return fmt.Errorf("run migrations: %w", err)
+          }
+          logger.Info("migrations complete")
+          return nil
+      }
+      ```
+
+  - id: INFRA-03
+    title: "docker-compose uses hardcoded plaintext passwords"
+    file: infra/docker/docker-compose.yml
+    severity: HIGH
+    description: |
+      docker-compose contains `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}` and
+      `SEED_DB=true` with implicit default credentials. There is no `.env.example` file
+      as required by spec §10.1. Services like IAM use `openguard:openguard` credentials
+      hardcoded in `DATABASE_URL`. The audit service has `AUDIT_SECRET_KEY=${AUDIT_SECRET_KEY:-prod-secret-audit-key}`
+      — the fallback "prod-secret-audit-key" suggests it was accidentally run in prod
+      with this default.
+
+    fix: |
+      1. Create `.env.example` at the project root:
+         ```bash
+         # PostgreSQL
+         POSTGRES_PASSWORD=change-me-in-production
+
+         # JWT Key ring (JSON array, see shared/crypto/jwt.go for format)
+         JWT_KEYS=[{"kid":"v1","secret":"GENERATE_WITH_openssl_rand_-base64_64","algorithm":"HS256","status":"active"}]
+
+         # AES Encryption Key ring (for MFA secrets)
+         AES_KEYS=[{"kid":"v1","key":"GENERATE_WITH_openssl_rand_-base64_32","status":"active"}]
+
+         # Audit HMAC (hash chain integrity)
+         AUDIT_SECRET_KEY=  # openssl rand -hex 32
+
+         # MFA Backup Code HMAC
+         IAM_MFA_BACKUP_CODE_HMAC_SECRET=  # openssl rand -hex 32
+
+         # SIEM Webhook HMAC
+         ALERTING_SIEM_WEBHOOK_HMAC_SECRET=  # openssl rand -hex 32
+
+         # Redis
+         REDIS_URL=redis://redis:6379/0
+
+         # Kafka
+         KAFKA_BROKERS=kafka:29092
+
+         # Internal API key (service-to-service)
+         INTERNAL_API_KEY=  # openssl rand -hex 32
+         ```
+
+      2. Update docker-compose to fail if required env vars are missing:
+         ```yaml
+         iam:
+           environment:
+             - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+             - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
+             - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
+         ```
+
+      3. Add a Makefile `check-env` target:
+         ```makefile
+         check-env:
+             @test -f .env || (echo "ERROR: .env missing. Copy .env.example and fill in values." && exit 1)
+             @grep -q "AUDIT_SECRET_KEY=$$" .env && echo "ERROR: AUDIT_SECRET_KEY not set" && exit 1 || true
+         dev: check-env
+             docker-compose up -d
+         ```
+
+  - id: INFRA-04
+    title: "OpenTelemetry tracing missing from audit, threat, and connector services"
+    file: services/audit/main.go
+    severity: MEDIUM
+    description: |
+      The control-plane and IAM services have full OpenTelemetry tracing (telemetry
+      package with InitTracer, Metrics middleware). The audit, threat, connector-registry,
+      and all stub services have none. Traces break at these service boundaries —
+      the distributed trace shows a gap from control-plane → policy but nothing for
+      audit consumption or threat detection.
+
+    fix: |
+      Add the telemetry pattern to each missing service. Create per-service telemetry
+      package (copy the pattern from `services/iam/pkg/telemetry/`):
+
+      For audit service (services/audit/pkg/telemetry/):
+      ```go
+      // metrics.go — audit-specific counters
+      var (
+          EventsIngested = promauto.NewCounterVec(prometheus.CounterOpts{
+              Name: "audit_events_ingested_total",
+              Help: "Total audit events ingested from Kafka",
+          }, []string{"org_id", "topic"})
+
+          BatchFlushDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+              Name:    "audit_batch_flush_duration_seconds",
+              Buckets: prometheus.DefBuckets,
+          }, []string{"status"})
+
+          HashChainLength = promauto.NewGaugeVec(prometheus.GaugeOpts{
+              Name: "audit_hash_chain_sequence",
+              Help: "Current hash chain sequence number per org",
+          }, []string{"org_id"})
+      )
+      ```
+
+      Add `InitTracer()` to main.go of audit, threat, connector-registry.
+      Add `/metrics` Prometheus endpoint to all services that lack it.
+
+  - id: INFRA-05
+    title: "Kubernetes Helm chart missing network policies and resource limits"
+    file: infra/k8s/helm/openguard/values.yaml
+    severity: MEDIUM
+    description: |
+      The Helm values.yaml defines HPA and PodDisruptionBudget (good) but lacks:
+      - Resource requests/limits (pods can consume unlimited CPU/memory → noisy neighbor)
+      - NetworkPolicy (any pod can call any service — spec §14.7 requires micro-segmentation)
+      - Pod anti-affinity (multiple replicas may schedule on same node)
+
+    fix: |
+      Add to values.yaml:
+      ```yaml
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+
+      networkPolicy:
+        enabled: true
+        # Each service only allows traffic from its known callers:
+        # iam: ingress from nginx only
+        # policy: ingress from control-plane only
+        # audit: ingress from kafka only (no HTTP ingress except health)
+        # threat: ingress from kafka only
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: ["{{ .Release.Name }}"]
+                topologyKey: kubernetes.io/hostname
+      ```
+
+      Create `infra/k8s/helm/openguard/templates/networkpolicy.yaml` that
+      generates a NetworkPolicy per service based on the above config.
+
+acceptance_criteria:
+  - "docker-compose up creates all 11 Kafka topics without errors on single-broker setup"
+  - "Second IAM pod starting concurrently with first does not run duplicate migrations"
+  - "`make dev` fails with clear error if .env is missing or AUDIT_SECRET_KEY is empty"
+  - "Jaeger UI shows traces spanning from nginx → control-plane → policy → audit consumer"
+  - "Grafana dashboard shows audit_events_ingested_total metric from audit service"
+  - "Helm lint passes; helm template generates NetworkPolicy resources for each service"

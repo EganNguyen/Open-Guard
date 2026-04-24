@@ -1,0 +1,86 @@
+<div class="space-y-6">
+  <div class="flex justify-between items-center">
+    <div>
+      <h1 class="text-2xl font-bold text-[#172B4D]">Data Loss Prevention (DLP)</h1>
+      <p class="text-[#6B778C]">Manage PII scanning, secrets detection, and data exfiltration policies</p>
+    </div>
+    <div class="flex space-x-3">
+      <button class="px-4 py-2 border border-[#DFE1E6] bg-white text-[#172B4D] rounded-md hover:bg-[#F4F5F7] transition-colors flex items-center">
+        <span class="material-symbols-outlined mr-2">settings</span>
+        Scan Settings
+      </button>
+      <button class="px-4 py-2 bg-[#0052CC] text-white rounded-md hover:bg-[#0747A6] transition-colors flex items-center">
+        <span class="material-symbols-outlined mr-2">add</span>
+        New Policy
+      </button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+    <div class="bg-white p-6 rounded-lg shadow-sm border border-[#DFE1E6]">
+      <h3 class="text-xs font-semibold text-[#6B778C] uppercase mb-4">Total Findings</h3>
+      <div class="text-3xl font-bold text-[#172B4D]">1,284</div>
+    </div>
+    <div class="bg-white p-6 rounded-lg shadow-sm border border-[#DFE1E6]">
+      <h3 class="text-xs font-semibold text-[#6B778C] uppercase mb-4">Critical PII</h3>
+      <div class="text-3xl font-bold text-[#FF5630]">42</div>
+    </div>
+    <div class="bg-white p-6 rounded-lg shadow-sm border border-[#DFE1E6]">
+      <h3 class="text-xs font-semibold text-[#6B778C] uppercase mb-4">Secrets Exposed</h3>
+      <div class="text-3xl font-bold text-[#FF991F]">18</div>
+    </div>
+    <div class="bg-white p-6 rounded-lg shadow-sm border border-[#DFE1E6]">
+      <h3 class="text-xs font-semibold text-[#6B778C] uppercase mb-4">Protected Assets</h3>
+      <div class="text-3xl font-bold text-[#36B37E]">156</div>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-lg shadow-sm border border-[#DFE1E6] overflow-hidden">
+    <div class="px-6 py-4 border-b border-[#DFE1E6]">
+      <h3 class="font-bold text-[#172B4D]">Recent Findings</h3>
+    </div>
+    <div class="p-0">
+      <table class="w-full text-left text-sm">
+        <thead class="bg-[#F4F5F7] text-[#6B778C] uppercase text-xs">
+          <tr>
+            <th class="px-6 py-3 font-semibold">Service / Path</th>
+            <th class="px-6 py-3 font-semibold">Type</th>
+            <th class="px-6 py-3 font-semibold">Severity</th>
+            <th class="px-6 py-3 font-semibold">Confidence</th>
+            <th class="px-6 py-3 font-semibold">Time</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[#DFE1E6]">
+          <tr>
+            <td class="px-6 py-4">
+              <div class="font-medium">customer-api</div>
+              <div class="text-xs text-[#6B778C]">/v1/profiles/export</div>
+            </td>
+            <td class="px-6 py-4">
+              <span class="px-2 py-1 bg-[#DEEBFF] text-[#0747A6] text-xs font-bold rounded">US_SSN</span>
+            </td>
+            <td class="px-6 py-4">
+              <span class="px-2 py-1 bg-[#FFEBE6] text-[#BF2600] text-xs font-bold rounded">High</span>
+            </td>
+            <td class="px-6 py-4">98%</td>
+            <td class="px-6 py-4 text-[#6B778C]">5m ago</td>
+          </tr>
+          <tr>
+            <td class="px-6 py-4">
+              <div class="font-medium">auth-service</div>
+              <div class="text-xs text-[#6B778C]">/logs/access.log</div>
+            </td>
+            <td class="px-6 py-4">
+              <span class="px-2 py-1 bg-[#EAE6FF] text-[#403294] text-xs font-bold rounded">STRIPE_KEY</span>
+            </td>
+            <td class="px-6 py-4">
+              <span class="px-2 py-1 bg-[#FFEBE6] text-[#BF2600] text-xs font-bold rounded">Critical</span>
+            </td>
+            <td class="px-6 py-4">100%</td>
+            <td class="px-6 py-4 text-[#6B778C]">12m ago</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

@@ -14,32 +14,68 @@ import (
 	"github.com/openguard/services/audit/pkg/consumer"
 	"github.com/openguard/services/audit/pkg/handlers"
 	"github.com/openguard/services/audit/pkg/repository"
+	"github.com/openguard/services/audit/pkg/telemetry"
+	"github.com/openguard/shared/crypto"
+	"github.com/openguard/shared/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "audit")
 	slog.SetDefault(logger)
 
+	// Initialize OpenTelemetry (INFRA-04)
+	tp, err := telemetry.InitTracer()
+	if err != nil {
+		logger.Error("failed to initialize tracer", "error", err)
+	} else {
+		defer tp.Shutdown(context.Background())
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// ── MongoDB ──────────────────────────────────────────────────────────────
-	mongoURI := os.Getenv("MONGODB_URI")
-	if mongoURI == "" {
-		mongoURI = "mongodb://localhost:27017"
+	// ── MongoDB CQRS Split ───────────────────────────────────────────────────
+	primaryURI := os.Getenv("MONGO_URI_PRIMARY")
+	if primaryURI == "" {
+		primaryURI = os.Getenv("MONGODB_URI") // Fallback
+		if primaryURI == "" {
+			primaryURI = "mongodb://localhost:27017"
+		}
 	}
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
+	secondaryURI := os.Getenv("MONGO_URI_SECONDARY")
+	if secondaryURI == "" {
+		secondaryURI = primaryURI // Fallback
+	}
+
+	// Connect Primary (Writes)
+	wc := writeconcern.Majority()
+	writeOpts := options.Client().ApplyURI(primaryURI).SetWriteConcern(wc)
+	writeClient, err := mongo.Connect(ctx, writeOpts)
 	if err != nil {
-		logger.Error("failed to connect to mongodb", "error", err)
+		logger.Error("failed to connect to primary mongodb", "error", err)
 		os.Exit(1)
 	}
-	defer client.Disconnect(ctx)
+	defer writeClient.Disconnect(ctx)
 
-	repo := repository.NewAuditRepository(client, "openguard_audit")
+	// Connect Secondary (Reads)
+	rp := readpref.SecondaryPreferred()
+	readOpts := options.Client().ApplyURI(secondaryURI).SetReadPreference(rp)
+	readClient, err := mongo.Connect(ctx, readOpts)
+	if err != nil {
+		logger.Error("failed to connect to secondary mongodb", "error", err)
+		os.Exit(1)
+	}
+	defer readClient.Disconnect(ctx)
 
-	// ── Kafka Consumer ────────────────────────────────────────────────────────
+	writeRepo := repository.NewAuditWriteRepository(writeClient, "openguard_audit")
+	readRepo := repository.NewAuditReadRepository(readClient, "openguard_audit")
+
+	// ── Kafka Consumers (Multi-Topic) ─────────────────────────────────────────
 	brokers := os.Getenv("KAFKA_BROKERS")
 	if brokers == "" {
 		brokers = "localhost:9092"
@@ -49,19 +85,41 @@ func main() {
 		groupID = "audit-service"
 	}
 
-	c, err := consumer.NewAuditConsumer(brokers, groupID, "policy.changes", repo, logger)
+	topics := []string{
+		"auth.events",
+		"policy.changes",
+		"data.access",
+		"threat.alerts",
+		"connector.events",
+	}
+
+	for _, topic := range topics {
+		c, err := consumer.NewAuditConsumer(brokers, groupID+"-"+topic, topic, writeRepo, logger)
+		if err != nil {
+			logger.Error("failed to create kafka consumer", "topic", topic, "error", err)
+			continue
+		}
+		
+		go func(topicName string, cons *consumer.AuditConsumer) {
+			logger.Info("starting kafka consumer", "topic", topicName)
+			if err := cons.Start(ctx); err != nil {
+				logger.Error("consumer failed", "topic", topicName, "error", err)
+			}
+		}(topic, c)
+	}
+
+	// ── Auth Configuration ───────────────────────────────────────────────────
+	keyringJSON := os.Getenv("IAM_JWT_KEYS")
+	if keyringJSON == "" {
+		keyringJSON = `[{"kid":"dev-key","secret":"dev-secret-at-least-32-chars-long-!!","algorithm":"HS256","status":"active"}]`
+		logger.Warn("IAM_JWT_KEYS not set, using default dev key")
+	}
+	keyring, err := crypto.LoadKeyring(keyringJSON)
 	if err != nil {
-		logger.Error("failed to create kafka consumer", "error", err)
+		logger.Error("failed to load JWT keyring", "error", err)
 		os.Exit(1)
 	}
-	defer c.Close()
-
-	go func() {
-		logger.Info("starting kafka consumer")
-		if err := c.Start(ctx); err != nil {
-			logger.Error("consumer failed", "error", err)
-		}
-	}()
+	authMiddleware := middleware.AuthJWT(keyring)
 
 	// ── HTTP Server (Health + Read API) ──────────────────────────────────────
 	port := os.Getenv("PORT")
@@ -70,22 +128,27 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	sseH := handlers.NewSseHandler(repo)
+	sseH := handlers.NewSseHandler(readRepo)
 
+	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"OK"}`)
 	})
 
-	mux.HandleFunc("/v1/events/stream", sseH.StreamEvents)
+	mux.HandleFunc("/v1/events/stream", func(w http.ResponseWriter, r *http.Request) {
+		authMiddleware(http.HandlerFunc(sseH.StreamEvents)).ServeHTTP(w, r)
+	})
 	mux.HandleFunc("/v1/events", func(w http.ResponseWriter, r *http.Request) {
-		events, err := repo.FindEvents(r.Context(), nil, 50, 0)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"events": events})
+		authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			events, err := readRepo.FindEvents(r.Context(), nil, 50, 0)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"events": events})
+		})).ServeHTTP(w, r)
 	})
 
 	srv := &http.Server{

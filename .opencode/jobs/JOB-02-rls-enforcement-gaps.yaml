@@ -1,0 +1,180 @@
+id: JOB-02
+title: "Row-Level Security (RLS) — Enforcement Gaps"
+priority: P0
+phase_impact: [2, 3]
+severity: CRITICAL
+estimated_effort: 2d
+
+summary: |
+  The spec (§6) mandates that every database query runs with `app.org_id` set as a
+  PostgreSQL session variable so that RLS policies filter rows to the correct tenant.
+  The IAM service repository never sets this variable. The policy service sets it only
+  in one query. The result: all IAM repository queries bypass RLS, allowing cross-tenant
+  data leakage through the database layer even though the application layer is correct.
+
+problems:
+  - id: RLS-01
+    title: "IAM repository never calls SET app.org_id"
+    file: services/iam/pkg/repository/repository.go
+    severity: CRITICAL
+    description: |
+      The `rls` package (`shared/rls/context.go`) provides `SetSessionVar()` and
+      `TxSetSessionVar()` but they are never called in the IAM repository. All queries
+      to `users`, `sessions`, `api_tokens`, `mfa_configs`, `refresh_tokens`, and
+      `connectors` run without the RLS session variable. The RLS policies on these
+      tables use `NULLIF(current_setting('app.org_id', true), '')::UUID`, and when
+      `app.org_id` is not set, `current_setting` returns NULL, which means
+      `NULL = anything` is false — so RLS actually returns zero rows rather than all
+      rows. This is a fail-safe but means queries silently return empty results for
+      all multi-tenant users except where org_id is hardcoded in the WHERE clause.
+
+      The issue also means that any future query that does NOT include an explicit
+      `WHERE org_id = $1` will silently return empty results — a latent data
+      correctness bug.
+
+    fix: |
+      Wrap every repository method that touches org-scoped data in a connection
+      acquisition + session var pattern. Create a helper:
+
+      ```go
+      // withOrgContext acquires a connection, sets app.org_id, executes fn, returns conn.
+      func (r *Repository) withOrgContext(ctx context.Context, orgID string,
+          fn func(ctx context.Context, conn *pgxpool.Conn) error) error {
+
+          conn, err := r.pool.Acquire(ctx)
+          if err != nil {
+              return fmt.Errorf("acquire conn: %w", err)
+          }
+          defer conn.Release()
+
+          if err := rls.SetSessionVar(ctx, conn, orgID); err != nil {
+              return err
+          }
+          return fn(ctx, conn)
+      }
+      ```
+
+      For transaction-based methods, use `rls.TxSetSessionVar(ctx, tx, orgID)` as
+      the first statement in every transaction.
+
+      Refactor these repository methods to use withOrgContext:
+        - GetUserByEmail (extract org_id from result first, then re-query with RLS)
+        - GetUserByID
+        - CreateUser
+        - ListUsers
+        - CreateSession
+        - GetRefreshToken
+        - CreateRefreshToken
+        - RevokeRefreshTokenFamily
+        - GetMFAConfig
+        - UpsertMFAConfig
+        - GetConnectorByID
+        - ListConnectors
+
+      Note on GetUserByEmail: This is a login path that looks up by email before knowing
+      the org. Use a dedicated non-RLS query (with explicit BYPASSRLS role or a separate
+      credential) only for the login lookup, then enforce RLS for all subsequent queries.
+      The spec (§6.1.1) anticipates this with the `openguard_app` role — the login lookup
+      should use a separate `openguard_login` role that has SELECT on users with an
+      explicit email index query but no RLS bypass.
+
+  - id: RLS-02
+    title: "Policy repository RLS set_config uses transaction-local=false"
+    file: services/policy/pkg/repository/repository.go
+    line: ~20
+    severity: HIGH
+    description: |
+      The policy repository calls:
+        `tx.Exec(ctx, "SELECT set_config('app.org_id', $1, false)", orgID)`
+
+      The third argument `false` means the setting is NOT transaction-local — it
+      persists for the entire connection lifetime. Since pgxpool reuses connections,
+      this can leak the org_id setting from one request to the next if the connection
+      is returned to the pool without clearing the variable. A subsequent request from
+      a different org that does NOT set the variable will use the previous org's value.
+
+    fix: |
+      Change all `set_config` calls to use `true` for the transaction-local parameter:
+      ```sql
+      SELECT set_config('app.org_id', $1, true)
+      ```
+      This ensures the setting is automatically cleared when the transaction ends.
+      For non-transactional queries, acquire a dedicated connection, set the variable
+      with `false`, run the query, then release the connection — this achieves the
+      same isolation because releasing the connection resets its state in pgxpool
+      (pgxpool resets connections before returning them to the pool when
+      `pgxpool.Config.BeforeAcquire` and `AfterRelease` hooks are configured).
+
+      Add a pgxpool AfterRelease hook to clear the session variable:
+      ```go
+      config.AfterRelease = func(conn *pgx.Conn) bool {
+          ctx := context.Background()
+          conn.Exec(ctx, "SELECT set_config('app.org_id', '', false)")
+          return true
+      }
+      ```
+
+  - id: RLS-03
+    title: "Missing down.sql migrations for policy service"
+    file: services/policy/migrations/
+    severity: MEDIUM
+    description: |
+      The spec (§10.2) requires every `.up.sql` to have a corresponding `.down.sql`
+      and CI to run migrate-up then migrate-down. The policy service has 5 up migrations
+      with zero down migrations. The IAM service has 7 up migrations and 7 down
+      migrations (correct). The connector-registry `008_create_connectors.up.sql` also
+      has no corresponding down file.
+
+    fix: |
+      Create the following down migration files:
+
+      services/policy/migrations/001_create_policies.down.sql:
+      ```sql
+      DROP TABLE IF EXISTS policies;
+      ```
+
+      services/policy/migrations/002_create_assignments.down.sql:
+      ```sql
+      DROP TABLE IF EXISTS policy_assignments;
+      ```
+
+      services/policy/migrations/003_create_policy_eval_log.down.sql:
+      ```sql
+      DROP TABLE IF EXISTS policy_eval_log;
+      ```
+
+      services/policy/migrations/004_create_outbox.down.sql:
+      ```sql
+      DROP TRIGGER IF EXISTS outbox_insert_notify ON outbox_records;
+      DROP FUNCTION IF EXISTS notify_outbox();
+      DROP TABLE IF EXISTS outbox_records;
+      ```
+
+      services/policy/migrations/005_fix_cache_hit_type.down.sql:
+      ```sql
+      ALTER TABLE policy_eval_log ALTER COLUMN cache_hit TYPE BOOLEAN
+          USING (cache_hit != 'none');
+      ```
+
+      services/iam/migrations/008_create_connectors.down.sql:
+      ```sql
+      DROP TABLE IF EXISTS connectors;
+      ```
+
+      Add to CI (ci.yml) a migrate-down verification step:
+      ```yaml
+      - name: Verify migrations reversible
+        run: |
+          migrate -path services/iam/migrations -database $DATABASE_URL up
+          migrate -path services/iam/migrations -database $DATABASE_URL down
+          migrate -path services/policy/migrations -database $DATABASE_URL up
+          migrate -path services/policy/migrations -database $DATABASE_URL down
+      ```
+
+acceptance_criteria:
+  - "All IAM repository queries include SET app.org_id before execution"
+  - "Cross-tenant query test: user from org A cannot retrieve user from org B via any IAM repo method"
+  - "Policy set_config uses transaction-local=true"
+  - "pgxpool AfterRelease hook clears app.org_id"
+  - "All .up.sql files have corresponding .down.sql files"
+  - "CI runs migrate-up then migrate-down for all services"

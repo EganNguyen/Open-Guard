@@ -13,5 +13,5 @@ Act as a senior system architect and perform a production-level review of this p
 5. Actionable Recommendations
     * Provide clear, prioritized recommendations to reach production-grade quality.
     * For every problem identified (bug, gap, redundancy, inconsistency, or incomplete feature) provide a concrete, actionable solution.
-    * Output is Markdown (.md) file, Concise, Completion percentages
-    * Write jobs files (.yaml) for OpenCode to fix gaps
+    <!-- * Output is Markdown (.md) file, Concise, Completion percentages -->
+    * Output is job files (.yaml) with detailed specifications for OpenCode to fix gaps.

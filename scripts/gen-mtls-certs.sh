@@ -13,8 +13,12 @@ openssl req -x509 -newkey rsa:4096 -keyout ca.key -out ca.crt -days 3650 -nodes 
 echo "Generating Server/Client certificates..."
 for service in iam policy control-plane gateway audit; do
     echo " -> $service"
-    openssl req -newkey rsa:2048 -keyout ${service}.key -out ${service}.csr -nodes -subj "/CN=${service}"
-    openssl x509 -req -in ${service}.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out ${service}.crt -days 365
+    mkdir -p "$service"
+    openssl req -newkey rsa:2048 -keyout ${service}/server.key -out ${service}/server.csr -nodes -subj "/CN=${service}"
+    openssl x509 -req -in ${service}/server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out ${service}/server.crt -days 365
+    # Also keep the named version for backwards compatibility if needed
+    cp ${service}/server.crt ${service}.crt
+    cp ${service}/server.key ${service}.key
 done
 
 echo "mTLS certs generated successfully in $OUT_DIR."

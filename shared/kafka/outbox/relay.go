@@ -47,30 +47,14 @@ func NewRelay(pool *pgxpool.Pool, publisher KafkaPublisher, tableName string, in
 // Run starts the relay. It combines two wakeup strategies:
 //  1. pg_notify LISTEN: wake immediately on new outbox insert (low latency)
 //  2. Polling ticker: fallback for missed notifications and stale 'failed' retries
-//
-// This ensures p99 publish latency is minimized without relying solely on polling.
 func (r *Relay) Run(ctx context.Context) {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
 
+	notifications := make(chan string, 100)
+	go r.listenLoop(ctx, notifications)
+
 	r.logger.Info("outbox relay started", "table", r.tableName, "interval", r.interval)
-
-	// Acquire a dedicated connection for LISTEN/NOTIFY
-	listenConn, err := r.pool.Acquire(ctx)
-	if err != nil {
-		r.logger.Warn("could not acquire listen connection, falling back to polling only", "error", err)
-	} else {
-		defer listenConn.Release()
-
-		if _, err := listenConn.Exec(ctx, fmt.Sprintf("LISTEN %s", notifyChannel)); err != nil {
-			r.logger.Warn("could not LISTEN on channel, falling back to polling only",
-				"channel", notifyChannel, "error", err)
-			listenConn.Release()
-			listenConn = nil
-		} else {
-			r.logger.Info("listening on pg_notify channel", "channel", notifyChannel)
-		}
-	}
 
 	for {
 		select {
@@ -79,36 +63,55 @@ func (r *Relay) Run(ctx context.Context) {
 			return
 
 		case <-ticker.C:
-			// Periodic drain: catches retries and any missed notifications
+			// Periodic drain
 			r.drain(ctx)
 
-		default:
-			// pg_notify wakeup path (non-blocking check)
-			if listenConn != nil {
-				notif, err := listenConn.Conn().WaitForNotification(ctx)
-				if err != nil {
-					if ctx.Err() != nil {
-						return // context cancelled
-					}
-					r.logger.Warn("notification wait error, re-establishing listener", "error", err)
-					// Reacquire connection on next tick
-					listenConn.Release()
-					listenConn = nil
-					continue
-				}
-				if notif != nil {
-					r.logger.Debug("pg_notify received, draining", "channel", notif.Channel)
-					r.drain(ctx)
-				}
-			} else {
-				// No LISTEN connection — yield to ticker
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					r.drain(ctx)
-				}
+		case <-notifications:
+			// pg_notify wakeup
+			r.logger.Debug("pg_notify received, draining")
+			r.drain(ctx)
+		}
+	}
+}
+
+func (r *Relay) listenLoop(ctx context.Context, notifications chan<- string) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		conn, err := r.pool.Acquire(ctx)
+		if err != nil {
+			r.logger.Error("failed to acquire listen connection, retrying in 5s", "error", err)
+			select {
+			case <-time.After(5 * time.Second):
+			case <-ctx.Done():
+				return
 			}
+			continue
+		}
+
+		_, err = conn.Exec(ctx, fmt.Sprintf("LISTEN %s", notifyChannel))
+		if err != nil {
+			r.logger.Error("failed to issue LISTEN command, retrying", "error", err)
+			conn.Release()
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		r.logger.Info("pg_notify LISTEN established", "channel", notifyChannel)
+
+		for {
+			notification, err := conn.Conn().WaitForNotification(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					conn.Release()
+					return
+				}
+				r.logger.Warn("LISTEN connection lost, reconnecting", "error", err)
+				conn.Release()
+				break // reconnect outer loop
+			}
+			notifications <- notification.Payload
 		}
 	}
 }

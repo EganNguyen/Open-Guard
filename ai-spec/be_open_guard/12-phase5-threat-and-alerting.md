@@ -25,6 +25,21 @@ The Impossible Travel detector requires the MaxMind GeoLite2 City database.
 - Provide the key via the `MAXMIND_LICENSE_KEY` environment variable.
 - Use the `make geo-db` target (which invokes `scripts/download-geolite2.sh`) to download and provision the `.mmdb` file for local, CI, and load test environments. 
 
+### 13.1.2 Detector Configuration (Environment Variables)
+
+All detector thresholds MUST be configurable via environment variables.
+The code MUST NOT use hardcoded values for thresholds.
+
+| Variable | Default | Description |
+|---|---|---|
+| `THREAT_MAX_FAILED_LOGINS` | `11` | Brute force login attempts before alert |
+| `THREAT_ANOMALY_WINDOW_MINUTES` | `5` | Time window for counting failures |
+| `THREAT_GEO_CHANGE_THRESHOLD_KM` | `500` | Distance for impossible travel |
+| `THREAT_OFF_HOURS_START` | `22` | Hour (UTC) when off-hours begins |
+| `THREAT_OFF_HOURS_END` | `6` | Hour (UTC) when off-hours ends |
+| `ALERTING_SIEM_REPLAY_TOLERANCE_SECONDS` | `300` | Max age for SIEM webhooks |
+| `ALERTING_SIEM_WEBHOOK_HMAC_SECRET` | (required) | HMAC key for signing |
+
 ---
 
 ## 13.2 Alert Lifecycle Saga

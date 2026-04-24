@@ -1,0 +1,225 @@
+id: JOB-04
+title: "Audit Service — Hash Chain Race Condition & Missing CQRS Split"
+priority: P1
+phase_impact: [4]
+severity: HIGH
+estimated_effort: 3d
+
+summary: |
+  The audit service has two architectural defects: (1) the hash chain computation
+  has a race condition that produces an invalid chain under concurrent batches,
+  and (2) there is no CQRS read/write split — all reads and writes use the same
+  MongoDB connection, defeating the replica-set deployment in docker-compose.
+
+problems:
+  - id: AUDIT-01
+    title: "Hash chain race condition — per-event GetLatestEvent called inside loop"
+    file: services/audit/pkg/consumer/consumer.go
+    lines: 70-95
+    severity: HIGH
+    description: |
+      In `flush()`, the hash chain is computed inside a `for _, m := range batch` loop.
+      For each event, `c.repo.GetLatestEvent(ctx)` queries MongoDB to get the previous
+      hash. This has two critical bugs:
+
+      1. Race condition: The first event in the batch reads prevHash = "". It is added
+         to `events` but NOT yet written (BulkWrite happens after the loop). So the
+         second event also reads prevHash = "" and computes the same chain predecessor.
+         The entire batch has a broken chain where all events link to the same predecessor.
+
+      2. N+1 queries: For a batch of 100 events, this issues 100 MongoDB read queries
+         before the single BulkWrite. Under load this becomes a bottleneck.
+
+      The spec (§12.2.3) describes "Batched Reservation" — a single atomic counter
+      increment to reserve a sequence range for the entire batch.
+
+    fix: |
+      Implement batched hash chain reservation per spec §12.2.3:
+
+      ```go
+      // In repository/repository.go — add atomic sequence reservation:
+      func (r *AuditRepository) ReserveSequence(ctx context.Context, orgID string, count int64) (startSeq int64, prevHash string, err error) {
+          coll := r.db.Collection("hash_chains")
+          var result struct {
+              Hash     string `bson:"hash"`
+              Sequence int64  `bson:"sequence"`
+          }
+          opts := options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After)
+          err = coll.FindOneAndUpdate(ctx,
+              bson.M{"org_id": orgID},
+              bson.M{
+                  "$inc": bson.M{"sequence": count},
+                  "$setOnInsert": bson.M{"hash": "", "created_at": time.Now()},
+              },
+              opts,
+          ).Decode(&result)
+          if err != nil {
+              return 0, "", err
+          }
+          return result.Sequence - count, result.Hash, nil // startSeq is BEFORE increment
+      }
+      ```
+
+      Rewrite `flush()` to use batch reservation:
+      ```go
+      func (c *AuditConsumer) flush(ctx context.Context, batch []kafka.Message) {
+          // ... parse events from batch messages ...
+
+          // 1. Reserve sequence range atomically (ONE MongoDB query for entire batch)
+          orgID := extractOrgID(batch[0])  // all events in batch are same org via partition key
+          startSeq, prevHash, err := c.repo.ReserveSequence(ctx, orgID, int64(len(events)))
+          if err != nil {
+              c.logger.Error("failed to reserve sequence", "error", err)
+              return
+          }
+
+          // 2. Compute chain locally — no more DB reads in the loop
+          secretKey := os.Getenv("AUDIT_SECRET_KEY")
+          for i, event := range events {
+              event["sequence"] = startSeq + int64(i)
+              eventData := fmt.Sprintf("%v|%s", event["event_id"], prevHash)
+              mac := hmac.New(sha256.New, []byte(secretKey))
+              mac.Write([]byte(eventData))
+              currentHash := hex.EncodeToString(mac.Sum(nil))
+              event["integrity_hash"] = currentHash
+              prevHash = currentHash  // chain forward
+          }
+
+          // 3. BulkWrite all events at once
+          if err := c.repo.BulkWrite(ctx, events); err != nil {
+              c.logger.Error("bulk write failed", "error", err)
+              return  // do NOT commit offsets
+          }
+
+          // 4. Commit offsets only after successful write
+          if err := c.reader.CommitMessages(ctx, batch...); err != nil {
+              c.logger.Error("offset commit failed", "error", err)
+          }
+      }
+      ```
+
+  - id: AUDIT-02
+    title: "No CQRS read/write split for MongoDB"
+    file: services/audit/main.go
+    severity: MEDIUM
+    description: |
+      The docker-compose provisions a 3-node MongoDB replica set (primary + 2
+      secondaries), but the audit service connects only to `mongo-primary:27017`.
+      All reads (`FindEvents`, `GetLatestEvent`) go to the primary, defeating the
+      purpose of the replica set. The spec (§12.2) requires:
+      - Writes: MONGO_URI_PRIMARY with write concern `w:majority`
+      - Reads: MONGO_URI_SECONDARY with `readPreference: secondaryPreferred`
+
+    fix: |
+      1. Add two environment variables:
+         - `MONGO_URI_PRIMARY` (for writes, write concern majority)
+         - `MONGO_URI_SECONDARY` (for reads, readPreference secondaryPreferred)
+
+      2. Split AuditRepository into write and read repositories:
+         ```go
+         type AuditWriteRepository struct { db *mongo.Database }
+         type AuditReadRepository  struct { db *mongo.Database }
+         ```
+
+      3. Connect write client with write concern:
+         ```go
+         wc := writeconcern.Majority()
+         writeOpts := options.Client().ApplyURI(primaryURI).SetWriteConcern(wc)
+         writeClient, _ := mongo.Connect(ctx, writeOpts)
+         ```
+
+      4. Connect read client with secondary preference:
+         ```go
+         rp := readpref.SecondaryPreferred()
+         readOpts := options.Client().ApplyURI(secondaryURI).SetReadPreference(rp)
+         readClient, _ := mongo.Connect(ctx, readOpts)
+         ```
+
+      5. BulkWrite uses writeClient; FindEvents and SSE streaming use readClient.
+
+  - id: AUDIT-03
+    title: "SSE handler uses polling instead of MongoDB change streams"
+    file: services/audit/pkg/handlers/sse.go
+    severity: MEDIUM
+    description: |
+      The SSE handler polls MongoDB every 2 seconds to push new events. This causes:
+      - 2s latency on all audit events (unacceptable for real-time threat display)
+      - N×M query load (N SSE connections × 1 query per 2 seconds)
+      - The `_id` type assertion `event["_id"].(interface{}).(fmt.Stringer).String()`
+        will panic if MongoDB returns an ObjectID (it doesn't implement fmt.Stringer
+        directly — it needs `.Hex()`)
+
+    fix: |
+      Replace polling with MongoDB change streams:
+      ```go
+      func (h *SseHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
+          orgID := middleware.GetOrgID(r.Context())
+          // ... SSE headers ...
+
+          pipeline := mongo.Pipeline{
+              bson.D{{Key: "$match", Value: bson.D{
+                  {Key: "fullDocument.org_id", Value: orgID},
+              }}},
+          }
+          coll := h.readRepo.db.Collection("audit_events")
+          cs, err := coll.Watch(r.Context(), pipeline,
+              options.ChangeStream().SetFullDocument(options.UpdateLookup))
+          if err != nil {
+              http.Error(w, "stream unavailable", http.StatusInternalServerError)
+              return
+          }
+          defer cs.Close(r.Context())
+
+          for cs.Next(r.Context()) {
+              var change struct {
+                  FullDocument map[string]interface{} `bson:"fullDocument"`
+              }
+              if err := cs.Decode(&change); err != nil { continue }
+              data, _ := json.Marshal(change.FullDocument)
+              fmt.Fprintf(w, "data: %s\n\n", data)
+              flusher.Flush()
+          }
+      }
+      ```
+      Change streams require MongoDB replica set — which is already provisioned.
+      Add a `resumeToken` parameter so clients can reconnect without missing events.
+
+  - id: AUDIT-04
+    title: "Audit consumer only subscribes to policy.changes — missing other topics"
+    file: services/audit/main.go
+    line: 40
+    severity: HIGH
+    description: |
+      The audit Kafka consumer subscribes only to `policy.changes`. The spec (§12.1)
+      defines 11 topics and the audit service must consume `auth.events`, `data.access`,
+      `threat.alerts`, `connector.events`, and write them all to `audit.trail`. Currently
+      only policy change events appear in audit logs — auth events, threats, and data
+      access are silently dropped.
+
+    fix: |
+      Use a multi-topic consumer group. With kafka-go, create one reader per topic
+      (or use a consumer group coordinator):
+      ```go
+      topics := []string{
+          "auth.events",
+          "policy.changes",
+          "data.access",
+          "threat.alerts",
+          "connector.events",
+      }
+      for _, topic := range topics {
+          c, _ := consumer.NewAuditConsumer(brokers, groupID+"-"+topic, topic, repo, logger)
+          go c.Start(ctx)
+      }
+      ```
+      Each consumer is in its own group to ensure independent offset tracking.
+      All consumed events are normalized into the shared audit event schema before
+      BulkWrite to MongoDB.
+
+acceptance_criteria:
+  - "Batch of 100 events produces a valid unbroken hash chain (each event's prevHash equals predecessor's integrity_hash)"
+  - "ReserveSequence issues ONE MongoDB write per batch, not N reads"
+  - "BulkWrite events are written to primary with write concern majority"
+  - "FindEvents reads from secondary (verify via MongoDB explain: readPreference=secondaryPreferred)"
+  - "SSE streams new events within 200ms of ingestion (change stream, not 2s poll)"
+  - "Audit log receives events from auth.events, policy.changes, data.access, threat.alerts, connector.events"

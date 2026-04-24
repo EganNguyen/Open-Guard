@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/openguard/services/policy/pkg/handlers"
 	"github.com/openguard/services/policy/pkg/repository"
@@ -49,6 +50,12 @@ func main() {
 	pgConfig.MinConns = 2
 	pgConfig.MaxConnLifetime = 30 * time.Minute
 	pgConfig.MaxConnIdleTime = 5 * time.Minute
+	
+	pgConfig.AfterRelease = func(conn *pgx.Conn) bool {
+		ctx := context.Background()
+		conn.Exec(ctx, "SELECT set_config('app.org_id', '', false)")
+		return true
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, pgConfig)
 	if err != nil {
@@ -62,11 +69,6 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("connected to database")
-
-	// Run Migrations
-	if err := database.Migrate(ctx, pool, "migrations"); err != nil {
-		logger.Error("migrations failed", "error", err)
-	}
 
 	// ── Redis ─────────────────────────────────────────────────────────────────
 	redisURL := os.Getenv("REDIS_URL")
@@ -84,10 +86,19 @@ func main() {
 	defer rdb.Close()
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
-		logger.Warn("redis connection check failed — policy caching disabled", "error", err)
-		rdb = nil
-	} else {
-		logger.Info("connected to redis")
+		logger.Error("redis connection check failed — migrations cannot run", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("connected to redis")
+
+	// Run Migrations with distributed lock (INFRA-02)
+	lockKey := "migrate:lock:policy"
+	err = database.RunWithLock(ctx, rdb, lockKey, logger, func(ctx context.Context) error {
+		return database.Migrate(ctx, pool, "migrations")
+	})
+	if err != nil {
+		logger.Error("migrations failed", "error", err)
+		os.Exit(1)
 	}
 
 	// ── Kafka + Outbox ────────────────────────────────────────────────────────

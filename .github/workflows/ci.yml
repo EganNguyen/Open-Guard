@@ -80,21 +80,67 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-      - name: Run Unit Tests
+      - name: Run Unit Tests with Coverage
         run: |
-          go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if find . -name "*.go" | grep -q ".go"; then go test -v -short ./...; fi'
+          go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c '
+            cd {} && if find . -name "*.go" | grep -q ".go"; then
+              go test -v -short -coverprofile=coverage.out ./...
+              go tool cover -func=coverage.out
+            fi'
+      - name: Aggregate Coverage
+        run: |
+          echo "mode: set" > coverage-total.out
+          go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c '
+            if [ -f {}/coverage.out ]; then
+              grep -v "mode: set" {}/coverage.out >> coverage-total.out
+            fi'
+          go tool cover -func=coverage-total.out
+      - name: Coverage Gate
+        run: |
+          total=$(go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | tr -d '%')
+          echo "Total Coverage: $total%"
+          if [ -z "$total" ]; then total=0; fi
+          if [ "$(echo "$total < 60" | bc -l)" -eq 1 ]; then
+            echo "Coverage $total% is below 60% threshold"
+            exit 1
+          fi
 
   # STEP 6: Integration Tests
   integration-tests:
     name: "6: Integration Tests"
     needs: unit-tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: openguard
+          POSTGRES_PASSWORD: openguard
+          POSTGRES_DB: openguard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+      - name: Install Migrate
+        run: |
+          curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.0/migrate.linux-amd64.tar.gz | tar xvz
+          sudo mv migrate /usr/local/bin/
+      - name: Verify migrations reversible
+        run: |
+          export DATABASE_URL="postgres://openguard:openguard@localhost:5432/openguard?sslmode=disable"
+          migrate -path services/iam/migrations -database $DATABASE_URL up
+          migrate -path services/iam/migrations -database $DATABASE_URL down
+          migrate -path services/policy/migrations -database $DATABASE_URL up
+          migrate -path services/policy/migrations -database $DATABASE_URL down
       - name: Run Integration/Contract Tests
         run: |
           # Targeting specific patterns that represent integration/contract boundaries

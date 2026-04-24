@@ -13,7 +13,13 @@ help:
 	@echo "  generate   - Run opencode to generate all phases"
 	@echo "  phase5     - Run opencode to generate Phase 5 (Detectors)"
 
-dev:
+check-env:
+	@test -f .env || (echo "ERROR: .env missing. Copy .env.example to .env and fill in values." && exit 1)
+	@grep -q "AUDIT_SECRET_KEY=$$" .env && echo "ERROR: AUDIT_SECRET_KEY not set in .env" && exit 1 || true
+	@grep -q "DATABASE_URL=$$" .env && echo "ERROR: DATABASE_URL not set in .env" && exit 1 || true
+	@grep -q "JWT_KEYS=$$" .env && echo "ERROR: JWT_KEYS not set in .env" && exit 1 || true
+
+dev: check-env
 	docker compose up -d
 
 test:

@@ -68,8 +68,20 @@ func main() {
 
 	go func() {
 		log.Info("control-plane service starting", zap.String("port", port))
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("server failed", zap.Error(err))
+		var serverErr error
+		certFile := "/certs/server.crt"
+		keyFile := "/certs/server.key"
+		if _, err := os.Stat(certFile); err == nil {
+			// TLS certs exist — use HTTPS
+			serverErr = srv.ListenAndServeTLS(certFile, keyFile)
+		} else {
+			// No certs — HTTP (dev mode only)
+			log.Warn("TLS certs not found, starting in HTTP mode (DEV ONLY)")
+			serverErr = srv.ListenAndServe()
+		}
+
+		if serverErr != nil && serverErr != http.ErrServerClosed {
+			log.Fatal("server failed", zap.Error(serverErr))
 		}
 	}()
 
