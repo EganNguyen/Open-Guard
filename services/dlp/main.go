@@ -12,6 +12,7 @@ import (
 	"github.com/openguard/services/dlp/pkg/handlers"
 	"github.com/openguard/services/dlp/pkg/repository"
 	"github.com/openguard/services/dlp/pkg/router"
+	"github.com/openguard/services/dlp/pkg/consumer"
 	"github.com/openguard/services/dlp/pkg/telemetry"
 	"github.com/openguard/shared/crypto"
 )
@@ -81,6 +82,18 @@ func main() {
 
 	// 3. Initialize Router & Start Server
 	r := router.NewRouter(h, keyring, rdb)
+
+	// 4. Initialize Kafka Consumer for async scanning
+	brokers := os.Getenv("KAFKA_BROKERS")
+	if brokers == "" {
+		brokers = "localhost:9092"
+	}
+	dlpConsumer := consumer.NewConsumer([]string{brokers}, "control.plane.events", "dlp-service", repo, logger.With("component", "consumer"))
+	go func() {
+		if err := dlpConsumer.Start(context.Background()); err != nil {
+			logger.Error("dlp consumer failed", "error", err)
+		}
+	}()
 
 	logger.Info("dlp service starting", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

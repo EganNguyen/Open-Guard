@@ -1,0 +1,35 @@
+openapi: 3.0.3
+info:
+  title: OpenGuard IAM Service
+  description: Identity and Access Management service for OpenGuard.
+  version: 1.0.0
+paths:
+  /auth/login:
+    post:
+      summary: User login
+      responses:
+        '200':
+          description: OK
+  /auth/logout:
+    post:
+      summary: User logout
+      responses:
+        '200':
+          description: OK
+  /mgmt/users:
+    get:
+      summary: List users
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create user
+      responses:
+        '201':
+          description: Created
+  /auth/scim/v2/Users:
+    get:
+      summary: SCIM list users
+      responses:
+        '200':
+          description: OK

@@ -18,6 +18,7 @@ func NewRouter(h *handlers.AlertHandler, keyring []crypto.JWTKey, rdb *redis.Cli
 	r := mux.NewRouter()
 
 	r.Handle("/metrics", promhttp.Handler()).Methods("GET")
+	r.Use(middleware.SecurityHeaders)
 	// Health check (unauthenticated)
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)

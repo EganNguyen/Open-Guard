@@ -1,7 +1,7 @@
 package router
 
 import (
-	"os"
+
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -12,6 +12,7 @@ import (
 	"github.com/openguard/services/policy/pkg/handlers"
 	"github.com/openguard/shared/crypto"
 	shared_middleware "github.com/openguard/shared/middleware"
+	"github.com/openguard/shared/resilience"
 )
 
 // NewRouter wires up the chi router for the policy service.
@@ -25,13 +26,22 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) 
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestSize(512 * 1024))  // 512KB max (policy logic is small)
 	r.Use(middleware.Timeout(5 * time.Second)) // 5s timeout for all policy operations
+	r.Use(shared_middleware.SecurityHeaders)
 
 	// Metrics & Health
 	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/health", h.Health)
 
 	r.Route("/v1", func(r chi.Router) {
-		r.Use(shared_middleware.APIKeyAuth(os.Getenv("INTERNAL_API_KEY")))
+		breaker := resilience.NewBreaker(resilience.BreakerConfig{
+			Name:             "policy-redis-blocklist",
+			MaxRequests:      5,
+			Interval:         10 * time.Second,
+			FailureThreshold: 3,
+			OpenDuration:     5 * time.Second,
+		}, nil)
+
+		r.Use(shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker))
 		r.Route("/policies", func(r chi.Router) {
 			r.Get("/", h.ListPolicies)
 			r.Post("/", h.CreatePolicy)

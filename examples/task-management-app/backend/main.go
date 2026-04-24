@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -77,9 +78,16 @@ const (
 			claims := &crypto.StandardClaims{}
 			_, err := crypto.Verify(token, keyring, claims)
 			if err != nil {
+				go ingestEvent(context.Background(), og, "auth.login.failure", "", "", "", map[string]any{
+					"ip": r.RemoteAddr, "error": err.Error(),
+				})
 				http.Error(w, "Invalid token: "+err.Error(), http.StatusUnauthorized)
 				return
 			}
+
+			go ingestEvent(context.Background(), og, "auth.login.success", claims.UserID, claims.OrgID, "", map[string]any{
+				"ip": r.RemoteAddr, "user_agent": r.UserAgent(),
+			})
 
 			ctx := context.WithValue(r.Context(), userIDKey, claims.UserID)
 			ctx = context.WithValue(ctx, orgIDKey, claims.OrgID)
@@ -100,6 +108,11 @@ const (
 				}
 
 				if !allowed {
+					orgID, _ := r.Context().Value(orgIDKey).(string)
+					taskID := chi.URLParam(r, "id")
+					go ingestEvent(context.Background(), og, "access.denied", userID, orgID, taskID, map[string]any{
+						"action": action,
+					})
 					http.Error(w, "Access Denied by OpenGuard Policy", http.StatusForbidden)
 					return
 				}
@@ -129,6 +142,14 @@ const (
 				rows.Scan(&id, &title, &status)
 				tasks = append(tasks, map[string]interface{}{"id": id, "title": title, "status": status})
 			}
+
+			if len(tasks) > 50 {
+				go ingestEvent(context.Background(), og, "data.bulk.read", userID, orgID, "tasks", map[string]any{
+					"count":              len(tasks),
+					"threshold_exceeded": true,
+				})
+			}
+
 			json.NewEncoder(w).Encode(tasks)
 		})
 
@@ -175,6 +196,10 @@ const (
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+
+			orgID, _ := r.Context().Value(orgIDKey).(string)
+			go ingestEvent(context.Background(), og, "resource.delete", userID, orgID, taskID, nil)
+
 			w.WriteHeader(http.StatusOK)
 		})
 	})
@@ -204,4 +229,19 @@ func initDB(ctx context.Context, pool *pgxpool.Pool) error {
 		);
 	`)
 	return err
+}
+
+func ingestEvent(ctx context.Context, og *sdk.Client, eventType, userID, orgID, resourceID string, metadata map[string]any) {
+	event := sdk.AuditEvent{
+		EventType:  eventType,
+		UserID:     userID,
+		OrgID:      orgID,
+		ResourceID: resourceID,
+		Metadata:   metadata,
+		Timestamp:  time.Now().UTC(),
+	}
+	// IngestEvent must not block the main request path
+	if err := og.IngestEvent(ctx, event); err != nil {
+		log.Printf("WARN: failed to ingest security event type=%s error=%v", eventType, err)
+	}
 }

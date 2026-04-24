@@ -15,6 +15,8 @@ import (
 	"github.com/openguard/services/connector-registry/pkg/router"
 	"github.com/openguard/services/connector-registry/pkg/service"
 	"github.com/openguard/services/connector-registry/pkg/telemetry"
+	"github.com/openguard/shared/crypto"
+	"github.com/openguard/shared/secrets"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -63,7 +65,26 @@ func main() {
 	repo := repository.NewRepository(pool)
 	svc := service.NewService(repo, rdb, logger)
 	h := handlers.NewHandler(svc)
-	r := router.NewRouter(h)
+
+	// Auth Configuration
+	secretProvider, err := secrets.GetProvider(ctx)
+	if err != nil {
+		logger.Error("failed to initialize secrets provider", "error", err)
+		os.Exit(1)
+	}
+
+	keyringJSON, err := secretProvider.GetSecret(ctx, "IAM_JWT_KEYS")
+	if err != nil {
+		keyringJSON = `[{"kid":"dev-key","secret":"dev-secret-at-least-32-chars-long-!!","algorithm":"HS256","status":"active"}]`
+		logger.Warn("IAM_JWT_KEYS not found in secrets provider, using default dev key", "error", err)
+	}
+	keyring, err := crypto.LoadKeyring(keyringJSON)
+	if err != nil {
+		logger.Error("failed to load JWT keyring", "error", err)
+		os.Exit(1)
+	}
+
+	r := router.NewRouter(h, keyring, rdb)
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────
 	port := os.Getenv("PORT")

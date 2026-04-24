@@ -47,8 +47,13 @@ seed:
 	SEED_DB=true go run services/iam/main.go
 
 load-test:
-	@echo "Starting load tests..."
-	# k6 run scripts/load-test.js
+	@echo "Running load tests..."
+	@k6 run tests/load/auth-login.js --env BASE_URL=http://localhost:8080
+	@k6 run tests/load/policy-eval.js --env BASE_URL=http://localhost:8083
+	@k6 run tests/load/event-ingest.js --env BASE_URL=http://localhost:8083
+	@k6 run tests/load/audit-query.js --env BASE_URL=http://localhost:8084
+	@k6 run tests/load/scim-users.js --env BASE_URL=http://localhost:8080
+	@k6 run tests/load/compliance.js --env BASE_URL=http://localhost:8085
 
 certs:
 	@echo "Generating certificates..."

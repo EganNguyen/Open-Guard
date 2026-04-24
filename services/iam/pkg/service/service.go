@@ -21,6 +21,12 @@ import (
 	"github.com/sony/gobreaker"
 )
 
+type ScimPatchOp struct {
+	Op    string          `json:"op"`
+	Path  string          `json:"path"`
+	Value json.RawMessage `json:"value"`
+}
+
 // Repository defines the interface for data persistence.
 type Repository interface {
 	CreateOrg(ctx context.Context, name string) (string, error)
@@ -50,6 +56,11 @@ type Repository interface {
 	BeginTx(ctx context.Context) (pgx.Tx, error)
 	CreateOutboxEvent(ctx context.Context, tx pgx.Tx, orgID, topic, key string, payload []byte) error
 	UpdateUserStatus(ctx context.Context, userID, status string) error
+	UpdateUserDisplayName(ctx context.Context, userID, displayName string) error
+	GetActiveJTIs(ctx context.Context, userID string) ([]string, error)
+	GetSessionTTL(ctx context.Context, jti string) time.Duration
+	RevokeSessions(ctx context.Context, userID string) error
+	GetUserByExternalID(ctx context.Context, orgID, externalID string) (map[string]interface{}, error)
 }
 
 // Service handles business logic for the IAM service.
@@ -85,11 +96,23 @@ func (s *Service) RegisterOrg(ctx context.Context, name string) (string, error) 
 	return s.repo.CreateOrg(ctx, name)
 }
 
-func (s *Service) RegisterUser(ctx context.Context, orgID, email, password, displayName, role string) (string, error) {
+func (s *Service) RegisterUser(ctx context.Context, orgID, email, password, displayName, role string, scimExternalID string) (string, bool, error) {
+	// 0. Idempotency check for SCIM (spec §2.5)
+	if scimExternalID != "" {
+		// Check for existing user by external ID (any status)
+		user, err := s.repo.GetUserByExternalID(ctx, orgID, scimExternalID)
+		if err == nil && user != nil {
+			if user["status"].(string) == "deprovisioned" {
+				return "", false, fmt.Errorf("CONFLICT:user was deprovisioned; create a new SCIM user or reprovision")
+			}
+			return user["id"].(string), false, nil
+		}
+	}
+
 	// Hash password (R-02)
 	hash, err := s.pool.Generate(ctx, password)
 	if err != nil {
-		return "", fmt.Errorf("hash password: %w", err)
+		return "", false, fmt.Errorf("hash password: %w", err)
 	}
 
 	// Use transaction for user creation + outbox event
@@ -103,6 +126,13 @@ func (s *Service) RegisterUser(ctx context.Context, orgID, email, password, disp
 	userID, err := s.repo.CreateUser(ctx, orgID, email, string(hash), displayName, role, "initializing")
 	if err != nil {
 		return "", err
+	}
+
+	// 1b. Update SCIM External ID if provided
+	if scimExternalID != "" {
+		if err := s.repo.UpdateUserSCIM(ctx, userID, scimExternalID, "initializing"); err != nil {
+			return "", err
+		}
 	}
 
 	// 2. Publish user.created to saga.orchestration (via outbox)
@@ -120,7 +150,7 @@ func (s *Service) RegisterUser(ctx context.Context, orgID, email, password, disp
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	// 3. Saga timeout: write deadline to Redis (spec §2.5)
@@ -132,7 +162,7 @@ func (s *Service) RegisterUser(ctx context.Context, orgID, email, password, disp
 		})
 	}
 
-	return userID, nil
+	return userID, true, nil
 }
 
 func (s *Service) ReprovisionUser(ctx context.Context, orgID, userID string) error {
@@ -167,6 +197,116 @@ func (s *Service) ReprovisionUser(ctx context.Context, orgID, userID string) err
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (s *Service) DeleteUser(ctx context.Context, userID string) error {
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// a. Fetch all active JTIs for this user
+	jtis, err := s.repo.GetActiveJTIs(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	// b. Pipeline: SETEX blocklist:<jti> <ttl> "revoked" for each
+	if s.rdb != nil {
+		pipe := s.rdb.Pipeline()
+		for _, jti := range jtis {
+			ttl := s.repo.GetSessionTTL(ctx, jti)
+			if ttl > 0 {
+				pipe.SetEx(ctx, "blocklist:"+jti, "revoked", ttl)
+			}
+		}
+		if _, err := pipe.Exec(ctx); err != nil {
+			return err
+		}
+	}
+
+	// c. Revoke all sessions in DB
+	if err := s.repo.RevokeSessions(ctx, userID); err != nil {
+		return err
+	}
+
+	// d. Set user status to deprovisioned
+	if err := s.repo.UpdateUserStatus(ctx, userID, "deprovisioned"); err != nil {
+		return err
+	}
+
+	// e. Publish user.deleted via outbox
+	payload, _ := json.Marshal(map[string]any{
+		"event":   "user.deleted",
+		"user_id": userID,
+		"status":  "deprovisioned",
+		"ts":      time.Now().Unix(),
+	})
+	if err := s.repo.CreateOutboxEvent(ctx, tx, "", "saga.orchestration", userID, payload); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (s *Service) PatchUser(ctx context.Context, id string, ops []ScimPatchOp) (map[string]interface{}, error) {
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	for _, op := range ops {
+		if op.Op != "replace" {
+			continue // Only replace is supported for now
+		}
+
+		switch op.Path {
+		case "active":
+			var active bool
+			if err := json.Unmarshal(op.Value, &active); err != nil {
+				return nil, fmt.Errorf("invalid active value: %w", err)
+			}
+			status := "active"
+			if !active {
+				status = "suspended"
+			}
+			if err := s.repo.UpdateUserStatus(ctx, id, status); err != nil {
+				return nil, err
+			}
+		case "displayName":
+			var displayName string
+			if err := json.Unmarshal(op.Value, &displayName); err != nil {
+				return nil, fmt.Errorf("invalid displayName value: %w", err)
+			}
+			if err := s.repo.UpdateUserDisplayName(ctx, id, displayName); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Publish mutation to saga.orchestration
+	user, err := s.repo.GetUserByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"event":   "user.updated",
+		"user_id": id,
+		"org_id":  user["org_id"],
+		"status":  user["status"],
+		"ts":      time.Now().Unix(),
+	})
+	if err := s.repo.CreateOutboxEvent(ctx, tx, user["org_id"].(string), "saga.orchestration", id, payload); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }
 
 func (s *Service) Login(ctx context.Context, email, password, userAgent, ip string) (map[string]interface{}, string, error) {
@@ -390,6 +530,10 @@ func (s *Service) Logout(ctx context.Context, jti string, expiresAt time.Time) e
 		return nil, s.rdb.Set(ctx, "blocklist:"+jti, "revoked", ttl).Err()
 	})
 	return err
+}
+
+func (s *Service) UpdateUserStatus(ctx context.Context, userID, status string) error {
+	return s.repo.UpdateUserStatus(ctx, userID, status)
 }
 
 func (s *Service) GetCurrentUser(ctx context.Context, userID string) (map[string]interface{}, error) {

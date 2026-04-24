@@ -14,5 +14,6 @@ data:
   SERVICE_NAME: {{ $name | quote }}
   LOG_LEVEL: "info"
   OPENGUARD_ENVIRONMENT: {{ $.Values.global.environment | quote }}
+  REDIS_URL: "redis://redis-master:6379/0"
 {{- end }}
 {{- end }}

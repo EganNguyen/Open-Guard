@@ -3,22 +3,27 @@ package sdk
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-type Event struct {
-	ID        string                 `json:"id"`
-	Source    string                 `json:"source"`
-	Action    string                 `json:"action"`
-	Actor     string                 `json:"actor"`
-	Target    string                 `json:"target"`
-	Data      map[string]interface{} `json:"data"`
-	Timestamp time.Time              `json:"timestamp"`
+type AuditEvent struct {
+	EventID    string         `json:"event_id"`
+	EventType  string         `json:"event_type"`
+	UserID     string         `json:"user_id"`
+	OrgID      string         `json:"org_id"`
+	ResourceID string         `json:"resource_id,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	Timestamp  time.Time      `json:"timestamp"`
 }
 
-func (c *Client) PushEvent(ctx context.Context, event Event) error {
-	if event.Timestamp.IsZero() {
-		event.Timestamp = time.Now()
+// IngestEvent sends a security event to the OpenGuard event pipeline.
+func (c *Client) IngestEvent(ctx context.Context, event AuditEvent) error {
+	if event.EventID == "" {
+		event.EventID = uuid.New().String()
 	}
-	// Path /v1/events/ingest per spec §12
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
+	}
 	return c.do(ctx, "POST", "/v1/events/ingest", event, nil)
 }

@@ -271,7 +271,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	ctx, span := tr.Start(r.Context(), "CreateUser")
 	defer span.End()
 
-	id, err := h.svc.RegisterUser(ctx, orgID, body.Email, body.Password, body.DisplayName, body.Role)
+	id, created, err := h.svc.RegisterUser(ctx, orgID, body.Email, body.Password, body.DisplayName, body.Role, "")
 	if err != nil {
 		log := iam_middleware.GetLogger(ctx)
 		log.Error("CreateUser failed", zap.Error(err))

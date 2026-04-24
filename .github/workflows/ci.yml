@@ -42,6 +42,13 @@ jobs:
         run: |
           go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if find . -name "*.go" | grep -q ".go"; then $(go env GOPATH)/bin/golangci-lint run ./...; fi'
       
+      - name: "Check for unsafe AuthJWT usage"
+        run: |
+          if grep -rn "\.AuthJWT(" services/ | grep -v "WithBlocklist"; then
+            echo "ERROR: Unsafe AuthJWT usage found. Use AuthJWTWithBlocklist."
+            exit 1
+          fi
+      
       - name: Run SQL Lint
         run: sqlfluff lint .
 

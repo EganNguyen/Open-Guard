@@ -1,0 +1,15 @@
+openapi: 3.0.3
+info:
+  title: OpenGuard Control Plane
+  description: Unified gateway for OpenGuard services.
+  version: 1.0.0
+paths:
+  /v1/events/ingest:
+    post:
+      summary: Ingest security events
+      responses:
+        '202':
+          description: Accepted
+  /v1/admin/connectors:
+    get:
+      summary: List connected applications

@@ -27,6 +27,7 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, 
 	r.Use(telemetry.Metrics)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestSize(1 << 20)) // 1MB limit (R-05)
+	r.Use(shared_middleware.SecurityHeaders)
 
 	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/health", h.Health)
@@ -80,6 +81,8 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, 
 			r.Get("/Users", h.ListScimUsers)
 			r.Post("/Users", h.PostScimUser)
 			r.Get("/Users/{id}", h.GetScimUser)
+			r.Delete("/Users/{id}", h.DeleteScimUser)
+			r.Patch("/Users/{id}", h.PatchScimUser)
 		})
 	})
 

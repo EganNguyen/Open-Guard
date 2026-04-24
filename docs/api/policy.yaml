@@ -1,0 +1,17 @@
+openapi: 3.0.3
+info:
+  title: OpenGuard Policy Service
+  description: Policy Engine for OpenGuard.
+  version: 1.0.0
+paths:
+  /v1/policy/evaluate:
+    post:
+      summary: Evaluate a security policy
+      responses:
+        '200':
+          description: OK
+  /v1/policies:
+    get:
+      summary: List policies
+    post:
+      summary: Create policy

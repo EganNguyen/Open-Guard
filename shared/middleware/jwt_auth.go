@@ -12,36 +12,9 @@ import (
 
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/resilience"
+	"github.com/openguard/shared/rls"
 )
 
-// AuthJWT is a middleware that validates the JWT from the Authorization header or cookie.
-func AuthJWT(keyring []crypto.JWTKey) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tokenStr := extractToken(r)
-			if tokenStr == "" {
-				http.Error(w, "Unauthorized: missing token", http.StatusUnauthorized)
-				return
-			}
-
-			// Verify Token
-			claims := &crypto.StandardClaims{}
-			_, err := crypto.Verify(tokenStr, keyring, claims)
-			if err != nil {
-				http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
-				return
-			}
-
-			// Inject into Context
-			ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
-			ctx = context.WithValue(ctx, OrgIDKey, claims.OrgID)
-			ctx = context.WithValue(ctx, JTIKey, claims.RegisteredClaims.ID)
-			ctx = context.WithValue(ctx, ExpiresAtKey, claims.RegisteredClaims.ExpiresAt.Time)
-
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
-}
 
 // AuthJWTWithBlocklist is a middleware that validates the JWT and checks the Redis blocklist.
 // It uses a circuit breaker and is FAIL-OPEN on Redis failures per spec §1.3.
@@ -87,6 +60,7 @@ func AuthJWTWithBlocklist(keyring []crypto.JWTKey, rdb *redis.Client, breaker *g
 			ctx = context.WithValue(ctx, OrgIDKey, claims.OrgID)
 			ctx = context.WithValue(ctx, JTIKey, jti)
 			ctx = context.WithValue(ctx, ExpiresAtKey, claims.RegisteredClaims.ExpiresAt.Time)
+			ctx = rls.WithOrgID(ctx, claims.OrgID)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

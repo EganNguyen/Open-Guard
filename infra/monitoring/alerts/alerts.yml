@@ -1,39 +1,86 @@
 groups:
-- name: openguard
-  rules:
-  - alert: OutboxLagHigh
-    expr: openguard_outbox_pending_records > 1000
-    for: 2m
-    labels: { severity: warning }
-    annotations:
-      runbook: "docs/runbooks/outbox-dlq.md"
+  - name: openguard-security
+    rules:
+      - alert: BruteForceAttackDetected
+        expr: rate(iam_login_failures_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "Brute force attack detected"
+          description: "Login failures > 10/s for 1 minute on {{ $labels.instance }}"
 
-  - alert: CircuitBreakerOpen
-    expr: openguard_circuit_breaker_state{state="2"} == 1
-    for: 30s
-    labels: { severity: critical }
-    annotations:
-      runbook: "docs/runbooks/circuit-breaker-open.md"
+      - alert: ImpossibleTravelDetected
+        expr: increase(threat_events_total{detector="impossible_travel"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Impossible travel event detected"
 
-  - alert: KafkaConsumerLagHigh
-    expr: openguard_kafka_consumer_lag > 50000
-    for: 5m
-    labels: { severity: warning }
-    annotations:
-      runbook: "docs/runbooks/kafka-consumer-lag.md"
+      - alert: AuditChainIntegrityFailure
+        expr: audit_chain_integrity_failures_total > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "Audit chain integrity failure detected"
+          description: "Hash chain verification failed for org {{ $labels.org_id }}"
 
-  - alert: AuditChainIntegrityFailure
-    expr: increase(openguard_audit_chain_integrity_failures_total[5m]) > 0
-    labels: { severity: critical }
-    annotations:
-      runbook: "docs/runbooks/audit-hash-mismatch.md"
+      - alert: DLPHighBlockRate
+        expr: |
+          rate(dlp_blocks_total[5m]) /
+          rate(dlp_scans_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLP blocking more than 10% of events"
 
-  - alert: PolicyServiceDown
-    expr: up{job="policy"} == 0
-    for: 30s
-    labels: { severity: critical }
+  - name: openguard-infrastructure
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"openguard.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OpenGuard service {{ $labels.job }} is down"
 
-  - alert: KafkaOffsetCommitLag
-    expr: histogram_quantile(0.99, openguard_kafka_offset_commit_duration_seconds_bucket) > 5
-    for: 2m
-    labels: { severity: warning }
+      - alert: KafkaConsumerLagHigh
+        expr: kafka_consumer_group_lag{group=~"openguard.*"} > 10000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag high"
+          description: "Group {{ $labels.group }} lag: {{ $value }}"
+
+      - alert: OutboxRelayBacklogHigh
+        expr: openguard_outbox_pending_total > 1000
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox relay backlog > 1000 records"
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m])) by (service) /
+          sum(rate(http_requests_total[5m])) by (service) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Error rate > 5% on {{ $labels.service }}"
+
+      - alert: HighLoginLatency
+        expr: |
+          histogram_quantile(0.99, rate(iam_login_duration_seconds_bucket[5m])) > 0.4
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "IAM p99 login latency > 400ms (bcrypt pool saturation risk)"

@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/openguard/shared/crypto"
+	"github.com/openguard/shared/rls"
 )
 
 // SCIM v2 Models
@@ -68,6 +70,7 @@ func (h *Handler) PostScimUser(w http.ResponseWriter, r *http.Request) {
 		h.writeScimError(w, http.StatusUnauthorized, "unauthorized", "Missing X-Org-ID")
 		return
 	}
+	ctx := rls.WithOrgID(r.Context(), orgID)
 
 	var payload scimUser
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -90,21 +93,66 @@ func (h *Handler) PostScimUser(w http.ResponseWriter, r *http.Request) {
 	// but here we use a random one if not provided.
 	password := crypto.GenerateRandomString(32)
 
-	id, err := h.svc.RegisterUser(r.Context(), orgID, email, password, payload.DisplayName, "user")
+	id, created, err := h.svc.RegisterUser(ctx, orgID, email, password, payload.DisplayName, "user", payload.ExternalID)
 	if err != nil {
+		if strings.HasPrefix(err.Error(), "CONFLICT:") {
+			h.writeScimError(w, http.StatusConflict, "conflict", strings.TrimPrefix(err.Error(), "CONFLICT:"))
+			return
+		}
 		h.writeScimError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 
-	user, _ := h.svc.GetCurrentUser(r.Context(), id)
-	h.writeJSON(w, http.StatusCreated, h.mapToScim(user))
+	user, _ := h.svc.GetCurrentUser(ctx, id)
+	
+	status := http.StatusCreated
+	if !created {
+		status = http.StatusOK
+	}
+	
+	h.writeJSON(w, status, h.mapToScim(user))
 }
 
 func (h *Handler) GetScimUser(w http.ResponseWriter, r *http.Request) {
+	orgID := r.Header.Get("X-Org-ID")
+	ctx := rls.WithOrgID(r.Context(), orgID)
 	userID := chi.URLParam(r, "id")
-	user, err := h.svc.GetCurrentUser(r.Context(), userID)
-	if err != nil {
+	user, err := h.svc.GetCurrentUser(ctx, userID)
+	if err != nil || user["status"].(string) == "deprovisioned" {
 		h.writeScimError(w, http.StatusNotFound, "notFound", "User not found")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, h.mapToScim(user))
+}
+
+func (h *Handler) DeleteScimUser(w http.ResponseWriter, r *http.Request) {
+	orgID := r.Header.Get("X-Org-ID")
+	ctx := rls.WithOrgID(r.Context(), orgID)
+	id := chi.URLParam(r, "id")
+	if err := h.svc.DeleteUser(ctx, id); err != nil {
+		h.writeScimError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent) // 204
+}
+
+func (h *Handler) PatchScimUser(w http.ResponseWriter, r *http.Request) {
+	orgID := r.Header.Get("X-Org-ID")
+	ctx := rls.WithOrgID(r.Context(), orgID)
+	id := chi.URLParam(r, "id")
+	var body struct {
+		Schemas    []string              `json:"schemas"`
+		Operations []service.ScimPatchOp `json:"Operations"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.writeScimError(w, http.StatusBadRequest, "invalidSyntax", err.Error())
+		return
+	}
+
+	user, err := h.svc.PatchUser(ctx, id, body.Operations)
+	if err != nil {
+		h.writeScimError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 

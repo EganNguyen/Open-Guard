@@ -20,6 +20,7 @@ import (
 	"github.com/openguard/services/iam/pkg/handlers"
 	"github.com/openguard/services/iam/pkg/repository"
 	"github.com/openguard/services/iam/pkg/router"
+	"github.com/openguard/services/iam/pkg/saga"
 	"github.com/openguard/services/iam/pkg/seed"
 	"github.com/openguard/services/iam/pkg/service"
 	"github.com/openguard/services/iam/pkg/telemetry"
@@ -172,12 +173,18 @@ func main() {
 	
 	// Start Outbox Relay in background
 	go relay.Run(ctx)
+	
+	// Start Saga Watcher (spec §2.5)
+	sagaWatcher := saga.NewWatcher(rdb, kp, logger.With("component", "saga-watcher"))
+	go sagaWatcher.Run(ctx)
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
+	// Start Saga Consumer (spec §2.5)
+	sagaConsumer := saga.NewConsumer(brokers, "openguard-saga-v1", "saga.orchestration", svc, logger.With("component", "saga-consumer"))
+	go func() {
+		if err := sagaConsumer.Start(ctx); err != nil {
+			logger.Error("saga consumer failed", "error", err)
+		}
+	}()
 	var tlsConfig *tls.Config
 	if _, err := os.Stat("/certs/ca.crt"); err == nil {
 		caCert, err := os.ReadFile("/certs/ca.crt")
@@ -192,19 +199,50 @@ func main() {
 		}
 	}
 
-	srv := &http.Server{
-		Addr:      ":" + port,
+	// Port 8080 - External (VerifyClientCertIfGiven)
+	srv8080 := &http.Server{
+		Addr:      ":8080",
 		Handler:   r,
 		TLSConfig: tlsConfig,
 	}
 
+	// Port 8443 - Internal (RequireAndVerifyClientCert)
+	var internalTLSConfig *tls.Config
+	if tlsConfig != nil {
+		internalTLSConfig = tlsConfig.Clone()
+		internalTLSConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+
+	srv8443 := &http.Server{
+		Addr:      ":8443",
+		Handler:   r,
+		TLSConfig: internalTLSConfig,
+	}
+
 	go func() {
-		logger.Info("service starting", "port", port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server failed", "error", err)
-			os.Exit(1)
+		logger.Info("external service starting", "port", "8080")
+		if tlsConfig != nil {
+			if err := srv8080.ListenAndServeTLS("/certs/tls.crt", "/certs/tls.key"); err != nil && err != http.ErrServerClosed {
+				logger.Error("external server failed", "error", err)
+				os.Exit(1)
+			}
+		} else {
+			if err := srv8080.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				logger.Error("external server failed", "error", err)
+				os.Exit(1)
+			}
 		}
 	}()
+
+	if internalTLSConfig != nil {
+		go func() {
+			logger.Info("internal service starting (strict mTLS)", "port", "8443")
+			if err := srv8443.ListenAndServeTLS("/certs/tls.crt", "/certs/tls.key"); err != nil && err != http.ErrServerClosed {
+				logger.Error("internal server failed", "error", err)
+				os.Exit(1)
+			}
+		}()
+	}
 
 	<-ctx.Done()
 	logger.Info("shutting down gracefully")
@@ -212,8 +250,9 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("server shutdown failed", "error", err)
+	srv8080.Shutdown(shutdownCtx)
+	if internalTLSConfig != nil {
+		srv8443.Shutdown(shutdownCtx)
 	}
 	
 	fmt.Println("Service exited")

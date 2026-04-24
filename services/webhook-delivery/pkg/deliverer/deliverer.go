@@ -30,7 +30,7 @@ func NewDeliverer(logger *slog.Logger) *Deliverer {
 	}
 }
 
-func (d *Deliverer) Deliver(ctx context.Context, target, payload, secret string) error {
+func (d *Deliverer) Deliver(ctx context.Context, messageKey, target, payload, secret string) error {
 	// 1. SSRF check
 	if err := middleware.ValidateOutboundURL(target); err != nil {
 		return fmt.Errorf("SSRF blocked: %w", err)
@@ -42,6 +42,12 @@ func (d *Deliverer) Deliver(ctx context.Context, target, payload, secret string)
 	mac.Write([]byte(ts + "." + payload))
 	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 
+	deliveryID := messageKey
+	if deliveryID == "" {
+		deliveryID = uuid.New().String()
+		d.logger.Warn("message key is empty, falling back to random UUID for X-OpenGuard-Delivery")
+	}
+
 	// 3. POST with timeout
 	req, err := http.NewRequestWithContext(ctx, "POST", target, bytes.NewReader([]byte(payload)))
 	if err != nil {
@@ -51,7 +57,7 @@ func (d *Deliverer) Deliver(ctx context.Context, target, payload, secret string)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-OpenGuard-Signature", sig)
 	req.Header.Set("X-OpenGuard-Timestamp", ts)
-	req.Header.Set("X-OpenGuard-Delivery", uuid.New().String())
+	req.Header.Set("X-OpenGuard-Delivery", deliveryID)
 
 	resp, err := d.client.Do(req)
 	if err != nil {

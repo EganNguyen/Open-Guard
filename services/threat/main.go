@@ -15,8 +15,11 @@ import (
 	"github.com/openguard/services/threat/pkg/handlers"
 	"github.com/openguard/services/threat/pkg/router"
 	"github.com/openguard/services/threat/pkg/telemetry"
+	"github.com/openguard/shared/crypto"
 	sharedkafka "github.com/openguard/shared/kafka"
+	"github.com/openguard/shared/secrets"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -34,6 +37,18 @@ func main() {
 	if redisAddr == "" {
 		redisAddr = "localhost:6379"
 	}
+
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://" + redisAddr + "/0"
+	}
+	rOptions, err := redis.ParseURL(redisURL)
+	if err != nil {
+		logger.Error("failed to parse redis url", "error", err)
+		os.Exit(1)
+	}
+	rdb := redis.NewClient(rOptions)
+	defer rdb.Close()
 
 	kafkaBrokersStr := os.Getenv("KAFKA_BROKERS")
 	if kafkaBrokersStr == "" {
@@ -121,7 +136,26 @@ func main() {
 
 	// Initialize Handlers & Router
 	h := handlers.NewHandler(store)
-	r := router.NewRouter(h)
+
+	// Auth Configuration
+	secretProvider, err := secrets.GetProvider(context.Background())
+	if err != nil {
+		logger.Error("failed to initialize secrets provider", "error", err)
+		os.Exit(1)
+	}
+
+	keyringJSON, err := secretProvider.GetSecret(context.Background(), "IAM_JWT_KEYS")
+	if err != nil {
+		keyringJSON = `[{"kid":"dev-key","secret":"dev-secret-at-least-32-chars-long-!!","algorithm":"HS256","status":"active"}]`
+		logger.Warn("IAM_JWT_KEYS not found in secrets provider, using default dev key", "error", err)
+	}
+	keyring, err := crypto.LoadKeyring(keyringJSON)
+	if err != nil {
+		logger.Error("failed to load JWT keyring", "error", err)
+		os.Exit(1)
+	}
+
+	r := router.NewRouter(h, keyring, rdb)
 
 	// Add metrics
 	r.Handle("/metrics", promhttp.Handler())

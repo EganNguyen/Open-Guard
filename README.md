@@ -375,10 +375,11 @@ func main() {
     }
 
     // Push an audit event
-    client.PushEvent(ctx, sdk.Event{
-        Type:   "document.read",
-        Actor:  "user:abc123",
-        Target: "document:reports/q3-summary",
+    client.IngestEvent(ctx, sdk.AuditEvent{
+        EventType: "document.read",
+        UserID:    "user:abc123",
+        OrgID:     "org:xyz",
+        ResourceID: "document:reports/q3-summary",
     })
 }
 ```

@@ -14,6 +14,7 @@ import (
 	"github.com/openguard/services/policy/pkg/telemetry"
 	"github.com/openguard/shared/kafka/outbox"
 	"github.com/openguard/shared/resilience"
+	"github.com/openguard/shared/rls"
 	"github.com/redis/go-redis/v9"
 	"github.com/sony/gobreaker"
 	"golang.org/x/sync/singleflight"
@@ -291,8 +292,13 @@ func matchesGlob(patterns []string, value string) bool {
 }
 
 // backgroundRefresh asynchronously refreshes the cache after a cache hit.
+// It carries the org_id into the detached context so withOrgContext can set
+// the RLS session variable on the background connection.
 func (s *Service) backgroundRefresh(req EvaluateRequest, key string) {
-	ctx, cancel := context.WithTimeout(context.Background(), maxRetryDelay)
+	ctx, cancel := context.WithTimeout(
+		rls.WithOrgID(context.Background(), req.OrgID),
+		maxRetryDelay,
+	)
 	defer cancel()
 	s.evaluateFromDB(ctx, req, key)
 }
@@ -365,8 +371,13 @@ func (s *Service) DeletePolicy(ctx context.Context, orgID, policyID string) erro
 }
 
 // writeEvalLog writes a policy evaluation log entry asynchronously.
+// It carries the org_id into the detached context so withOrgContext can set
+// the RLS session variable on the background connection.
 func (s *Service) writeEvalLog(req EvaluateRequest, resp *EvaluateResponse) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(
+		rls.WithOrgID(context.Background(), req.OrgID),
+		5*time.Second,
+	)
 	defer cancel()
 	if err := s.repo.WriteEvalLog(ctx, repository.EvalLog{
 		OrgID:            req.OrgID,

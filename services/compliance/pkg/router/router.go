@@ -18,6 +18,7 @@ func NewRouter(h *handlers.ComplianceHandler, keyring []crypto.JWTKey, rdb *redi
 	r := mux.NewRouter()
 
 	r.Handle("/metrics", promhttp.Handler()).Methods("GET")
+	r.Use(middleware.SecurityHeaders)
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))

@@ -29,6 +29,14 @@ var Rules = []ScanRule{
 		Kind: "phone_us",
 		Re:   regexp.MustCompile(`\b\+?1?[\-.\s]?\(?\d{3}\)?[\-.\s]\d{3}[\-.\s]\d{4}\b`),
 	},
+	{
+		Kind: "aws_access_key",
+		Re:   regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`),
+	},
+	{
+		Kind: "private_key",
+		Re:   regexp.MustCompile(`-----BEGIN (RSA|EC|PGP|OPENSSH) PRIVATE KEY-----`),
+	},
 }
 
 func LuhnCheck(s string) bool {

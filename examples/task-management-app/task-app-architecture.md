@@ -94,3 +94,38 @@ sequenceDiagram
 2. **Keep-It-Simple Frontend:** The frontend is implemented in vanilla HTML/CSS/JS without heavy build tools (like Webpack or React). This minimizes the learning curve and focuses purely on demonstrating OpenGuard integration.
 3. **Fail-Closed Default:** Aligning with OpenGuard's principles, if the system cannot reach OpenGuard or verify a JWT, the backend fails closed (denies access) rather than failing open. It relies on the OpenGuard SDK's local cache for resilience.
 4. **Native Audit Compliance:** Instead of building a bespoke logging database table for the application, standard actions are instantly passed to OpenGuard's `/v1/events/ingest` pipeline. This provides an out-of-the-box tamper-evident audit trail.
+
+## 8. Security Integration Demo
+
+### Event Ingestion
+The task app sends security events to OpenGuard's event pipeline:
+
+| Event Type | Trigger | OpenGuard Detector |
+|---|---|---|
+| auth.login.failure | Invalid token or verification failure | Brute Force |
+| auth.login.success | Successful token verification | Impossible Travel |
+| data.bulk.read | > 50 tasks fetched in a single request | Data Exfiltration |
+| access.denied | Policy evaluation → deny | Privilege Escalation |
+| resource.delete | Task deletion | Audit Trail |
+
+### Simulate a Brute Force Attack
+To simulate a brute force attack, you can send multiple invalid requests to the backend:
+
+```bash
+# Assuming backend is running on port 3005
+for i in {1..20}; do
+  curl -X GET http://localhost:3005/api/tasks \
+    -H "Authorization: Bearer invalid-token-$i"
+done
+# Check OpenGuard threat dashboard: BruteForce alert should fire
+```
+
+### Simulate Data Exfiltration
+Create more than 50 tasks for a user, then fetch them:
+
+```bash
+# After creating 51 tasks...
+curl -X GET http://localhost:3005/api/tasks \
+  -H "Authorization: Bearer $VALID_TOKEN"
+# Check OpenGuard Audit Log for 'data.bulk.read' event
+```
