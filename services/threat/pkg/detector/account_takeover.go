@@ -62,34 +62,44 @@ func (d *AccountTakeoverDetector) Run(ctx context.Context) error {
 				continue
 			}
 
-			d.processEvent(ctx, m)
-			d.reader.CommitMessages(ctx, m)
+			if err := d.processEvent(ctx, m); err != nil {
+				d.logger.Error("processEvent failed, not committing offset", "error", err)
+				continue
+			}
+			if err := d.reader.CommitMessages(ctx, m); err != nil {
+				d.logger.Error("failed to commit kafka offset", "error", err)
+			}
 		}
 	}
 }
 
-func (d *AccountTakeoverDetector) processEvent(ctx context.Context, m kafka.Message) {
+func (d *AccountTakeoverDetector) processEvent(ctx context.Context, m kafka.Message) error {
 	var event map[string]interface{}
 	if err := json.Unmarshal(m.Value, &event); err != nil {
 		d.logger.Error("failed to unmarshal event", "error", err)
-		return
+		return nil
 	}
 
 	eventType, _ := event["event_type"].(string)
 	userID, _ := event["user_id"].(string)
 	if userID == "" {
-		return
+		return nil
 	}
 
 	if eventType == "password.changed" {
 		// SET ato:pwchange:{userID} "1" EX 86400 (24h)
-		d.rdb.Set(ctx, "ato:pwchange:"+userID, "1", 24*time.Hour)
-		return
+		if err := d.rdb.Set(ctx, "ato:pwchange:"+userID, "1", 24*time.Hour).Err(); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	if eventType == "auth.login.success" {
 		// 1. Check if "ato:pwchange:{userID}" exists
-		exists, _ := d.rdb.Exists(ctx, "ato:pwchange:"+userID).Result()
+		exists, err := d.rdb.Exists(ctx, "ato:pwchange:"+userID).Result()
+		if err != nil {
+			return err
+		}
 		
 		// 2. Compute device fingerprint
 		ua, _ := event["user_agent"].(string)
@@ -98,7 +108,10 @@ func (d *AccountTakeoverDetector) processEvent(ctx context.Context, m kafka.Mess
 		fingerprint := d.computeFingerprint(ua, al, pl)
 
 		deviceKey := "ato:devices:" + userID
-		isKnown, _ := d.rdb.SIsMember(ctx, deviceKey, fingerprint).Result()
+		isKnown, err := d.rdb.SIsMember(ctx, deviceKey, fingerprint).Result()
+		if err != nil {
+			return err
+		}
 
 		if exists > 0 && !isKnown {
 			d.logger.Warn("account takeover suspect detected", "user_id", userID, "fingerprint", fingerprint)
@@ -106,9 +119,14 @@ func (d *AccountTakeoverDetector) processEvent(ctx context.Context, m kafka.Mess
 		}
 
 		// Update known devices
-		d.rdb.SAdd(ctx, deviceKey, fingerprint)
-		d.rdb.Expire(ctx, deviceKey, 30*24*time.Hour) // 30 days TTL
+		pipe := d.rdb.Pipeline()
+		pipe.SAdd(ctx, deviceKey, fingerprint)
+		pipe.Expire(ctx, deviceKey, 30*24*time.Hour) // 30 days TTL
+		if _, err := pipe.Exec(ctx); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (d *AccountTakeoverDetector) computeFingerprint(ua, al, pl string) string {

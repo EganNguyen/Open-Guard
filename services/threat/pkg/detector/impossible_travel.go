@@ -91,35 +91,40 @@ func (d *ImpossibleTravelDetector) Run(ctx context.Context) error {
 				continue
 			}
 
-			d.processEvent(ctx, m)
-			d.reader.CommitMessages(ctx, m)
+			if err := d.processEvent(ctx, m); err != nil {
+				d.logger.Error("processEvent failed, not committing offset", "error", err)
+				continue
+			}
+			if err := d.reader.CommitMessages(ctx, m); err != nil {
+				d.logger.Error("failed to commit kafka offset", "error", err)
+			}
 		}
 	}
 }
 
-func (d *ImpossibleTravelDetector) processEvent(ctx context.Context, m kafka.Message) {
+func (d *ImpossibleTravelDetector) processEvent(ctx context.Context, m kafka.Message) error {
 	var event map[string]interface{}
 	if err := json.Unmarshal(m.Value, &event); err != nil {
 		d.logger.Error("failed to unmarshal event", "error", err)
-		return
+		return nil
 	}
 
 	eventType, _ := event["event_type"].(string)
 	if eventType != "auth.login.success" {
-		return
+		return nil
 	}
 
 	userID, _ := event["user_id"].(string)
 	ipStr, _ := event["ip"].(string)
 	if userID == "" || ipStr == "" {
-		return
+		return nil
 	}
 
 	ip := net.ParseIP(ipStr)
 	record, err := d.db.City(ip)
 	if err != nil {
 		d.logger.Error("failed to geolocate IP", "ip", ipStr, "error", err)
-		return
+		return nil // Not a retryable error usually, unless DB is down
 	}
 
 	current := LastLogin{
@@ -137,11 +142,16 @@ func (d *ImpossibleTravelDetector) processEvent(ctx context.Context, m kafka.Mes
 		if err := json.Unmarshal([]byte(val), &last); err == nil {
 			d.detect(ctx, userID, last, current)
 		}
+	} else if err != redis.Nil {
+		return err
 	}
 
 	// Store current login
 	payload, _ := json.Marshal(current)
-	d.rdb.Set(ctx, redisKey, payload, time.Duration(d.windowSecs)*time.Second)
+	if err := d.rdb.Set(ctx, redisKey, payload, time.Duration(d.windowSecs)*time.Second).Err(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (d *ImpossibleTravelDetector) detect(ctx context.Context, userID string, last, current LastLogin) {

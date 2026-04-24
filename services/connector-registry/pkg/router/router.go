@@ -34,7 +34,8 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) 
 
 	r.Route("/v1/connectors", func(r chi.Router) {
 		r.Use(shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker))
-		r.Post("/", h.Register)
+		idemMiddleware := shared_middleware.IdempotencyMiddleware(rdb)
+		r.With(idemMiddleware).Post("/", h.Register)
 		r.Post("/validate", h.Validate)
 	})
 

@@ -60,8 +60,25 @@ func (h *DLPHandler) Scan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	type ScanResponseFinding struct {
+		Kind      string  `json:"kind"`
+		Value     string  `json:"value"` // This is now masked by ScanRegex
+		RiskScore float64 `json:"risk_score"`
+		Location  string  `json:"location,omitempty"`
+	}
+
+	var response []ScanResponseFinding
+	for _, f := range allFindings {
+		response = append(response, ScanResponseFinding{
+			Kind:      f.Kind,
+			Value:     f.Value,
+			RiskScore: f.RiskScore,
+			Location:  f.Location,
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(allFindings)
+	json.NewEncoder(w).Encode(response)
 }
 
 func (h *DLPHandler) ListPolicies(w http.ResponseWriter, r *http.Request) {

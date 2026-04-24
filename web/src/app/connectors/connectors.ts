@@ -1,7 +1,9 @@
 import { Component, OnInit, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { ConnectorService, Connector } from '../core/services/connector.service';
+import { ConnectorService, ConnectorUI } from '../core/services/connector.service';
+import { Connector, ConnectorRegistrationResult } from '../core/models/connector.model';
+
 import { ConfirmDialogComponent } from '../core/components/confirm-dialog';
 import { Subject, switchMap, startWith, shareReplay } from 'rxjs';
 
@@ -26,7 +28,7 @@ export class ConnectorsComponent {
 
   showModal = signal(false);
   submitting = signal(false);
-  registrationResult = signal<any>(null);
+  registrationResult = signal<Connector | null>(null);
   isEditing = signal(false);
   editingConnectorId = signal('');
   
@@ -86,7 +88,7 @@ export class ConnectorsComponent {
       };
 
       this.connectorService.createConnector(newConnector).subscribe({
-        next: (res: any) => {
+        next: (res) => {
           this.submitting.set(false);
           this.registrationResult.set({
             ...newConnector,
@@ -102,7 +104,7 @@ export class ConnectorsComponent {
     }
   }
 
-  editConnector(connector: Connector) {
+  editConnector(connector: ConnectorUI) {
     this.isEditing.set(true);
     this.editingConnectorId.set(connector.id);
     this.showModal.set(true);
@@ -113,7 +115,7 @@ export class ConnectorsComponent {
     });
   }
 
-  confirmDelete(connector: Connector) {
+  confirmDelete(connector: ConnectorUI) {
     this.connectorToDelete.set(connector);
     this.showConfirm.set(true);
   }

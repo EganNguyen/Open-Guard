@@ -29,9 +29,9 @@ export class PolicyService {
     return this.api.put<Policy>(`/v1/policies/${id}`, policy);
   }
 
-  deletePolicy(id: string, orgId: string): Observable<any> {
+  deletePolicy(id: string, orgId: string): Observable<{ status: string }> {
     const params = new HttpParams().set('org_id', orgId);
-    return this.api.delete<any>(`/v1/policies/${id}`, params);
+    return this.api.delete<{ status: string }>(`/v1/policies/${id}`, params);
   }
 
   evaluate(request: EvaluateRequest): Observable<EvaluateResponse> {

@@ -74,19 +74,32 @@ func (d *PrivilegeEscalationDetector) consumeAuth(ctx context.Context) {
 			continue
 		}
 
-		var event map[string]interface{}
-		if err := json.Unmarshal(m.Value, &event); err == nil {
-			eventType, _ := event["event_type"].(string)
-			if eventType == "auth.login.success" {
-				userID, _ := event["user_id"].(string)
-				if userID != "" {
-					// SET privsec:login:{userID} "1" EX 3600
-					d.rdb.Set(ctx, "privsec:login:"+userID, "1", time.Hour)
-				}
+		if err := d.processAuthEvent(ctx, m); err != nil {
+			d.logger.Error("processAuthEvent failed, not committing offset", "error", err)
+			continue
+		}
+		if err := d.authReader.CommitMessages(ctx, m); err != nil {
+			d.logger.Error("failed to commit kafka offset", "error", err)
+		}
+	}
+}
+
+func (d *PrivilegeEscalationDetector) processAuthEvent(ctx context.Context, m kafka.Message) error {
+	var event map[string]interface{}
+	if err := json.Unmarshal(m.Value, &event); err != nil {
+		return nil
+	}
+	eventType, _ := event["event_type"].(string)
+	if eventType == "auth.login.success" {
+		userID, _ := event["user_id"].(string)
+		if userID != "" {
+			// SET privsec:login:{userID} "1" EX 3600
+			if err := d.rdb.Set(ctx, "privsec:login:"+userID, "1", time.Hour).Err(); err != nil {
+				return err
 			}
 		}
-		d.authReader.CommitMessages(ctx, m)
 	}
+	return nil
 }
 
 func (d *PrivilegeEscalationDetector) consumePolicy(ctx context.Context) {
@@ -100,27 +113,41 @@ func (d *PrivilegeEscalationDetector) consumePolicy(ctx context.Context) {
 			continue
 		}
 
-		var event map[string]interface{}
-		if err := json.Unmarshal(m.Value, &event); err == nil {
-			action, _ := event["action"].(string) // or event_type depending on schema
-			if action == "role.grant" || strings.Contains(action, "policy.changed") {
-				actorID, _ := event["actor_id"].(string)
-				targetID, _ := event["target_id"].(string)
-				
-				if actorID != "" {
-					exists, _ := d.rdb.Exists(ctx, "privsec:login:"+actorID).Result()
-					if exists > 0 {
-						d.logger.Warn("privilege escalation risk detected", 
-							"actor_id", actorID, 
-							"target_id", targetID, 
-							"action", action)
-						d.publishThreatEvent(ctx, actorID, targetID, action)
-					}
-				}
+		if err := d.processPolicyEvent(ctx, m); err != nil {
+			d.logger.Error("processPolicyEvent failed, not committing offset", "error", err)
+			continue
+		}
+		if err := d.policyReader.CommitMessages(ctx, m); err != nil {
+			d.logger.Error("failed to commit kafka offset", "error", err)
+		}
+	}
+}
+
+func (d *PrivilegeEscalationDetector) processPolicyEvent(ctx context.Context, m kafka.Message) error {
+	var event map[string]interface{}
+	if err := json.Unmarshal(m.Value, &event); err != nil {
+		return nil
+	}
+	action, _ := event["action"].(string) // or event_type depending on schema
+	if action == "role.grant" || strings.Contains(action, "policy.changed") {
+		actorID, _ := event["actor_id"].(string)
+		targetID, _ := event["target_id"].(string)
+
+		if actorID != "" {
+			exists, err := d.rdb.Exists(ctx, "privsec:login:"+actorID).Result()
+			if err != nil {
+				return err
+			}
+			if exists > 0 {
+				d.logger.Warn("privilege escalation risk detected",
+					"actor_id", actorID,
+					"target_id", targetID,
+					"action", action)
+				d.publishThreatEvent(ctx, actorID, targetID, action)
 			}
 		}
-		d.policyReader.CommitMessages(ctx, m)
 	}
+	return nil
 }
 
 func (d *PrivilegeEscalationDetector) publishThreatEvent(ctx context.Context, actorID, targetID, action string) {

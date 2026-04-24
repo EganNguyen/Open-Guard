@@ -16,7 +16,7 @@ export class AuditLogComponent implements OnInit, OnDestroy {
   private authService = inject(AuthService);
   private streamSubscription?: Subscription;
 
-  logs = signal<any[]>([]);
+  logs = signal<AuditEvent[]>([]);
   loading = signal(true);
 
   ngOnInit() {
@@ -28,15 +28,15 @@ export class AuditLogComponent implements OnInit, OnDestroy {
   }
 
   loadLogs() {
-    const user = this.authService.user();
-    if (!user) return;
+    const orgId = this.authService.getCurrentOrgId();
+    if (!orgId) return;
 
     this.loading.set(true);
-    this.auditService.listEvents(user.org_id).subscribe({
+    this.auditService.listEvents(orgId).subscribe({
       next: (res) => {
         this.logs.set(res.events);
         this.loading.set(false);
-        this.startStreaming(user.org_id);
+        this.startStreaming();
       },
       error: (err) => {
         console.error('Failed to load audit logs', err);
@@ -45,10 +45,9 @@ export class AuditLogComponent implements OnInit, OnDestroy {
     });
   }
 
-  startStreaming(orgId: string) {
-    this.streamSubscription = this.auditService.streamEvents(orgId).subscribe({
-      next: (data) => {
-        const event = JSON.parse(data);
+  startStreaming() {
+    this.streamSubscription = this.auditService.streamEvents().subscribe({
+      next: (event) => {
         this.logs.update(prev => [event, ...prev.slice(0, 49)]);
       }
     });

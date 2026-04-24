@@ -76,6 +76,29 @@ type Finding struct {
 	RiskScore float64 `json:"risk_score"`
 }
 
+func MaskValue(kind, value string) string {
+	switch kind {
+	case "credit_card":
+		digits := ""
+		for _, r := range value {
+			if r >= '0' && r <= '9' {
+				digits += string(r)
+			}
+		}
+		if len(digits) >= 4 {
+			return "****-****-****-" + digits[len(digits)-4:]
+		}
+		return "[REDACTED]"
+	case "ssn":
+		if len(value) >= 4 {
+			return "***-**-" + value[len(value)-4:]
+		}
+		return "[REDACTED]"
+	default:
+		return "[REDACTED]"
+	}
+}
+
 func ScanRegex(text string) []Finding {
 	var findings []Finding
 	for _, rule := range Rules {
@@ -86,7 +109,7 @@ func ScanRegex(text string) []Finding {
 			}
 			findings = append(findings, Finding{
 				Kind:      rule.Kind,
-				Value:     m, // In production, we might mask this
+				Value:     MaskValue(rule.Kind, m),
 				RiskScore: 0.8,
 			})
 		}

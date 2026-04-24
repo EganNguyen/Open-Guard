@@ -141,8 +141,12 @@ func main() {
 	// 3. Initialize Handlers
 	h := handlers.NewComplianceHandler(repo, bulkhead, s3Storage)
 
-	// 4. Initialize Router & Start Server
+	// 4. Start Background Worker
+	go h.StartWorker(context.Background())
+
+	// 5. Initialize Router & Start Server
 	r := router.NewRouter(h, keyring, rdb)
+
 
 	logger.Info("compliance service starting", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

@@ -3,15 +3,8 @@ import { CommonModule } from '@angular/common';
 import { ThreatService } from '../core/services/threat.service';
 import { finalize } from 'rxjs';
 
-interface ThreatAlert {
-  id: string;
-  title: string;
-  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  status: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
-  detector_id: string;
-  created_at: string;
-  metadata: any;
-}
+import { ThreatAlert, ThreatStats } from '../core/models/threat.model';
+
 
 @Component({
   selector: 'app-threats',
@@ -43,12 +36,11 @@ export class ThreatsComponent implements OnInit {
     this.threatService.listAlerts()
       .pipe(finalize(() => this.loading.set(false)))
       .subscribe({
-        next: (res: any) => {
-          const alerts = res.alerts || [];
+        next: (alerts) => {
           this.alerts.set(alerts);
           this.calculateStats(alerts);
         },
-        error: (err: any) => {
+        error: (err) => {
           console.error('Failed to fetch threats', err);
           this.error.set('Failed to load threat data. Please try again later.');
         }

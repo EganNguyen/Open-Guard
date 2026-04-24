@@ -42,17 +42,18 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) 
 		}, nil)
 
 		r.Use(shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker))
+		idemMiddleware := shared_middleware.IdempotencyMiddleware(rdb)
 		r.Route("/policies", func(r chi.Router) {
 			r.Get("/", h.ListPolicies)
-			r.Post("/", h.CreatePolicy)
+			r.With(idemMiddleware).Post("/", h.CreatePolicy)
 			r.Get("/{id}", h.GetPolicy)
-			r.Put("/{id}", h.UpdatePolicy)
+			r.With(idemMiddleware).Put("/{id}", h.UpdatePolicy)
 			r.Delete("/{id}", h.DeletePolicy)
 		})
 
 		r.Route("/assignments", func(r chi.Router) {
 			r.Get("/", h.ListAssignments)
-			r.Post("/", h.CreateAssignment)
+			r.With(idemMiddleware).Post("/", h.CreateAssignment)
 			r.Delete("/{id}", h.DeleteAssignment)
 		})
 

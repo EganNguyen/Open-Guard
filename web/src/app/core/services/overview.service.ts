@@ -9,6 +9,17 @@ export interface DashboardStats {
   securityAlerts: number;
 }
 
+import { User } from '../models/user.model';
+import { Connector } from '../models/connector.model';
+
+export interface DashboardStat {
+  label: string;
+  value: string;
+  trend: string;
+  icon: string;
+  color: string;
+}
+
 export interface Activity {
   type: string;
   user: string;
@@ -17,20 +28,28 @@ export interface Activity {
   icon: string;
 }
 
+export interface ServiceHealth {
+  name: string;
+  status: string;
+  color: string;
+  dot: string;
+}
+
+
 @Injectable({
   providedIn: 'root'
 })
 export class OverviewService {
   private api = inject(ApiService);
 
-  getDashboardData(): Observable<{ stats: any[], activities: Activity[], health: any[] }> {
+  getDashboardData(): Observable<{ stats: DashboardStat[], activities: Activity[], health: ServiceHealth[] }> {
     return forkJoin({
-      connectors: this.api.get<any[]>('/mgmt/connectors').pipe(catchError(() => of([]))),
-      users: this.api.get<any[]>('/mgmt/users').pipe(catchError(() => of([]))),
-      iamHealth: this.api.get<any>('/health/iam').pipe(catchError(() => of({ status: 'DOWN' }))),
-      policyHealth: this.api.get<any>('/health/policy').pipe(catchError(() => of({ status: 'DOWN' }))),
-      auditHealth: this.api.get<any>('/health/audit').pipe(catchError(() => of({ status: 'DOWN' }))),
-      controlPlaneHealth: this.api.get<any>('/health/control-plane').pipe(catchError(() => of({ status: 'DOWN' })))
+      connectors: this.api.get<Connector[]>('/mgmt/connectors').pipe(catchError(() => of([]))),
+      users: this.api.get<User[]>('/mgmt/users').pipe(catchError(() => of([]))),
+      iamHealth: this.api.get<{ status: string }>('/health/iam').pipe(catchError(() => of({ status: 'DOWN' }))),
+      policyHealth: this.api.get<{ status: string }>('/health/policy').pipe(catchError(() => of({ status: 'DOWN' }))),
+      auditHealth: this.api.get<{ status: string }>('/health/audit').pipe(catchError(() => of({ status: 'DOWN' }))),
+      controlPlaneHealth: this.api.get<{ status: string }>('/health/control-plane').pipe(catchError(() => of({ status: 'DOWN' })))
     }).pipe(
       map(({ connectors, users, iamHealth, policyHealth, auditHealth, controlPlaneHealth }) => {
         // Map real data to the stats format used in HomeComponent

@@ -34,9 +34,16 @@ func (h *SseHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 	
 	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
 	if allowedOrigin == "" {
-		allowedOrigin = "*"
+		// Authenticated SSE stream must not be served cross-origin without an explicit allow-list.
+		// Fail fast in production; allow localhost for development.
+		if os.Getenv("APP_ENV") == "production" || os.Getenv("ENV") == "prod" {
+			http.Error(w, "ALLOWED_ORIGIN must be set in production for authenticated SSE", http.StatusInternalServerError)
+			return
+		}
+		allowedOrigin = "http://localhost:4200"
 	}
 	w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {

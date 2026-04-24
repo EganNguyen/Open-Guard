@@ -14,12 +14,32 @@ import (
 	"github.com/openguard/shared/crypto"
 	shared_middleware "github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/resilience"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"golang.org/x/time/rate"
+	"os"
 )
 
 // Router sets up the HTTP routes for the IAM service.
 func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, stop <-chan struct{}) *chi.Mux {
 	r := chi.NewRouter()
+
+	// Initialize WebAuthn
+	rpID := os.Getenv("WEBAUTHN_RP_ID")
+	if rpID == "" {
+		rpID = "localhost"
+	}
+	rpOrigin := os.Getenv("WEBAUTHN_RP_ORIGIN")
+	if rpOrigin == "" {
+		rpOrigin = "http://localhost:4200"
+	}
+	
+	w, _ := webauthn.New(&webauthn.Config{
+		RPDisplayName: "OpenGuard",
+		RPID:          rpID,
+		RPOrigins:     []string{rpOrigin},
+	})
+	h.SetServiceWebAuthn(w) // Helper needed in handler or just svc.SetWebAuthn(w)
+
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -42,11 +62,12 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, 
 	}, iam_middleware.GetLogger(nil)) // Using default logger for now
 
 	authMiddleware := shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker)
+	idemMiddleware := shared_middleware.IdempotencyMiddleware(rdb)
 
 	r.Route("/mgmt", func(r chi.Router) {
 		r.Use(authMiddleware)
 		r.Post("/orgs", h.CreateOrg)
-		r.Post("/users", h.CreateUser)
+		r.With(idemMiddleware).Post("/users", h.CreateUser)
 		r.Get("/connectors", h.ListConnectors)
 		r.Post("/connectors", h.CreateConnector)
 		r.Put("/connectors/{id}", h.UpdateConnector)
@@ -75,14 +96,26 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, 
 		})
 
 		r.Get("/authorize", h.Authorize)
-		r.Post("/token", h.Token)
+		r.With(idemMiddleware).Post("/token", h.Token)
 
 		r.Route("/scim/v2", func(r chi.Router) {
+			r.Use(idemMiddleware)
 			r.Get("/Users", h.ListScimUsers)
 			r.Post("/Users", h.PostScimUser)
 			r.Get("/Users/{id}", h.GetScimUser)
 			r.Delete("/Users/{id}", h.DeleteScimUser)
 			r.Patch("/Users/{id}", h.PatchScimUser)
+		})
+
+		r.Route("/webauthn", func(r chi.Router) {
+			r.Post("/login/begin", h.WebAuthnBeginLogin)
+			r.Post("/login/finish", h.WebAuthnFinishLogin)
+
+			r.Group(func(r chi.Router) {
+				r.Use(authMiddleware)
+				r.Post("/register/begin", h.WebAuthnBeginRegistration)
+				r.Post("/register/finish", h.WebAuthnFinishRegistration)
+			})
 		})
 	})
 

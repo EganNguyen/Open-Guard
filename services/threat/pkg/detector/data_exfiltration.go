@@ -63,24 +63,29 @@ func (d *DataExfiltrationDetector) Run(ctx context.Context) error {
 				continue
 			}
 
-			d.processEvent(ctx, m)
-			d.reader.CommitMessages(ctx, m)
+			if err := d.processEvent(ctx, m); err != nil {
+				d.logger.Error("processEvent failed, not committing offset", "error", err)
+				continue
+			}
+			if err := d.reader.CommitMessages(ctx, m); err != nil {
+				d.logger.Error("failed to commit kafka offset", "error", err)
+			}
 		}
 	}
 }
 
-func (d *DataExfiltrationDetector) processEvent(ctx context.Context, m kafka.Message) {
+func (d *DataExfiltrationDetector) processEvent(ctx context.Context, m kafka.Message) error {
 	var event map[string]interface{}
 	if err := json.Unmarshal(m.Value, &event); err != nil {
 		d.logger.Error("failed to unmarshal event", "error", err)
-		return
+		return nil
 	}
 
 	// Spec: data.access count for single user exceeds org baseline by 3σ within 1hr
 	userID, _ := event["user_id"].(string)
 	orgID, _ := event["org_id"].(string)
 	if userID == "" || orgID == "" {
-		return
+		return nil
 	}
 
 	now := time.Now().UnixNano() / int64(time.Millisecond)
@@ -96,8 +101,32 @@ func (d *DataExfiltrationDetector) processEvent(ctx context.Context, m kafka.Mes
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		d.logger.Error("failed to update access counts", "error", err)
-		return
+		return err
 	}
+
+	count := countCmd.Val()
+
+	// Get org baseline
+	meanKey := fmt.Sprintf("baseline:%s:access_mean", orgID)
+	stddevKey := fmt.Sprintf("baseline:%s:access_stddev", orgID)
+
+	mean, _ := d.rdb.Get(ctx, meanKey).Float64()
+	stddev, _ := d.rdb.Get(ctx, stddevKey).Float64()
+
+	// If no baseline, we can't detect anomaly yet, or we use a sensible default
+	if mean == 0 {
+		// Fallback: if count is very high (e.g. > 1000 in an hour)
+		if count > 1000 {
+			d.alert(ctx, orgID, userID, count, mean, stddev)
+		}
+		return nil
+	}
+
+	if float64(count) > mean+3*stddev {
+		d.alert(ctx, orgID, userID, count, mean, stddev)
+	}
+	return nil
+}
 
 	count := countCmd.Val()
 

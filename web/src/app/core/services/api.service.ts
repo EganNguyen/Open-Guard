@@ -14,7 +14,7 @@ export class ApiService {
     return this.http.get<T>(`${this.apiUrl}${path}`, { params });
   }
 
-  post<T>(path: string, body: any, options?: { idempotencyKey?: string }): Observable<T> {
+  post<T>(path: string, body: unknown, options?: { idempotencyKey?: string }): Observable<T> {
     let headers = new HttpHeaders();
     if (options?.idempotencyKey) {
       headers = headers.set('Idempotency-Key', options.idempotencyKey);
@@ -22,11 +22,11 @@ export class ApiService {
     return this.http.post<T>(`${this.apiUrl}${path}`, body, { headers });
   }
 
-  put<T>(path: string, body: any): Observable<T> {
+  put<T>(path: string, body: unknown): Observable<T> {
     return this.http.put<T>(`${this.apiUrl}${path}`, body);
   }
 
-  patch<T>(path: string, body: any): Observable<T> {
+  patch<T>(path: string, body: unknown): Observable<T> {
     return this.http.patch<T>(`${this.apiUrl}${path}`, body);
   }
 

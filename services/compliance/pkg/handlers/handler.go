@@ -266,3 +266,31 @@ func (h *ComplianceHandler) generateReport(ctx context.Context, jobID, orgID, fr
 	// 4. Update status to ready
 	h.repo.UpdateReportStatus(ctx, jobID, "ready", s3Key, s3SigKey, "")
 }
+func (h *ComplianceHandler) StartWorker(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			reports, err := h.repo.GetPendingReports(ctx)
+			if err != nil {
+				fmt.Printf("Worker failed to list pending reports: %v\n", err)
+				continue
+			}
+
+			for _, r := range reports {
+				// Process via bulkhead to avoid overloading
+				err := h.bulkhead.Execute(ctx, func() error {
+					h.generateReport(ctx, r.ID, r.OrgID, r.Framework)
+					return nil
+				})
+				if err != nil {
+					fmt.Printf("Worker failed to dispatch report %s: %v\n", r.ID, err)
+				}
+			}
+		}
+	}
+}

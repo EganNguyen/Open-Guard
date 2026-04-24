@@ -3,26 +3,28 @@ import { HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
 
+import { ThreatAlert, ThreatStats } from '../models/threat.model';
+
 @Injectable({ providedIn: 'root' })
 export class ThreatService {
   private api = inject(ApiService);
 
-  listAlerts(params?: { status?: string; severity?: string }): Observable<any> {
+  listAlerts(params?: { status?: string; severity?: string }): Observable<ThreatAlert[]> {
     let httpParams = new HttpParams();
     if (params?.status) httpParams = httpParams.set('status', params.status);
     if (params?.severity) httpParams = httpParams.set('severity', params.severity);
-    return this.api.get('/v1/threats/alerts', httpParams);
+    return this.api.get<ThreatAlert[]>('/v1/threats/alerts', httpParams);
   }
 
-  acknowledgeAlert(id: string): Observable<any> {
-    return this.api.post(`/v1/threats/alerts/${id}/acknowledge`, {});
+  acknowledgeAlert(id: string): Observable<ThreatAlert> {
+    return this.api.post<ThreatAlert>(`/v1/threats/alerts/${id}/acknowledge`, {});
   }
 
-  resolveAlert(id: string): Observable<any> {
-    return this.api.post(`/v1/threats/alerts/${id}/resolve`, {});
+  resolveAlert(id: string): Observable<ThreatAlert> {
+    return this.api.post<ThreatAlert>(`/v1/threats/alerts/${id}/resolve`, {});
   }
 
-  getStats(): Observable<any> {
-    return this.api.get('/v1/threats/stats');
+  getStats(): Observable<ThreatStats> {
+    return this.api.get<ThreatStats>('/v1/threats/stats');
   }
 }

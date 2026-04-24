@@ -22,7 +22,7 @@ import (
 
 const (
 	cachePrefix   = "policy:eval:"
-	cacheTTL      = 30 * time.Second // stale-while-revalidate window
+	cacheTTL      = 60 * time.Second // stale-while-revalidate window (spec §9: SDK TTL = 60s)
 	maxRetryDelay = 5 * time.Second
 )
 

@@ -78,36 +78,46 @@ func (d *BruteForceDetector) Start(ctx context.Context) error {
 				continue
 			}
 
-			d.processEvent(ctx, m)
-			d.reader.CommitMessages(ctx, m)
+			if err := d.processEvent(ctx, m); err != nil {
+				d.logger.Error("processEvent failed, not committing offset", "error", err)
+				continue
+			}
+			if err := d.reader.CommitMessages(ctx, m); err != nil {
+				d.logger.Error("failed to commit kafka offset", "error", err)
+			}
 		}
 	}
 }
 
-func (d *BruteForceDetector) processEvent(ctx context.Context, m kafka.Message) {
+func (d *BruteForceDetector) processEvent(ctx context.Context, m kafka.Message) error {
 	var event map[string]interface{}
 	if err := json.Unmarshal(m.Value, &event); err != nil {
 		d.logger.Error("failed to unmarshal event", "error", err)
-		return
+		return nil // Invalid JSON is not a retryable error
 	}
 
 	eventType, _ := event["event_type"].(string)
 	if eventType != "login.failed" && eventType != "auth.failed" {
-		return
+		return nil
 	}
 
 	ip, _ := event["ip"].(string)
 	email, _ := event["email"].(string)
 
 	if ip != "" {
-		d.trackFailedAttempt(ctx, "bruteforce:ip:"+ip)
+		if err := d.trackFailedAttempt(ctx, "bruteforce:ip:"+ip); err != nil {
+			return err
+		}
 	}
 	if email != "" {
-		d.trackFailedAttempt(ctx, "bruteforce:user:"+email)
+		if err := d.trackFailedAttempt(ctx, "bruteforce:user:"+email); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (d *BruteForceDetector) trackFailedAttempt(ctx context.Context, key string) {
+func (d *BruteForceDetector) trackFailedAttempt(ctx context.Context, key string) error {
 	now := time.Now().UnixNano() / int64(time.Millisecond)
 	windowStart := now - int64(WindowSize/time.Millisecond)
 
@@ -124,7 +134,7 @@ func (d *BruteForceDetector) trackFailedAttempt(ctx context.Context, key string)
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		d.logger.Error("failed to track failed attempt", "error", err, "key", key)
-		return
+		return err
 	}
 
 	count := countCmd.Val()
@@ -134,6 +144,7 @@ func (d *BruteForceDetector) trackFailedAttempt(ctx context.Context, key string)
 		d.logger.Warn("brute force attack detected", "key", key, "attempts", count)
 		d.publishThreatEvent(ctx, key, count)
 	}
+	return nil
 }
 
 func (d *BruteForceDetector) publishThreatEvent(ctx context.Context, key string, count int64) {

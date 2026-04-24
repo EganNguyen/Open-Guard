@@ -233,3 +233,22 @@ func (r *Repository) ListReports(ctx context.Context, orgID string) ([]Complianc
 	}
 	return reports, nil
 }
+func (r *Repository) GetPendingReports(ctx context.Context) ([]ComplianceReport, error) {
+	rows, err := r.pgPool.Query(ctx,
+		"SELECT id, org_id, framework, status, s3_key, s3_sig_key, error_msg, created_at, updated_at FROM reports WHERE status = 'pending' ORDER BY created_at ASC",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var reports []ComplianceReport
+	for rows.Next() {
+		var report ComplianceReport
+		if err := rows.Scan(&report.ID, &report.OrgID, &report.Framework, &report.Status, &report.S3Key, &report.S3SigKey, &report.ErrorMsg, &report.CreatedAt, &report.UpdatedAt); err != nil {
+			return nil, err
+		}
+		reports = append(reports, report)
+	}
+	return reports, nil
+}

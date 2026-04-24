@@ -1,11 +1,12 @@
-import { Injectable, signal, effect } from '@angular/core';
+import { Injectable, signal, effect, inject, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { Toast } from '../models/ui.model';
 
 @Injectable({ providedIn: 'root' })
 export class UiService {
-  readonly sidebarCollapsed = signal(
-    JSON.parse(localStorage.getItem('og:ui:sidebar') ?? 'false')
-  );
+  private platformId = inject(PLATFORM_ID);
+  
+  readonly sidebarCollapsed = signal(false);
 
   readonly activeDrawer = signal<{
     type: 'audit' | 'alert' | null;
@@ -15,9 +16,16 @@ export class UiService {
   readonly toasts = signal<Toast[]>([]);
 
   constructor() {
-    effect(() => {
-      localStorage.setItem('og:ui:sidebar', JSON.stringify(this.sidebarCollapsed()));
-    });
+    if (isPlatformBrowser(this.platformId)) {
+      const saved = localStorage.getItem('og:ui:sidebar');
+      if (saved) {
+        this.sidebarCollapsed.set(JSON.parse(saved));
+      }
+      
+      effect(() => {
+        localStorage.setItem('og:ui:sidebar', JSON.stringify(this.sidebarCollapsed()));
+      });
+    }
   }
 
   toggleSidebar() {

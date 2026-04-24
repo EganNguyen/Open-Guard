@@ -19,6 +19,7 @@ import (
 	"github.com/pquerna/otp/totp"
 	"github.com/redis/go-redis/v9"
 	"github.com/sony/gobreaker"
+	"github.com/go-webauthn/webauthn/webauthn"
 )
 
 type ScimPatchOp struct {
@@ -61,6 +62,8 @@ type Repository interface {
 	GetSessionTTL(ctx context.Context, jti string) time.Duration
 	RevokeSessions(ctx context.Context, userID string) error
 	GetUserByExternalID(ctx context.Context, orgID, externalID string) (map[string]interface{}, error)
+	SaveWebAuthnCredential(ctx context.Context, orgID, userID string, cred map[string]interface{}) error
+	ListWebAuthnCredentials(ctx context.Context, userID string) ([]map[string]interface{}, error)
 }
 
 // Service handles business logic for the IAM service.
@@ -71,6 +74,7 @@ type Service struct {
 	aesKeyring   []crypto.EncryptionKey
 	rdb          *redis.Client
 	redisBreaker *gobreaker.CircuitBreaker
+	webauthn     *webauthn.WebAuthn
 }
 
 // NewService creates a new service instance.
@@ -90,6 +94,195 @@ func NewService(repo Repository, pool *AuthWorkerPool, keyring []crypto.JWTKey, 
 			OpenDuration:     10 * time.Second,
 		}, slog.Default()),
 	}
+}
+
+// SetWebAuthn initializes the WebAuthn instance.
+func (s *Service) SetWebAuthn(w *webauthn.WebAuthn) {
+	s.webauthn = w
+}
+
+// WebAuthnUser implements webauthn.User interface.
+type WebAuthnUser struct {
+	id          []byte
+	displayName string
+	name        string
+	credentials []webauthn.Credential
+}
+
+func (u *WebAuthnUser) WebAuthnID() []byte                         { return u.id }
+func (u *WebAuthnUser) WebAuthnName() string                       { return u.name }
+func (u *WebAuthnUser) WebAuthnDisplayName() string                { return u.displayName }
+func (u *WebAuthnUser) WebAuthnIcon() string                       { return "" }
+func (u *WebAuthnUser) WebAuthnCredentials() []webauthn.Credential { return u.credentials }
+
+func (s *Service) BeginWebAuthnRegistration(ctx context.Context, userID string) (*webauthn.SessionData, *webauthn.CredentialCreation, error) {
+	if s.webauthn == nil {
+		return nil, nil, fmt.Errorf("webauthn not configured")
+	}
+
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	wUser := &WebAuthnUser{
+		id:          []byte(userID),
+		displayName: user["display_name"].(string),
+		name:        user["email"].(string),
+	}
+
+	options, session, err := s.webauthn.BeginRegistration(wUser)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Store session in Redis
+	sessionJSON, _ := json.Marshal(session)
+	if err := s.rdb.Set(ctx, "webauthn:reg:"+userID, sessionJSON, 5*time.Minute).Err(); err != nil {
+		return nil, nil, err
+	}
+
+	return session, options, nil
+}
+
+func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID string, response *http.Request) error {
+	if s.webauthn == nil {
+		return fmt.Errorf("webauthn not configured")
+	}
+
+	val, err := s.rdb.Get(ctx, "webauthn:reg:"+userID).Result()
+	if err != nil {
+		return fmt.Errorf("registration session expired or invalid")
+	}
+	var session webauthn.SessionData
+	json.Unmarshal([]byte(val), &session)
+
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	wUser := &WebAuthnUser{
+		id:          []byte(userID),
+		displayName: user["display_name"].(string),
+		name:        user["email"].(string),
+	}
+
+	credential, err := s.webauthn.FinishRegistration(wUser, session, response)
+	if err != nil {
+		return err
+	}
+
+	// Persist credential
+	credMap := map[string]interface{}{
+		"id":              hex.EncodeToString(credential.ID),
+		"public_key":      hex.EncodeToString(credential.PublicKey),
+		"attestation_type": credential.AttestationType,
+		"sign_count":      credential.Authenticator.SignCount,
+	}
+
+	if err := s.repo.SaveWebAuthnCredential(ctx, orgID, userID, credMap); err != nil {
+		return err
+	}
+
+	s.rdb.Del(ctx, "webauthn:reg:"+userID)
+	return nil
+}
+
+func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (*webauthn.SessionData, *webauthn.CredentialAssertion, error) {
+	if s.webauthn == nil {
+		return nil, nil, fmt.Errorf("webauthn not configured")
+	}
+
+	user, err := s.repo.GetUserByEmail(ctx, email)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	userID := user["id"].(string)
+	credentials, _ := s.repo.ListWebAuthnCredentials(ctx, userID)
+	
+	wUser := &WebAuthnUser{
+		id:          []byte(userID),
+		displayName: user["display_name"].(string),
+		name:        user["email"].(string),
+	}
+
+	for _, c := range credentials {
+		id, _ := hex.DecodeString(c["credential_id"].(string))
+		pubKey, _ := hex.DecodeString(c["public_key"].(string))
+		wUser.credentials = append(wUser.credentials, webauthn.Credential{
+			ID:        id,
+			PublicKey: pubKey,
+			Authenticator: webauthn.Authenticator{
+				SignCount: uint32(c["sign_count"].(int32)),
+			},
+		})
+	}
+
+	options, session, err := s.webauthn.BeginLogin(wUser)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sessionJSON, _ := json.Marshal(session)
+	if err := s.rdb.Set(ctx, "webauthn:login:"+userID, sessionJSON, 5*time.Minute).Err(); err != nil {
+		return nil, nil, err
+	}
+
+	return session, options, nil
+}
+
+func (s *Service) FinishWebAuthnLogin(ctx context.Context, email string, userAgent, ip string, response *http.Request) (map[string]interface{}, string, error) {
+	if s.webauthn == nil {
+		return nil, "", fmt.Errorf("webauthn not configured")
+	}
+
+	user, err := s.repo.GetUserByEmail(ctx, email)
+	if err != nil {
+		return nil, "", err
+	}
+
+	userID := user["id"].(string)
+	val, err := s.rdb.Get(ctx, "webauthn:login:"+userID).Result()
+	if err != nil {
+		return nil, "", fmt.Errorf("login session expired or invalid")
+	}
+	var session webauthn.SessionData
+	json.Unmarshal([]byte(val), &session)
+
+	credentials, _ := s.repo.ListWebAuthnCredentials(ctx, userID)
+	wUser := &WebAuthnUser{
+		id:          []byte(userID),
+		displayName: user["display_name"].(string),
+		name:        user["email"].(string),
+	}
+	for _, c := range credentials {
+		id, _ := hex.DecodeString(c["credential_id"].(string))
+		pubKey, _ := hex.DecodeString(c["public_key"].(string))
+		wUser.credentials = append(wUser.credentials, webauthn.Credential{
+			ID:        id,
+			PublicKey: pubKey,
+			Authenticator: webauthn.Authenticator{
+				SignCount: uint32(c["sign_count"].(int32)),
+			},
+		})
+	}
+
+	_, err = s.webauthn.FinishLogin(wUser, session, response)
+	if err != nil {
+		return nil, "", err
+	}
+
+	s.rdb.Del(ctx, "webauthn:login:"+userID)
+
+	// Issue tokens
+	res, err := s.IssueTokens(ctx, user["org_id"].(string), userID, userAgent, ip, uuid.New())
+	if err != nil {
+		return nil, "", err
+	}
+
+	return user, res["access_token"].(string), nil
 }
 
 func (s *Service) RegisterOrg(ctx context.Context, name string) (string, error) {
@@ -118,20 +311,20 @@ func (s *Service) RegisterUser(ctx context.Context, orgID, email, password, disp
 	// Use transaction for user creation + outbox event
 	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer tx.Rollback(ctx)
 
 	// 1. Create with status='initializing'
 	userID, err := s.repo.CreateUser(ctx, orgID, email, string(hash), displayName, role, "initializing")
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	// 1b. Update SCIM External ID if provided
 	if scimExternalID != "" {
 		if err := s.repo.UpdateUserSCIM(ctx, userID, scimExternalID, "initializing"); err != nil {
-			return "", err
+			return "", false, err
 		}
 	}
 
@@ -146,7 +339,7 @@ func (s *Service) RegisterUser(ctx context.Context, orgID, email, password, disp
 	}
 	payload, _ := json.Marshal(event)
 	if err := s.repo.CreateOutboxEvent(ctx, tx, orgID, "saga.orchestration", userID, payload); err != nil {
-		return "", fmt.Errorf("outbox: %w", err)
+		return "", false, fmt.Errorf("outbox: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

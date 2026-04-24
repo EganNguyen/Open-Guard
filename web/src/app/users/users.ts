@@ -4,6 +4,9 @@ import { HttpClient } from '@angular/common/http';
 import { FormsModule, ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { forkJoin, of, catchError } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { User } from '../core/models/user.model';
+import { Connector } from '../core/models/connector.model';
+
 
 @Component({
   selector: 'app-users',
@@ -16,9 +19,9 @@ export class UsersComponent implements OnInit {
   private http = inject(HttpClient);
   private fb = inject(FormBuilder);
 
-  connectors = signal<any[]>([]);
-  users = signal<any[]>([]);
-  groupedData = signal<{ connector: any, users: any[] }[]>([]);
+  connectors = signal<Connector[]>([]);
+  users = signal<User[]>([]);
+  groupedData = signal<{ connector: Partial<Connector>, users: User[] }[]>([]);
   loading = signal(true);
   error = signal('');
   showModal = signal(false);
@@ -41,8 +44,8 @@ export class UsersComponent implements OnInit {
     this.error.set('');
     
     forkJoin({
-      connectors: this.http.get<any[]>(`${environment.apiUrl}/mgmt/connectors`).pipe(catchError(() => of([]))),
-      users: this.http.get<any[]>(`${environment.apiUrl}/mgmt/users`).pipe(catchError(() => of([])))
+      connectors: this.http.get<Connector[]>(`${environment.apiUrl}/mgmt/connectors`).pipe(catchError(() => of([]))),
+      users: this.http.get<User[]>(`${environment.apiUrl}/mgmt/users`).pipe(catchError(() => of([])))
     }).subscribe({
       next: (res) => {
         this.connectors.set(res.connectors || []);

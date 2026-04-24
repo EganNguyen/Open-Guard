@@ -81,28 +81,33 @@ func (d *OffHoursDetector) Run(ctx context.Context) error {
 				continue
 			}
 
-			d.processEvent(ctx, m)
-			d.reader.CommitMessages(ctx, m)
+			if err := d.processEvent(ctx, m); err != nil {
+				d.logger.Error("processEvent failed, not committing offset", "error", err)
+				continue
+			}
+			if err := d.reader.CommitMessages(ctx, m); err != nil {
+				d.logger.Error("failed to commit kafka offset", "error", err)
+			}
 		}
 	}
 }
 
-func (d *OffHoursDetector) processEvent(ctx context.Context, m kafka.Message) {
+func (d *OffHoursDetector) processEvent(ctx context.Context, m kafka.Message) error {
 	var event map[string]interface{}
 	if err := json.Unmarshal(m.Value, &event); err != nil {
 		d.logger.Error("failed to unmarshal event", "error", err)
-		return
+		return nil
 	}
 
 	eventType, _ := event["event_type"].(string)
 	if eventType != "auth.login.success" {
-		return
+		return nil
 	}
 
 	userID, _ := event["user_id"].(string)
 	orgID, _ := event["org_id"].(string)
 	if userID == "" || orgID == "" {
-		return
+		return nil
 	}
 
 	now := time.Now().UTC()
@@ -125,14 +130,17 @@ func (d *OffHoursDetector) processEvent(ctx context.Context, m kafka.Message) {
 		for i := 1; i <= 3; i++ {
 			prevDate := now.AddDate(0, 0, -i).Format("2006-01-02")
 			prevKey := fmt.Sprintf("offhours:%s:%s:%s", orgID, userID, prevDate)
-			exists, _ := d.rdb.Exists(ctx, prevKey).Result()
+			exists, err := d.rdb.Exists(ctx, prevKey).Result()
+			if err != nil {
+				return err
+			}
 			if exists == 0 {
 				// If key doesn't exist, we assume it was in-hours (since we only record 1 for in-hours days or similar)
-				// Actually the spec says "3+ consecutive days previously all in-hours"
-				// Let's use a pattern: "1" = in-hours login recorded for that day.
-				// If we don't have a record for a day, we can't be sure, but let's assume in-hours for the sake of the detector.
 			} else {
-				val, _ := d.rdb.Get(ctx, prevKey).Result()
+				val, err := d.rdb.Get(ctx, prevKey).Result()
+				if err != nil {
+					return err
+				}
 				if val != "1" {
 					allPreviousInHours = false
 					break
@@ -146,8 +154,11 @@ func (d *OffHoursDetector) processEvent(ctx context.Context, m kafka.Message) {
 		}
 	} else {
 		// Record in-hours access
-		d.rdb.Set(ctx, key, "1", 7*24*time.Hour)
+		if err := d.rdb.Set(ctx, key, "1", 7*24*time.Hour).Err(); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (d *OffHoursDetector) publishThreatEvent(ctx context.Context, orgID, userID string, hour int) {

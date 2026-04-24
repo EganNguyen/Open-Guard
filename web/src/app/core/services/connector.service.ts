@@ -2,16 +2,15 @@ import { Injectable, inject } from '@angular/core';
 import { ApiService } from './api.service';
 import { Observable, map } from 'rxjs';
 
-export interface Connector {
-  id: string;
-  name: string;
-  redirect_uris: string[];
-  client_secret?: string;
+import { Connector, ConnectorRegistrationResult } from '../models/connector.model';
+
+export interface ConnectorUI extends Connector {
   status?: string;
   scopes?: string[];
   createdDate?: string;
   eventVolume?: string;
 }
+
 
 @Injectable({
   providedIn: 'root'
@@ -19,12 +18,10 @@ export interface Connector {
 export class ConnectorService {
   private api = inject(ApiService);
 
-  listConnectors(): Observable<Connector[]> {
-    return this.api.get<any[]>('/mgmt/connectors').pipe(
+  listConnectors(): Observable<ConnectorUI[]> {
+    return this.api.get<Connector[]>('/mgmt/connectors').pipe(
       map(data => Array.isArray(data) ? data.map(c => ({
-        id: c.id,
-        name: c.name,
-        redirect_uris: c.redirect_uris,
+        ...c,
         status: 'Active',
         scopes: ['openid', 'profile', 'email'],
         createdDate: 'Apr 17, 2026',
@@ -33,15 +30,15 @@ export class ConnectorService {
     );
   }
 
-  createConnector(connector: any): Observable<any> {
-    return this.api.post('/mgmt/connectors', connector);
+  createConnector(connector: Partial<Connector>): Observable<ConnectorRegistrationResult> {
+    return this.api.post<ConnectorRegistrationResult>('/mgmt/connectors', connector);
   }
 
-  updateConnector(id: string, connector: any): Observable<any> {
-    return this.api.put(`/mgmt/connectors/${id}`, connector);
+  updateConnector(id: string, connector: Partial<Connector>): Observable<{ status: string }> {
+    return this.api.put<{ status: string }>(`/mgmt/connectors/${id}`, connector);
   }
 
-  deleteConnector(id: string): Observable<any> {
-    return this.api.delete(`/mgmt/connectors/${id}`);
+  deleteConnector(id: string): Observable<{ status: string }> {
+    return this.api.delete<{ status: string }>(`/mgmt/connectors/${id}`);
   }
 }

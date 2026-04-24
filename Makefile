@@ -54,6 +54,7 @@ load-test:
 	@k6 run tests/load/audit-query.js --env BASE_URL=http://localhost:8084
 	@k6 run tests/load/scim-users.js --env BASE_URL=http://localhost:8080
 	@k6 run tests/load/compliance.js --env BASE_URL=http://localhost:8085
+	@k6 run tests/load/kafka-throughput.js --env KAFKA_BROKERS=localhost:9092
 
 certs:
 	@echo "Generating certificates..."

@@ -39,15 +39,12 @@ app.use(
  * Handle all other requests by rendering the Angular application.
  */
 app.use((req, res, next) => {
-  console.log('SSR Request:', req.url);
   angularApp
     .handle(req)
     .then((response) => {
       if (response) {
-        console.log('SSR Response OK for:', req.url);
         return writeResponseToNodeResponse(response, res);
       }
-      console.log('SSR Response NULL for:', req.url);
       return next();
     })
     .catch((err) => {
@@ -67,7 +64,7 @@ if (isMainModule(import.meta.url) || process.env['pm_id']) {
       throw error;
     }
 
-    console.log(`Node Express server listening on http://localhost:${port}`);
+    // Server started
   });
 }
 

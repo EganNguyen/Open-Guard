@@ -15,6 +15,7 @@ import (
 	iam_middleware "github.com/openguard/services/iam/pkg/middleware"
 	"github.com/openguard/services/iam/pkg/service"
 	shared_middleware "github.com/openguard/shared/middleware"
+	"github.com/go-webauthn/webauthn/webauthn"
 )
 
 // Handler manages HTTP requests for the IAM service.
@@ -25,6 +26,10 @@ type Handler struct {
 // NewHandler creates a new handler instance.
 func NewHandler(svc *service.Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+func (h *Handler) SetServiceWebAuthn(w *webauthn.WebAuthn) {
+	h.svc.SetWebAuthn(w)
 }
 
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -462,5 +467,62 @@ func (h *Handler) ReprovisionUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]string{"status": "reprovisioning_started"})
+func (h *Handler) WebAuthnBeginRegistration(w http.ResponseWriter, r *http.Request) {
+	userID := shared_middleware.GetUserID(r.Context())
+	_, options, err := h.svc.BeginWebAuthnRegistration(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, options)
+}
+
+func (h *Handler) WebAuthnFinishRegistration(w http.ResponseWriter, r *http.Request) {
+	userID := shared_middleware.GetUserID(r.Context())
+	orgID := shared_middleware.GetOrgID(r.Context())
+	if err := h.svc.FinishWebAuthnRegistration(r.Context(), orgID, userID, r); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, map[string]string{"status": "registered"})
+}
+
+func (h *Handler) WebAuthnBeginLogin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_, options, err := h.svc.BeginWebAuthnLogin(r.Context(), body.Email)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, options)
+}
+
+func (h *Handler) WebAuthnFinishLogin(w http.ResponseWriter, r *http.Request) {
+	email := r.URL.Query().Get("email")
+	user, token, err := h.svc.FinishWebAuthnLogin(r.Context(), email, r.UserAgent(), r.RemoteAddr, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "openguard_session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   3600,
+	})
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"user":         user,
+		"access_token": token,
+	})
 }

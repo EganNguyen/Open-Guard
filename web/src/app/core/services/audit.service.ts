@@ -14,32 +14,21 @@ export interface AuditEvent {
   timestamp: string;
 }
 
+import { SseService } from './sse.service';
+
 @Injectable({
   providedIn: 'root'
 })
 export class AuditService {
   private http = inject(HttpClient);
+  private sse = inject(SseService);
   private apiUrl = `${environment.apiUrl}/audit/v1`;
 
   listEvents(orgId: string): Observable<{ events: AuditEvent[] }> {
     return this.http.get<{ events: AuditEvent[] }>(`${this.apiUrl}/events?org_id=${orgId}`);
   }
 
-  streamEvents(orgId: string): Observable<string> {
-    return new Observable(observer => {
-      const eventSource = new EventSource(`${this.apiUrl}/events/stream?org_id=${orgId}`);
-      
-      eventSource.onmessage = event => {
-        observer.next(event.data);
-      };
-
-      eventSource.onerror = error => {
-        observer.error(error);
-      };
-
-      return () => {
-        eventSource.close();
-      };
-    });
+  streamEvents(): Observable<AuditEvent> {
+    return this.sse.connect();
   }
 }
