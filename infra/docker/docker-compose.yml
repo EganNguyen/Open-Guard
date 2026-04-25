@@ -129,7 +129,21 @@ services:
       do
         sleep 2;
       done;
-      mongosh --host mongo-primary:27017 --eval 'rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"mongo-primary:27017\"}, {_id: 1, host: \"mongo-secondary-1:27018\"}, {_id: 2, host: \"mongo-secondary-2:27019\"}]})';
+      mongosh --host mongo-primary:27017 --eval '
+        try {
+          rs.status();
+          print(\"Replica set already initialized\");
+        } catch (e) {
+          rs.initiate({
+            _id: \"rs0\",
+            members: [
+              {_id: 0, host: \"mongo-primary:27017\"},
+              {_id: 1, host: \"mongo-secondary-1:27018\"},
+              {_id: 2, host: \"mongo-secondary-2:27019\"}
+            ]
+          });
+        }
+      '
       "
 
   clickhouse:
@@ -200,6 +214,7 @@ services:
     image: grafana/loki:2.8.2
     volumes:
       - loki_data:/loki
+      - ../monitoring/loki-config.yml:/etc/loki/local-config.yaml
     ports:
       - "3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
@@ -272,6 +287,7 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - SEED_DB=true
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?INTERNAL_API_KEY is required}
+      - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -293,7 +309,7 @@ services:
       - PORT=8080
       - POLICY_DATABASE_URL=${POLICY_DATABASE_URL:?POLICY_DATABASE_URL is required}
       - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
-      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
+      - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
       - USE_AWS_SECRETS_MANAGER=true
       - AWS_SECRETSMANAGER_ENDPOINT=http://localstack:4566
       - AWS_REGION=us-east-1
@@ -314,7 +330,7 @@ services:
     environment:
       - REDIS_ADDR=redis:6379
       - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
-      - KAFKA_BROKERS=kafka:29092
+      - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
       - KAFKA_GROUP_ID=threat-detector
       - KAFKA_TOPIC_AUTH=auth.events
       - KAFKA_TOPIC_POLICY=policy.changes
@@ -473,6 +489,7 @@ services:
       - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
       - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?INTERNAL_API_KEY is required}
+      - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }

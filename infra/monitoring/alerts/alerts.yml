@@ -42,7 +42,7 @@ groups:
   - name: openguard-infrastructure
     rules:
       - alert: ServiceDown
-        expr: up{job=~"openguard.*"} == 0
+        expr: up{job!=""} == 0
         for: 1m
         labels:
           severity: critical
@@ -50,7 +50,7 @@ groups:
           summary: "OpenGuard service {{ $labels.job }} is down"
 
       - alert: KafkaConsumerLagHigh
-        expr: kafka_consumer_group_lag{group=~"openguard.*"} > 10000
+        expr: kafka_consumer_group_lag{group!=""} > 10000
         for: 2m
         labels:
           severity: warning
@@ -68,7 +68,7 @@ groups:
 
       - alert: HighErrorRate
         expr: |
-          sum(rate(http_requests_total{status=~"5.."}[5m])) by (service) /
+          sum(rate(http_requests_total{status="500"}[5m])) by (service) /
           sum(rate(http_requests_total[5m])) by (service) > 0.05
         for: 5m
         labels:

@@ -11,7 +11,7 @@ echo "Generating mTLS CA..."
 openssl req -x509 -newkey rsa:4096 -keyout ca.key -out ca.crt -days 3650 -nodes -subj "/CN=OpenGuard-CA"
 
 echo "Generating Server/Client certificates..."
-for service in iam policy control-plane gateway audit; do
+for service in iam policy control-plane gateway audit threat alerting webhook-delivery compliance dlp connector-registry; do
     echo " -> $service"
     mkdir -p "$service"
     openssl req -newkey rsa:2048 -keyout ${service}/server.key -out ${service}/server.csr -nodes -subj "/CN=${service}"

@@ -5,7 +5,7 @@
         "builtIn": 1,
         "datasource": {
           "type": "grafana",
-          "uid": "-- Graphics --"
+          "uid": "grafana"
         },
         "enable": true,
         "hide": true,
@@ -69,7 +69,7 @@
             "type": "loki",
             "uid": "${loki_datasource}"
           },
-          "expr": "{job=~\"openguard-.*\"} | json | level=~\"$level\" | job=~\"openguard-$service\"",
+          "expr": "{job=~\"openguard-$service\"} |= \"level\" | json | level=~\"$level\"",
           "refId": "A"
         }
       ],
@@ -102,7 +102,8 @@
           "type": "logs",
           "targets": [
             {
-              "expr": "{job=\"openguard-iam\"} | json | level=~\"$level\""
+              "expr": "{job=\"openguard-iam\"} |= \"level\" | json | level=~\"$level\"",
+              "refId": "A"
             }
           ]
         },
@@ -122,7 +123,8 @@
           "type": "logs",
           "targets": [
             {
-              "expr": "{job=\"openguard-control-plane\"} | json | level=~\"$level\""
+              "expr": "{job=\"openguard-control-plane\"} |= \"level\" | json | level=~\"$level\"",
+              "refId": "A"
             }
           ]
         },
@@ -142,7 +144,8 @@
           "type": "logs",
           "targets": [
             {
-              "expr": "{job=\"openguard-policy\"} | json | level=~\"$level\""
+              "expr": "{job=\"openguard-policy\"} |= \"level\" | json | level=~\"$level\"",
+              "refId": "A"
             }
           ]
         },
@@ -162,7 +165,8 @@
           "type": "logs",
           "targets": [
             {
-              "expr": "{job=\"openguard-threat\"} | json | level=~\"$level\""
+              "expr": "{job=\"openguard-threat\"} |= \"level\" | json | level=~\"$level\"",
+              "refId": "A"
             }
           ]
         },
@@ -182,7 +186,8 @@
           "type": "logs",
           "targets": [
             {
-              "expr": "{job=\"openguard-audit\"} | json | level=~\"$level\""
+              "expr": "{job=\"openguard-audit\"} |= \"level\" | json | level=~\"$level\"",
+              "refId": "A"
             }
           ]
         },
@@ -202,7 +207,8 @@
           "type": "logs",
           "targets": [
             {
-              "expr": "{job=\"openguard-alerting\"} | json | level=~\"$level\""
+              "expr": "{job=\"openguard-alerting\"} |= \"level\" | json | level=~\"$level\"",
+              "refId": "A"
             }
           ]
         },
@@ -222,7 +228,8 @@
           "type": "logs",
           "targets": [
             {
-              "expr": "{job=\"openguard-webhook-delivery\"} | json | level=~\"$level\""
+              "expr": "{job=\"openguard-webhook-delivery\"} |= \"level\" | json | level=~\"$level\"",
+              "refId": "A"
             }
           ]
         },
@@ -242,7 +249,8 @@
           "type": "logs",
           "targets": [
             {
-              "expr": "{job=\"openguard-compliance\"} | json | level=~\"$level\""
+              "expr": "{job=\"openguard-compliance\"} |= \"level\" | json | level=~\"$level\"",
+              "refId": "A"
             }
           ]
         },
@@ -262,7 +270,8 @@
           "type": "logs",
           "targets": [
             {
-              "expr": "{job=\"openguard-dlp\"} | json | level=~\"$level\""
+              "expr": "{job=\"openguard-dlp\"} |= \"level\" | json | level=~\"$level\"",
+              "refId": "A"
             }
           ]
         },
@@ -282,7 +291,8 @@
           "type": "logs",
           "targets": [
             {
-              "expr": "{job=\"openguard-connector-registry\"} | json | level=~\"$level\""
+              "expr": "{job=\"openguard-connector-registry\"} |= \"level\" | json | level=~\"$level\"",
+              "refId": "A"
             }
           ]
         }
@@ -291,7 +301,7 @@
       "type": "row"
     }
   ],
-  "refresh": "5s",
+  "refresh": "30s",
   "schemaVersion": 36,
   "style": "dark",
   "tags": [
@@ -340,7 +350,7 @@
         "query": {
           "label": "job",
           "refId": "LokiVariableQuery",
-          "stream": "{job=~\"openguard-.*\"}"
+          "stream": "{job!=\"\"}"
         },
         "refresh": 1,
         "regex": "openguard-(.*)",

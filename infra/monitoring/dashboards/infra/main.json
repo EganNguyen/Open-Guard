@@ -5,7 +5,7 @@
         "builtIn": 1,
         "datasource": {
           "type": "grafana",
-          "uid": "-- Graphics --"
+          "uid": "grafana"
         },
         "enable": true,
         "hide": true,
@@ -117,10 +117,11 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(container_cpu_usage_seconds_total{name=~\"openguard.*\"}[5m])) by (name) * 100",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{name!=\"\"}[5m])) by (name) * 100",
           "legendFormat": "{{name}}",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Container CPU Usage %",
@@ -215,10 +216,11 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "container_memory_usage_bytes{name=~\"openguard.*\"}",
+          "expr": "container_memory_usage_bytes{name!=\"\"}",
           "legendFormat": "{{name}}",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Container Memory Usage",
@@ -279,10 +281,11 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "up{job=~\"prometheus|grafana|loki|promtail|postgres|redis|kafka|zookeeper\"}",
+          "expr": "up{job!=\"\"}",
           "legendFormat": "{{job}}",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Core Infrastructure Health",

@@ -5,7 +5,7 @@
         "builtIn": 1,
         "datasource": {
           "type": "grafana",
-          "uid": "-- Graphics --"
+          "uid": "grafana"
         },
         "enable": true,
         "hide": true,
@@ -113,7 +113,8 @@
           "expr": "rate(policy_evaluations_total[5m])",
           "legendFormat": "Policy Evaluations",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Policy Evaluations/s",
@@ -179,7 +180,8 @@
           "editorMode": "code",
           "expr": "policy_cache_hits_total / policy_evaluations_total",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Policy Cache Hit Ratio",
@@ -269,7 +271,8 @@
           "expr": "rate(threat_events_total[5m]) by (detector)",
           "legendFormat": "{{detector}}",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Threat Events/s by Type",
@@ -333,7 +336,8 @@
           "editorMode": "code",
           "expr": "threat_active_alerts_total",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Active Alerts",
@@ -423,7 +427,8 @@
           "expr": "rate(dlp_scans_total[5m])",
           "legendFormat": "Scans",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         },
         {
           "datasource": {
@@ -434,7 +439,8 @@
           "expr": "rate(dlp_blocks_total[5m])",
           "legendFormat": "Blocks",
           "range": true,
-          "refId": "B"
+          "refId": "B",
+          "step": "$__interval"
         }
       ],
       "title": "DLP Activity (Scans vs Blocks)",
@@ -523,7 +529,8 @@
           "editorMode": "code",
           "expr": "rate(audit_events_ingested_total[5m])",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Audit Events Ingestion Rate",
@@ -583,7 +590,8 @@
           "expr": "topk(10, audit_hash_chain_length)",
           "legendFormat": "Org: {{org_id}}",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Top 10 Hash Chain Lengths per Org",

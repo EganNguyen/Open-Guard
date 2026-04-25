@@ -5,7 +5,7 @@
         "builtIn": 1,
         "datasource": {
           "type": "grafana",
-          "uid": "-- Graphics --"
+          "uid": "grafana"
         },
         "enable": true,
         "hide": true,
@@ -117,7 +117,8 @@
           "expr": "sum(rate(http_requests_total[5m])) by (job)",
           "legendFormat": "{{job}}",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Total Requests/s (all services)",
@@ -178,9 +179,10 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+          "expr": "sum(rate(http_requests_total{status=\"500\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Error Rate %",
@@ -271,7 +273,8 @@
           "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job))",
           "legendFormat": "{{job}} p99",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "p99 Latency by Service",
@@ -358,10 +361,11 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "kafka_consumer_group_lag{group=~\"openguard.*\"}",
+          "expr": "kafka_consumer_group_lag{group!=\"\"}",
           "legendFormat": "{{group}}",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Kafka Consumer Lag",
@@ -450,7 +454,8 @@
           "editorMode": "code",
           "expr": "openguard_outbox_pending_total",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Outbox Relay Backlog",
@@ -523,10 +528,11 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "up{job=~\"openguard.*\"}",
+          "expr": "up{job!=\"\"}",
           "legendFormat": "{{job}}",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Active Services (up/down)",

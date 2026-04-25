@@ -5,7 +5,7 @@
         "builtIn": 1,
         "datasource": {
           "type": "grafana",
-          "uid": "-- Graphics --"
+          "uid": "grafana"
         },
         "enable": true,
         "hide": true,
@@ -116,7 +116,8 @@
           "expr": "sum(rate(http_requests_total[5m])) by (job)",
           "legendFormat": "{{job}}",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Throughput by Service (req/s)",
@@ -210,7 +211,8 @@
           "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job))",
           "legendFormat": "{{job}} (p99)",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Backend Latency (p99)",
@@ -300,7 +302,8 @@
           "expr": "sum(rate(kafka_producer_record_error_total[5m])) by (job)",
           "legendFormat": "{{job}} Errors",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Kafka Producer Errors",
@@ -364,7 +367,8 @@
           "expr": "up{job=~\"control-plane|iam|policy|threat|audit|alerting|webhook-delivery|compliance|dlp|connector-registry\"}",
           "legendFormat": "{{job}}",
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "step": "$__interval"
         }
       ],
       "title": "Backend Services Status (All 10 Core Services)",
