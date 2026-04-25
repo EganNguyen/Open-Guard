@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -55,23 +56,34 @@ func NewWebhookConsumer(brokers string, groupID string, topic string, d Delivere
 }
 
 func (c *WebhookConsumer) Start(ctx context.Context) error {
+	sem := make(chan struct{}, 50) // max 50 concurrent deliveries
+	var wg sync.WaitGroup
+
 	for {
 		m, err := c.reader.FetchMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
+				wg.Wait()
 				return nil
 			}
 			c.logger.Error("failed to fetch message", "error", err)
 			continue
 		}
 
-		if err := c.processMessage(ctx, m); err != nil {
-			c.logger.Error("message processing failed after all retries", "error", err)
-		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(msg kafka.Message) {
+			defer wg.Done()
+			defer func() { <-sem }()
 
-		if err := c.reader.CommitMessages(ctx, m); err != nil {
-			c.logger.Error("failed to commit offset", "error", err)
-		}
+			if err := c.processMessage(ctx, msg); err != nil {
+				c.logger.Error("message processing failed after all retries", "error", err)
+			}
+
+			if err := c.reader.CommitMessages(ctx, msg); err != nil {
+				c.logger.Error("failed to commit offset", "error", err)
+			}
+		}(m)
 	}
 }
 
@@ -93,8 +105,13 @@ func (c *WebhookConsumer) processMessage(ctx context.Context, m kafka.Message) e
 		lastErr = err
 		c.logger.Warn("webhook delivery attempt failed", "attempt", i+1, "target", req.Target, "error", err)
 
-		// Backoff: 1s, 2s, 4s, 8s, 16s
-		time.Sleep(time.Duration(1<<i) * time.Second)
+		// Backoff: 1s, 2s, 4s, 8s, 16s (context-aware)
+		backoff := time.Duration(1<<i) * time.Second
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
 	// Final failure -> DLQ

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -58,14 +59,23 @@ func (s *Service) ValidateAPIKey(ctx context.Context, apiKey string) (map[string
 
 	// 1. Check Redis Cache (R-08)
 	if s.rdb != nil {
-		_, err := s.rdb.Get(ctx, "apikey:"+prefix).Result()
+		cachedHash, err := s.rdb.Get(ctx, "apikey:hash:"+prefix).Result()
 		if err == nil {
-			// Cache hit. Need to verify hash.
-			// In a real app, we might cache the hash or a success flag if we trust the prefix entropy.
-			// But the spec says PBKDF2 fast-hash, so we should verify.
-			// Actually, if we cache the ConnectorID and OrgID, we still need to verify the hash to be secure.
-			s.logger.Debug("apikey cache hit", "prefix", prefix)
-			// ... verification logic ...
+			// Cache hit. Verify hash.
+			if crypto.VerifyPBKDF2(apiKey, cachedHash) {
+				s.logger.Debug("apikey cache hit and verified", "prefix", prefix)
+				// Fetch metadata from cache or DB? 
+				// Spec says cache for 5 mins. Let's cache the whole connector object.
+				cachedData, err := s.rdb.Get(ctx, "apikey:data:"+prefix).Result()
+				if err == nil {
+					var connector map[string]interface{}
+					if json.Unmarshal([]byte(cachedData), &connector) == nil {
+						return connector, nil
+					}
+				}
+			} else {
+				return nil, fmt.Errorf("invalid api key")
+			}
 		}
 	}
 
@@ -82,10 +92,31 @@ func (s *Service) ValidateAPIKey(ctx context.Context, apiKey string) (map[string
 
 	// 4. Cache Result (5-min TTL per spec)
 	if s.rdb != nil {
-		s.rdb.Set(ctx, "apikey:"+prefix, connector["id"].(string), 5*time.Minute)
+		connectorJSON, _ := json.Marshal(connector)
+		pipe := s.rdb.Pipeline()
+		pipe.Set(ctx, "apikey:hash:"+prefix, connector["api_key_hash"].(string), 5*time.Minute)
+		pipe.Set(ctx, "apikey:data:"+prefix, connectorJSON, 5*time.Minute)
+		_, _ = pipe.Exec(ctx)
 	}
 
 	return connector, nil
+}
+
+func (s *Service) DeleteConnector(ctx context.Context, id string) error {
+	// 1. Get prefix to invalidate cache
+	connector, err := s.repo.GetConnectorByID(ctx, id)
+	if err == nil {
+		prefix := connector["api_key_prefix"].(string)
+		if s.rdb != nil {
+			pipe := s.rdb.Pipeline()
+			pipe.Del(ctx, "apikey:hash:"+prefix)
+			pipe.Del(ctx, "apikey:data:"+prefix)
+			_, _ = pipe.Exec(ctx)
+		}
+	}
+
+	// 2. Delete from DB
+	return s.repo.DeleteConnector(ctx, id)
 }
 
 func (s *Service) generateAPIKey() string {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -41,17 +42,33 @@ func NewAlertSaga(brokers []string, groupID string, topic string, repo *reposito
 }
 
 func (s *AlertSaga) Start(ctx context.Context) error {
+	sem := make(chan struct{}, 50) // max 50 concurrent alert goroutines
+	var wg sync.WaitGroup
+
 	for {
-		m, err := s.reader.ReadMessage(ctx)
+		m, err := s.reader.FetchMessage(ctx) // FetchMessage: manual commit
 		if err != nil {
 			if ctx.Err() != nil {
+				wg.Wait()
 				return nil
 			}
-			s.logger.Error("failed to read message", "error", err)
+			s.logger.Error("failed to fetch message", "error", err)
 			continue
 		}
 
-		go s.processMessage(ctx, m)
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(msg kafka.Message) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			s.processMessage(ctx, msg)
+
+			// Commit ONLY after processing
+			if err := s.reader.CommitMessages(ctx, msg); err != nil {
+				s.logger.Error("failed to commit offset", "error", err)
+			}
+		}(m)
 	}
 }
 
@@ -114,16 +131,22 @@ func (s *AlertSaga) executeStep(ctx context.Context, alertID, stepName string, f
 		err := fn()
 		if err == nil {
 			s.repo.UpdateSagaStep(ctx, alertID, repository.SagaStep{
-				Step:   stepName,
-				Status: "completed",
-				At:     time.Now(),
+				Step:    stepName,
+				Status:  "completed",
+				At:      time.Now(),
 				Retries: i,
 			})
 			return nil
 		}
 		lastErr = err
 		s.logger.Warn("saga step retry", "step", stepName, "attempt", i+1, "error", err)
-		time.Sleep(time.Duration(1<<i) * 100 * time.Millisecond) // Exponential backoff
+
+		backoff := time.Duration(1<<i) * 100 * time.Millisecond
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	
 	s.repo.UpdateSagaStep(ctx, alertID, repository.SagaStep{

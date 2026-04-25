@@ -116,7 +116,7 @@ func (m *MockRepository) DeleteRefreshToken(ctx context.Context, tokenHash strin
 	return nil
 }
 
-func setup(t *testing.T) (*service.Service, *MockRepository, *miniredis.Miniredis) {
+func setup(_ *testing.T) (*service.Service, *MockRepository, *miniredis.Miniredis) {
 	mr, _ := miniredis.Run()
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	repo := &MockRepository{
@@ -127,7 +127,7 @@ func setup(t *testing.T) (*service.Service, *MockRepository, *miniredis.Miniredi
 		RevokedFamilies: make(map[uuid.UUID]bool),
 		MFAConfigs:      make(map[string][]map[string]interface{}),
 	}
-	pool := service.NewAuthWorkerPool(1)
+	pool := service.NewAuthWorkerPool(1, context.Background())
 	keyring := []crypto.JWTKey{{Kid: "k1", Secret: "test-secret-at-least-32-bytes!!", Algorithm: "HS256", Status: "active"}}
 	s := service.NewService(repo, pool, keyring, nil, rdb)
 	return s, repo, mr

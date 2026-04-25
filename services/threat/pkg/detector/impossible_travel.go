@@ -134,21 +134,25 @@ func (d *ImpossibleTravelDetector) processEvent(ctx context.Context, m kafka.Mes
 		Timestamp: time.Now(),
 	}
 
-	// Check last login
+	// Atomic GetSet with Lua to avoid RMW race
+	script := redis.NewScript(`
+		local last = redis.call('GET', KEYS[1])
+		redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+		return last
+	`)
+	
 	redisKey := "travel:" + userID
-	val, err := d.rdb.Get(ctx, redisKey).Result()
+	payload, _ := json.Marshal(current)
+	val, err := script.Run(ctx, d.rdb, []string{redisKey}, payload, d.windowSecs).Result()
+	
 	if err == nil {
 		var last LastLogin
-		if err := json.Unmarshal([]byte(val), &last); err == nil {
-			d.detect(ctx, userID, last, current)
+		if errStr, ok := val.(string); ok && errStr != "" {
+			if err := json.Unmarshal([]byte(errStr), &last); err == nil {
+				d.detect(ctx, userID, last, current)
+			}
 		}
 	} else if err != redis.Nil {
-		return err
-	}
-
-	// Store current login
-	payload, _ := json.Marshal(current)
-	if err := d.rdb.Set(ctx, redisKey, payload, time.Duration(d.windowSecs)*time.Second).Err(); err != nil {
 		return err
 	}
 	return nil

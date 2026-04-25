@@ -100,13 +100,13 @@ func (c *AuditConsumer) flush(ctx context.Context, batch []kafka.Message) {
 		prop := otel.GetTextMapPropagator()
 		msgCtx := prop.Extract(ctx, propagation.MapCarrier(headerMap))
 		
-		_, span := otel.Tracer("audit-consumer").Start(msgCtx, "consume-audit-event", trace.WithSpanKind(trace.SpanKindConsumer))
-		defer span.End()
+		msgCtx, span := otel.Tracer("audit-consumer").Start(msgCtx, "consume-audit-event", trace.WithSpanKind(trace.SpanKindConsumer))
 
 		var event map[string]interface{}
 		if err := json.Unmarshal(m.Value, &event); err != nil {
 			c.logger.Error("failed to unmarshal kafka message", "error", err)
 			span.RecordError(err)
+			span.End()
 			continue
 		}
 		event["timestamp"] = time.Now()
@@ -115,47 +115,73 @@ func (c *AuditConsumer) flush(ctx context.Context, batch []kafka.Message) {
 		// Metrics
 		orgID, _ := event["org_id"].(string)
 		telemetry.EventsIngested.WithLabelValues(orgID, m.Topic).Inc()
+		span.End()
 	}
 
 	if len(events) == 0 {
 		return
 	}
 
-	// 1. Reserve sequence range atomically
+	// 1. Reserve sequence range and update hash chain atomically (with retries)
 	orgID, _ := events[0]["org_id"].(string)
 	if orgID == "" {
 		c.logger.Error("missing org_id in audit event")
 		return
 	}
 
-	startSeq, prevHash, err := c.repo.ReserveSequence(ctx, orgID, int64(len(events)))
-	if err != nil {
-		c.logger.Error("failed to reserve sequence", "error", err)
+	var startSeq int64
+	var prevHash string
+	var currentHash string
+
+	success := false
+	for attempt := 0; attempt < 5; attempt++ {
+		var err error
+		startSeq, prevHash, err = c.repo.ReserveSequence(ctx, orgID, int64(len(events)))
+		if err != nil {
+			c.logger.Error("failed to reserve sequence", "error", err, "attempt", attempt)
+			select {
+			case <-time.After(100 * time.Millisecond):
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
+
+		// 2. Compute chain locally
+		tempPrevHash := prevHash
+		for i, event := range events {
+			event["sequence"] = startSeq + int64(i)
+			if secretKey != "" {
+				eventData := fmt.Sprintf("%v|%s", event["event_id"], tempPrevHash)
+				mac := hmac.New(sha256.New, []byte(secretKey))
+				mac.Write([]byte(eventData))
+				currentHash = hex.EncodeToString(mac.Sum(nil))
+				event["integrity_hash"] = currentHash
+				tempPrevHash = currentHash
+			}
+		}
+
+		// 3. Update the latest hash in hash_chains using CAS
+		if secretKey != "" && currentHash != "" {
+			ok, err := c.repo.UpdateHashChainCAS(ctx, orgID, prevHash, currentHash)
+			if err != nil {
+				c.logger.Error("failed to update hash chain head (error)", "error", err)
+				return
+			}
+			if !ok {
+				c.logger.Warn("hash chain CAS mismatch, retrying", "org_id", orgID, "attempt", attempt)
+				continue
+			}
+			telemetry.HashChainLength.WithLabelValues(orgID).Set(float64(events[len(events)-1]["sequence"].(int64)))
+		}
+		success = true
+		break
+	}
+
+	if !success {
+		c.logger.Error("failed to flush audit batch after multiple retries", "org_id", orgID)
 		telemetry.BatchFlushDuration.WithLabelValues("error").Observe(time.Since(start).Seconds())
 		return
-	}
-
-	// 2. Compute chain locally
-	var currentHash string
-	for i, event := range events {
-		event["sequence"] = startSeq + int64(i)
-		
-		if secretKey != "" {
-			eventData := fmt.Sprintf("%v|%s", event["event_id"], prevHash)
-			mac := hmac.New(sha256.New, []byte(secretKey))
-			mac.Write([]byte(eventData))
-			currentHash = hex.EncodeToString(mac.Sum(nil))
-			event["integrity_hash"] = currentHash
-			prevHash = currentHash
-		}
-	}
-
-	// 3. Update the latest hash in hash_chains
-	if secretKey != "" && currentHash != "" {
-		if err := c.repo.UpdateHashChain(ctx, orgID, currentHash); err != nil {
-			c.logger.Error("failed to update hash chain head", "error", err)
-		}
-		telemetry.HashChainLength.WithLabelValues(orgID).Set(float64(events[len(events)-1]["sequence"].(int64)))
 	}
 
 	// 4. BulkWrite all events

@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -59,7 +60,7 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, 
 		Interval:         10 * time.Second,
 		FailureThreshold: 3,
 		OpenDuration:     5 * time.Second,
-	}, iam_middleware.GetLogger(nil)) // Using default logger for now
+	}, iam_middleware.GetLogger(context.TODO())) // Using context.TODO instead of nil
 
 	authMiddleware := shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker)
 	idemMiddleware := shared_middleware.IdempotencyMiddleware(rdb)
@@ -78,7 +79,7 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, 
 		r.Post("/users/mfa/totp/enable", h.TOTPEnable)
 	})
 
-	authRateLimiter := iam_middleware.NewRateLimiter(rate.Limit(1), 5, stop) // 1 req/sec, burst 5
+	authRateLimiter := iam_middleware.NewRateLimiter(rdb, rate.Limit(1), 5, stop) // 1 req/sec, burst 5
 	r.Route("/auth", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
 			r.Use(authRateLimiter.Limit)

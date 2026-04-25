@@ -43,7 +43,9 @@ type Repository interface {
 	CreateSession(ctx context.Context, orgID, userID, jti, userAgent, ipAddress string, expiresAt time.Time) error
 	CreateRefreshToken(ctx context.Context, orgID, userID, tokenHash string, familyID uuid.UUID, expiresAt time.Time) error
 	GetRefreshToken(ctx context.Context, tokenHash string) (map[string]interface{}, error)
+	ClaimRefreshToken(ctx context.Context, tokenHash string) (map[string]interface{}, error)
 	RevokeRefreshTokenFamily(ctx context.Context, familyID uuid.UUID) error
+	RevokeRefreshTokenFamilyByHash(ctx context.Context, tokenHash string) error
 	DeleteRefreshToken(ctx context.Context, tokenHash string) error
 	UpsertMFAConfig(ctx context.Context, orgID, userID, mfaType, secretEncrypted string) error
 	EnableUserMFA(ctx context.Context, userID string, enabled bool, method string) error
@@ -118,14 +120,14 @@ func (u *WebAuthnUser) WebAuthnDisplayName() string                { return u.di
 func (u *WebAuthnUser) WebAuthnIcon() string                       { return "" }
 func (u *WebAuthnUser) WebAuthnCredentials() []webauthn.Credential { return u.credentials }
 
-func (s *Service) BeginWebAuthnRegistration(ctx context.Context, userID string) (*webauthn.SessionData, *protocol.CredentialCreation, error) {
+func (s *Service) BeginWebAuthnRegistration(ctx context.Context, userID string) (string, *webauthn.SessionData, *protocol.CredentialCreation, error) {
 	if s.webauthn == nil {
-		return nil, nil, fmt.Errorf("webauthn not configured")
+		return "", nil, nil, fmt.Errorf("webauthn not configured")
 	}
 
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
-		return nil, nil, err
+		return "", nil, nil, err
 	}
 
 	wUser := &WebAuthnUser{
@@ -136,24 +138,27 @@ func (s *Service) BeginWebAuthnRegistration(ctx context.Context, userID string) 
 
 	options, session, err := s.webauthn.BeginRegistration(wUser)
 	if err != nil {
-		return nil, nil, err
+		return "", nil, nil, err
 	}
 
-	// Store session in Redis
+	// Store session in Redis with a unique nonce
+	sessionID := uuid.New().String()
+	sessionKey := fmt.Sprintf("webauthn:reg:%s:%s", userID, sessionID)
 	sessionJSON, _ := json.Marshal(session)
-	if err := s.rdb.Set(ctx, "webauthn:reg:"+userID, sessionJSON, 5*time.Minute).Err(); err != nil {
-		return nil, nil, err
+	if err := s.rdb.Set(ctx, sessionKey, sessionJSON, 5*time.Minute).Err(); err != nil {
+		return "", nil, nil, err
 	}
 
-	return session, options, nil
+	return sessionID, session, options, nil
 }
 
-func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID string, response *http.Request) error {
+func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID, sessionID string, response *http.Request) error {
 	if s.webauthn == nil {
 		return fmt.Errorf("webauthn not configured")
 	}
 
-	val, err := s.rdb.Get(ctx, "webauthn:reg:"+userID).Result()
+	sessionKey := fmt.Sprintf("webauthn:reg:%s:%s", userID, sessionID)
+	val, err := s.rdb.GetDel(ctx, sessionKey).Result()
 	if err != nil {
 		return fmt.Errorf("registration session expired or invalid")
 	}
@@ -192,14 +197,14 @@ func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID 
 	return nil
 }
 
-func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (*webauthn.SessionData, *protocol.CredentialAssertion, error) {
+func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (string, *webauthn.SessionData, *protocol.CredentialAssertion, error) {
 	if s.webauthn == nil {
-		return nil, nil, fmt.Errorf("webauthn not configured")
+		return "", nil, nil, fmt.Errorf("webauthn not configured")
 	}
 
 	user, err := s.repo.GetUserByEmail(ctx, email)
 	if err != nil {
-		return nil, nil, err
+		return "", nil, nil, err
 	}
 
 	userID := user["id"].(string)
@@ -225,18 +230,20 @@ func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (*webaut
 
 	options, session, err := s.webauthn.BeginLogin(wUser)
 	if err != nil {
-		return nil, nil, err
+		return "", nil, nil, err
 	}
 
+	sessionID := uuid.New().String()
+	sessionKey := fmt.Sprintf("webauthn:login:%s:%s", userID, sessionID)
 	sessionJSON, _ := json.Marshal(session)
-	if err := s.rdb.Set(ctx, "webauthn:login:"+userID, sessionJSON, 5*time.Minute).Err(); err != nil {
-		return nil, nil, err
+	if err := s.rdb.Set(ctx, sessionKey, sessionJSON, 5*time.Minute).Err(); err != nil {
+		return "", nil, nil, err
 	}
 
-	return session, options, nil
+	return sessionID, session, options, nil
 }
 
-func (s *Service) FinishWebAuthnLogin(ctx context.Context, email string, userAgent, ip string, response *http.Request) (map[string]interface{}, string, error) {
+func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID string, userAgent, ip string, response *http.Request) (map[string]interface{}, string, error) {
 	if s.webauthn == nil {
 		return nil, "", fmt.Errorf("webauthn not configured")
 	}
@@ -247,7 +254,8 @@ func (s *Service) FinishWebAuthnLogin(ctx context.Context, email string, userAge
 	}
 
 	userID := user["id"].(string)
-	val, err := s.rdb.Get(ctx, "webauthn:login:"+userID).Result()
+	sessionKey := fmt.Sprintf("webauthn:login:%s:%s", userID, sessionID)
+	val, err := s.rdb.GetDel(ctx, sessionKey).Result()
 	if err != nil {
 		return nil, "", fmt.Errorf("login session expired or invalid")
 	}
@@ -604,28 +612,21 @@ func (s *Service) IssueTokens(ctx context.Context, orgID, userID, userAgent, ip 
 
 func (s *Service) RefreshToken(ctx context.Context, refreshToken, userAgent, ip string) (map[string]interface{}, error) {
 	rtHash := crypto.HashSHA256(refreshToken)
-	rt, err := s.repo.GetRefreshToken(ctx, rtHash)
+	rt, err := s.repo.ClaimRefreshToken(ctx, rtHash)
 	if err != nil {
-		return nil, err
+		// Not found means: already used (reuse attack) or expired
+		// Trigger family revocation by looking up family from a secondary index
+		s.repo.RevokeRefreshTokenFamilyByHash(ctx, rtHash)
+		return nil, fmt.Errorf("token invalid, revoked, or already used")
 	}
-
-	// Check revocation or expiry
-	if rt["revoked"].(bool) || time.Now().After(rt["expires_at"].(time.Time)) {
-		// Potential reuse attack or expired! Revoke the whole family (R-10)
-		s.repo.RevokeRefreshTokenFamily(ctx, rt["family_id"].(uuid.UUID))
-		return nil, fmt.Errorf("token revoked or expired")
-	}
-
-	// Rotate token: delete old, issue new (R-10)
-	s.repo.DeleteRefreshToken(ctx, rtHash)
 
 	return s.IssueTokens(ctx, rt["org_id"].(string), rt["user_id"].(string), userAgent, ip, rt["family_id"].(uuid.UUID))
 }
 
 func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (map[string]interface{}, string, error) {
-	// 1. Get userID from challenge
+	// 1. Get and delete userID from challenge (Atomic)
 	res, err := resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
-		return s.rdb.Get(ctx, "mfa_challenge:"+challengeToken).Result()
+		return s.rdb.GetDel(ctx, "mfa_challenge:"+challengeToken).Result()
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid or expired challenge")
@@ -638,12 +639,7 @@ func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, u
 		return nil, "", fmt.Errorf("invalid mfa code")
 	}
 
-	// 3. Clear challenge
-	_, _ = resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
-		return nil, s.rdb.Del(ctx, "mfa_challenge:"+challengeToken).Err()
-	})
-
-	// 4. Get user and issue tokens
+	// 3. Get user and issue tokens
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
 		return nil, "", err
@@ -658,9 +654,9 @@ func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, u
 }
 
 func (s *Service) VerifyBackupCodeAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (map[string]interface{}, string, error) {
-	// 1. Get userID from challenge
+	// 1. Get and delete userID from challenge (Atomic)
 	res, err := resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
-		return s.rdb.Get(ctx, "mfa_challenge:"+challengeToken).Result()
+		return s.rdb.GetDel(ctx, "mfa_challenge:"+challengeToken).Result()
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid or expired challenge")
@@ -673,12 +669,7 @@ func (s *Service) VerifyBackupCodeAndLogin(ctx context.Context, challengeToken, 
 		return nil, "", fmt.Errorf("invalid backup code")
 	}
 
-	// 3. Clear challenge
-	_, _ = resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
-		return nil, s.rdb.Del(ctx, "mfa_challenge:"+challengeToken).Err()
-	})
-
-	// 4. Get user and issue tokens
+	// 3. Get user and issue tokens
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
 		return nil, "", err
@@ -697,20 +688,6 @@ func (s *Service) SignToken(orgID, userID, jti string, ttl time.Duration) (strin
 	return crypto.Sign(claims, s.keyring)
 }
 
-func (s *Service) isRevoked(ctx context.Context, jti string) bool {
-	if s.rdb == nil {
-		return false
-	}
-	
-	val, err := resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
-		res, err := s.rdb.Exists(ctx, "blocklist:"+jti).Result()
-		return res > 0, err
-	})
-	if err != nil {
-		return false
-	}
-	return val.(bool)
-}
 
 func (s *Service) Logout(ctx context.Context, jti string, expiresAt time.Time) error {
 	if s.rdb == nil {
@@ -832,6 +809,16 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, code string) (bo
 
 // VerifyTOTP validates a TOTP code against the stored config.
 func (s *Service) VerifyTOTP(ctx context.Context, userID, code string) (bool, error) {
+	// Check used-code nonce (prevent replay within TOTP window)
+	nonceKey := fmt.Sprintf("totp:used:%s:%s", userID, code)
+	set, err := s.rdb.SetNX(ctx, nonceKey, "1", 90*time.Second).Result() // 3x TOTP window
+	if err != nil {
+		return false, err
+	}
+	if !set {
+		return false, fmt.Errorf("totp code already used")
+	}
+
 	// 1. Get config
 	config, err := s.repo.GetMFAConfig(ctx, userID, "totp")
 	if err != nil {
@@ -860,15 +847,13 @@ func (s *Service) GetAuthCode(ctx context.Context, code string) (string, string,
 	if s.rdb == nil {
 		return "", "", fmt.Errorf("redis not configured")
 	}
-	val, err := s.rdb.Get(ctx, "auth_code:"+code).Result()
+	val, err := s.rdb.GetDel(ctx, "auth_code:"+code).Result()
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("invalid or expired auth code")
 	}
 	parts := strings.Split(val, ":")
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("invalid auth code data")
 	}
-	// Delete code after use (one-time use)
-	s.rdb.Del(ctx, "auth_code:"+code)
 	return parts[0], parts[1], nil
 }

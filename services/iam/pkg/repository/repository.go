@@ -721,6 +721,50 @@ func (r *Repository) RevokeRefreshTokenFamily(ctx context.Context, familyID uuid
 	})
 }
 
+func (r *Repository) ClaimRefreshToken(ctx context.Context, tokenHash string) (map[string]interface{}, error) {
+	orgID := rls.OrgID(ctx)
+	var rt = make(map[string]interface{})
+	var id, orgIDRes, userID string
+	var familyID uuid.UUID
+	var expiresAt time.Time
+
+	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		return conn.QueryRow(ctx, `
+			UPDATE refresh_tokens
+			SET revoked = TRUE
+			WHERE token_hash = $1
+			  AND revoked = FALSE
+			  AND expires_at > NOW()
+			RETURNING id, org_id, user_id, family_id, expires_at
+		`, tokenHash).Scan(&id, &orgIDRes, &userID, &familyID, &expiresAt)
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	rt["id"] = id
+	rt["org_id"] = orgIDRes
+	rt["user_id"] = userID
+	rt["family_id"] = familyID
+	rt["expires_at"] = expiresAt
+	return rt, nil
+}
+
+func (r *Repository) RevokeRefreshTokenFamilyByHash(ctx context.Context, tokenHash string) error {
+	orgID := rls.OrgID(ctx)
+	return r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		_, err := conn.Exec(ctx, `
+			UPDATE refresh_tokens 
+			SET revoked = TRUE 
+			WHERE family_id = (SELECT family_id FROM refresh_tokens WHERE token_hash = $1)
+		`, tokenHash)
+		return err
+	})
+}
+
 func (r *Repository) DeleteRefreshToken(ctx context.Context, tokenHash string) error {
 	orgID := rls.OrgID(ctx)
 	return r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {

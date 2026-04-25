@@ -141,8 +141,19 @@ func (d *BruteForceDetector) trackFailedAttempt(ctx context.Context, key string)
 	d.logger.Debug("failed attempt tracked", "key", key, "count", count)
 
 	if count >= d.maxAttempts {
-		d.logger.Warn("brute force attack detected", "key", key, "attempts", count)
-		d.publishThreatEvent(ctx, key, count)
+		// Deduplicate: only fire once per alert window
+		alertKey := "alert_fired:" + key
+		set, err := d.rdb.SetNX(ctx, alertKey, "1", WindowSize).Result()
+		if err != nil {
+			d.logger.Error("failed to check alert dedup key", "error", err)
+		}
+		
+		if set {
+			d.logger.Warn("brute force attack detected, firing alert", "key", key, "attempts", count)
+			d.publishThreatEvent(ctx, key, count)
+		} else {
+			d.logger.Debug("brute force attack ongoing, alert already fired for this window", "key", key)
+		}
 	}
 	return nil
 }

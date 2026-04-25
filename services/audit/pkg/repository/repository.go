@@ -63,17 +63,20 @@ func (r *AuditWriteRepository) ReserveSequence(ctx context.Context, orgID string
 	return result.Sequence - count, result.Hash, nil // startSeq is BEFORE increment
 }
 
-func (r *AuditWriteRepository) UpdateHashChain(ctx context.Context, orgID, newHash string) error {
+func (r *AuditWriteRepository) UpdateHashChainCAS(ctx context.Context, orgID, prevHash, newHash string) (bool, error) {
 	coll := r.DB.Collection("hash_chains")
-	
-	_, err := coll.UpdateOne(
+
+	res, err := coll.UpdateOne(
 		ctx,
-		bson.M{"org_id": orgID},
+		bson.M{"org_id": orgID, "hash": prevHash},
 		bson.M{
-			"$set": bson.M{"hash": newHash},
+			"$set": bson.M{"hash": newHash, "updated_at": time.Now()},
 		},
 	)
-	return err
+	if err != nil {
+		return false, err
+	}
+	return res.ModifiedCount == 1, nil
 }
 
 func (r *AuditReadRepository) FindEvents(ctx context.Context, filter bson.M, limit int64, offset int64) ([]map[string]interface{}, error) {

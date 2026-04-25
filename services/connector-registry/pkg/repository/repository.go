@@ -84,3 +84,7 @@ func (r *Repository) FindByPrefix(ctx context.Context, prefix string) (map[strin
 		"api_key_hash":  hash,
 	}, nil
 }
+func (r *Repository) DeleteConnector(ctx context.Context, id string) error {
+	_, err := r.pool.Exec(ctx, "DELETE FROM connectors WHERE id = $1", id)
+	return err
+}

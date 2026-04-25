@@ -117,7 +117,7 @@ func main() {
 	}
 
 	// Initialize AuthWorkerPool
-	authPool := service.NewAuthWorkerPool(2 * runtime.NumCPU())
+	authPool := service.NewAuthWorkerPool(2*runtime.NumCPU(), ctx)
 
 	// Initialize Secrets Provider
 	secretProvider, err := secrets.GetProvider(ctx)
@@ -254,6 +254,7 @@ func main() {
 	if internalTLSConfig != nil {
 		srv8443.Shutdown(shutdownCtx)
 	}
+	authPool.Shutdown()
 	
 	fmt.Println("Service exited")
 }

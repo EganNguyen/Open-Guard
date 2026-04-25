@@ -480,18 +480,26 @@ func (h *Handler) ReprovisionUser(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) WebAuthnBeginRegistration(w http.ResponseWriter, r *http.Request) {
 	userID := shared_middleware.GetUserID(r.Context())
-	_, options, err := h.svc.BeginWebAuthnRegistration(r.Context(), userID)
+	sessionID, _, options, err := h.svc.BeginWebAuthnRegistration(r.Context(), userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, options)
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"session_id": sessionID,
+		"options":    options,
+	})
 }
 
 func (h *Handler) WebAuthnFinishRegistration(w http.ResponseWriter, r *http.Request) {
 	userID := shared_middleware.GetUserID(r.Context())
 	orgID := shared_middleware.GetOrgID(r.Context())
-	if err := h.svc.FinishWebAuthnRegistration(r.Context(), orgID, userID, r); err != nil {
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID == "" {
+		http.Error(w, "missing session_id", http.StatusBadRequest)
+		return
+	}
+	if err := h.svc.FinishWebAuthnRegistration(r.Context(), orgID, userID, sessionID, r); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -506,17 +514,25 @@ func (h *Handler) WebAuthnBeginLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_, options, err := h.svc.BeginWebAuthnLogin(r.Context(), body.Email)
+	sessionID, _, options, err := h.svc.BeginWebAuthnLogin(r.Context(), body.Email)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, options)
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"session_id": sessionID,
+		"options":    options,
+	})
 }
 
 func (h *Handler) WebAuthnFinishLogin(w http.ResponseWriter, r *http.Request) {
 	email := r.URL.Query().Get("email")
-	user, token, err := h.svc.FinishWebAuthnLogin(r.Context(), email, r.UserAgent(), r.RemoteAddr, r)
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID == "" {
+		http.Error(w, "missing session_id", http.StatusBadRequest)
+		return
+	}
+	user, token, err := h.svc.FinishWebAuthnLogin(r.Context(), email, sessionID, r.UserAgent(), r.RemoteAddr, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return

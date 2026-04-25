@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -25,27 +26,38 @@ type AuthWorkerPool struct {
 	compareJobs  chan bcryptCompareJob
 	generateJobs chan bcryptGenerateJob
 	workers      int
+	wg           sync.WaitGroup
 }
 
 // NewAuthWorkerPool initializes the pool with the specified number of workers.
-func NewAuthWorkerPool(workers int) *AuthWorkerPool {
+func NewAuthWorkerPool(workers int, ctx context.Context) *AuthWorkerPool {
 	p := &AuthWorkerPool{
 		compareJobs:  make(chan bcryptCompareJob, 100),
 		generateJobs: make(chan bcryptGenerateJob, 100),
 		workers:      workers,
 	}
 	for i := 0; i < workers; i++ {
-		go p.worker()
+		p.wg.Add(1)
+		go p.worker(ctx)
 	}
 	return p
 }
 
-func (p *AuthWorkerPool) worker() {
+func (p *AuthWorkerPool) worker(ctx context.Context) {
+	defer p.wg.Done()
 	for {
 		select {
-		case job := <-p.compareJobs:
+		case <-ctx.Done():
+			return
+		case job, ok := <-p.compareJobs:
+			if !ok {
+				return
+			}
 			job.result <- bcrypt.CompareHashAndPassword([]byte(job.hash), []byte(job.password))
-		case job := <-p.generateJobs:
+		case job, ok := <-p.generateJobs:
+			if !ok {
+				return
+			}
 			hash, err := bcrypt.GenerateFromPassword([]byte(job.password), 12)
 			job.result <- struct {
 				hash []byte
@@ -53,6 +65,12 @@ func (p *AuthWorkerPool) worker() {
 			}{hash, err}
 		}
 	}
+}
+
+func (p *AuthWorkerPool) Shutdown() {
+	close(p.compareJobs)
+	close(p.generateJobs)
+	p.wg.Wait()
 }
 
 // Compare schedules a bcrypt comparison and waits for the result.

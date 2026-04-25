@@ -64,6 +64,11 @@ type PolicyLogic struct {
 	Resources []string `json:"resources,omitempty"`
 }
 
+type evalLogEntry struct {
+	req  EvaluateRequest
+	resp *EvaluateResponse
+}
+
 // Service implements the policy engine business logic.
 type Service struct {
 	repo        *repository.Repository
@@ -72,15 +77,17 @@ type Service struct {
 	sfGroup     singleflight.Group
 	logger      *slog.Logger
 	dbBreaker   *gobreaker.CircuitBreaker
+	refreshSem  chan struct{}
+	logCh       chan evalLogEntry
 }
 
 // NewService creates a new policy service.
 func NewService(repo *repository.Repository, rdb *redis.Client, outboxWriter *outbox.Writer, logger *slog.Logger) *Service {
-	return &Service{
-		repo:        repo,
-		rdb:         rdb,
+	s := &Service{
+		repo:         repo,
+		rdb:          rdb,
 		outboxWriter: outboxWriter,
-		logger:      logger,
+		logger:       logger,
 		dbBreaker: resilience.NewBreaker(resilience.BreakerConfig{
 			Name:             "policy-db",
 			MaxRequests:      5,
@@ -88,6 +95,19 @@ func NewService(repo *repository.Repository, rdb *redis.Client, outboxWriter *ou
 			FailureThreshold: 10,
 			OpenDuration:     30 * time.Second,
 		}, logger),
+		refreshSem: make(chan struct{}, 100),  // max 100 concurrent background refreshes
+		logCh:      make(chan evalLogEntry, 1000), // drop logs if buffer full
+	}
+
+	// Start background log worker
+	go s.logWorker()
+
+	return s
+}
+
+func (s *Service) logWorker() {
+	for entry := range s.logCh {
+		s.processWriteEvalLog(entry.req, entry.resp)
 	}
 }
 
@@ -124,8 +144,14 @@ func (s *Service) Evaluate(ctx context.Context, req EvaluateRequest) (*EvaluateR
 				latency := int(time.Since(start).Milliseconds())
 				telemetry.EvaluateDuration.WithLabelValues(req.OrgID).Observe(time.Since(start).Seconds())
 				telemetry.CacheHits.WithLabelValues("redis").Inc()
-				// Async background refresh (stale-while-revalidate)
-				go s.backgroundRefresh(req, key)
+				telemetry.CacheHits.WithLabelValues("redis").Inc()
+				// Async background refresh (stale-while-revalidate) with bounding
+				select {
+				case s.refreshSem <- struct{}{}:
+					go s.backgroundRefresh(req, key)
+				default:
+					s.logger.Debug("background refresh skipped, semaphore full")
+				}
 				return &EvaluateResponse{
 					Effect:           decision.Effect,
 					MatchedPolicyIDs: decision.MatchedPolicyIDs,
@@ -159,8 +185,12 @@ func (s *Service) Evaluate(ctx context.Context, req EvaluateRequest) (*EvaluateR
 		telemetry.EvaluateDuration.WithLabelValues(req.OrgID).Observe(time.Since(start).Seconds())
 		telemetry.CacheHits.WithLabelValues("none").Inc()
 
-		// Write to eval log (non-blocking)
-		go s.writeEvalLog(req, r.resp)
+		// Write to eval log (non-blocking, bounded)
+		select {
+		case s.logCh <- evalLogEntry{req, r.resp}:
+		default:
+			s.logger.Warn("eval log channel full, dropping entry")
+		}
 
 		return r.resp, nil
 	}
@@ -295,6 +325,7 @@ func matchesGlob(patterns []string, value string) bool {
 // It carries the org_id into the detached context so withOrgContext can set
 // the RLS session variable on the background connection.
 func (s *Service) backgroundRefresh(req EvaluateRequest, key string) {
+	defer func() { <-s.refreshSem }()
 	ctx, cancel := context.WithTimeout(
 		rls.WithOrgID(context.Background(), req.OrgID),
 		maxRetryDelay,
@@ -373,7 +404,8 @@ func (s *Service) DeletePolicy(ctx context.Context, orgID, policyID string) erro
 // writeEvalLog writes a policy evaluation log entry asynchronously.
 // It carries the org_id into the detached context so withOrgContext can set
 // the RLS session variable on the background connection.
-func (s *Service) writeEvalLog(req EvaluateRequest, resp *EvaluateResponse) {
+// writeEvalLog handles the actual DB write for a log entry.
+func (s *Service) processWriteEvalLog(req EvaluateRequest, resp *EvaluateResponse) {
 	ctx, cancel := context.WithTimeout(
 		rls.WithOrgID(context.Background(), req.OrgID),
 		5*time.Second,

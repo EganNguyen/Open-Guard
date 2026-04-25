@@ -3,7 +3,6 @@ package saga
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -40,13 +39,16 @@ func (w *Watcher) Run(ctx context.Context) {
 
 func (w *Watcher) checkExpired(ctx context.Context) {
 	now := float64(time.Now().Unix())
-	// ZRANGEBYSCORE saga:deadlines -inf <now> LIMIT 0 100
-	sagaIDs, err := w.rdb.ZRangeByScore(ctx, "saga:deadlines", &redis.ZRangeBy{
-		Min:    "-inf",
-		Max:    fmt.Sprintf("%f", now),
-		Offset: 0,
-		Count:  100,
-	}).Result()
+	
+	// Atomic: claim expired sagas using Lua script
+	script := redis.NewScript(`
+		local members = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, 100)
+		if #members == 0 then return {} end
+		redis.call('ZREM', KEYS[1], unpack(members))
+		return members
+	`)
+	
+	sagaIDs, err := script.Run(ctx, w.rdb, []string{"saga:deadlines"}, now).StringSlice()
 	if err != nil || len(sagaIDs) == 0 {
 		return
 	}
@@ -62,9 +64,9 @@ func (w *Watcher) checkExpired(ctx context.Context) {
 		})
 		if err := w.publisher.Publish(ctx, "saga.orchestration", sagaID, payload); err != nil {
 			w.logger.Error("failed to publish saga timeout", "saga_id", sagaID, "error", err)
+			// Note: if publish fails, the saga is already removed from deadlines.
+			// Ideally we should have a retry mechanism or DLQ for these.
 			continue
 		}
-		// Remove from sorted set after publishing
-		w.rdb.ZRem(ctx, "saga:deadlines", sagaID)
 	}
 }
