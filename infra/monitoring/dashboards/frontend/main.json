@@ -109,12 +109,12 @@
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
+            "type": "loki",
+            "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(rate(frontend_page_load_duration_seconds_bucket[5m])) by (le, page)) * 1000",
-          "legendFormat": "{{page}} (p95)",
+          "expr": "quantile_over_time(0.95, {job=\"openguard-control-plane\"} |= \"frontend\" | json | unwrap context_load_time [5m]) * 1000",
+          "legendFormat": "{{context_page}} (p95)",
           "range": true,
           "refId": "A"
         }
@@ -203,7 +203,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({container_name=\"dashboard\"} |= \"error\" [5m]))",
+          "expr": "sum(count_over_time({job=\"openguard-dashboard\"} |= \"error\" [5m]))",
           "legendFormat": "Frontend Errors",
           "range": true,
           "refId": "A"

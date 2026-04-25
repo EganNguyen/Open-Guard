@@ -1,10 +1,13 @@
 #!/bin/bash
+set -e
 echo "Initializing LocalStack services..."
 
 # Create S3 bucket for compliance reports
 awslocal s3 mb s3://compliance-reports
 
 # Create secrets for various services
+echo "Creating secrets..."
+
 awslocal secretsmanager create-secret \
     --name IAM_JWT_KEYS \
     --secret-string '[{"kid":"v1","secret":"SyCVT3SHMQqd3Wp9+u2llGVurh3TcgOtOrTRbeqzfEIzrlpgS9FNB5SrwyBQIdMd7na9yT5fyV8vp8Wcm9xHlA==","algorithm":"HS256","status":"active"}]'

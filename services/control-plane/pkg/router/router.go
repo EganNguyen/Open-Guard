@@ -1,6 +1,7 @@
 package router
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -90,6 +91,34 @@ func NewRouter() *chi.Mux {
 			r.Post("/", proxy.NewProxy(iamURL, cbIAM))
 			r.Get("/{id}", proxy.NewProxy(iamURL, cbIAM))
 			r.Patch("/{id}", proxy.NewProxy(iamURL, cbIAM))
+		})
+
+		// Frontend Logging Endpoint
+		r.Post("/logs", func(w http.ResponseWriter, r *http.Request) {
+			var payload struct {
+				Level   string                 `json:"level"`
+				Message string                 `json:"message"`
+				Context map[string]interface{} `json:"context"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				logger.Error("failed to decode frontend log", "error", err)
+				http.Error(w, "invalid request", http.StatusBadRequest)
+				return
+			}
+			
+			// Map level to slog levels
+			logLevel := slog.LevelInfo
+			switch payload.Level {
+			case "error":
+				logLevel = slog.LevelError
+			case "warn":
+				logLevel = slog.LevelWarn
+			case "debug":
+				logLevel = slog.LevelDebug
+			}
+
+			logger.Log(r.Context(), logLevel, payload.Message, "source", "frontend", "context", payload.Context)
+			w.WriteHeader(http.StatusAccepted)
 		})
 	})
 

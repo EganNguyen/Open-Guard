@@ -22,6 +22,7 @@ import (
 	"github.com/openguard/services/compliance/pkg/storage"
 	"github.com/openguard/services/compliance/pkg/telemetry"
 	"github.com/openguard/shared/crypto"
+	"github.com/openguard/shared/database"
 	"github.com/openguard/shared/resilience"
 )
 
@@ -70,6 +71,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer pgPool.Close()
+
+	// Run Migrations (INFRA-02)
+	if err := database.Migrate(context.Background(), pgPool, "migrations"); err != nil {
+		logger.Error("migrations failed", "error", err)
+		os.Exit(1)
+	}
 
 	// ── S3/MinIO Storage ─────────────────────────────────────────────────────
 	s3Endpoint := os.Getenv("S3_ENDPOINT")

@@ -57,6 +57,8 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG4J_ROOT_LOGLEVEL: INFO
+      KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,state.change.logger=INFO"
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 29092 || exit 1"]
       interval: 10s
@@ -431,7 +433,7 @@ services:
     ports: ["8088:8080"]
     environment:
       - CLICKHOUSE_ADDR=clickhouse:9000
-      - DATABASE_URL=postgres://openguard:openguard@postgres:5432/openguard?sslmode=disable
+      - DATABASE_URL=${COMPLIANCE_DATABASE_URL:?COMPLIANCE_DATABASE_URL is required}
       - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
       - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}
       - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
@@ -457,7 +459,7 @@ services:
       context: ../../
       dockerfile: examples/task-management-app/backend/Dockerfile
     environment:
-      - DATABASE_URL=postgres://openguard:change-me-in-production@postgres:5432/openguard?sslmode=disable
+      - DATABASE_URL=${TASK_DATABASE_URL:?TASK_DATABASE_URL is required}
       - PORT=3005
     ports:
       - "3005:3005"
