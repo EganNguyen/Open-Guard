@@ -48,8 +48,8 @@ export class UsersComponent implements OnInit {
       users: this.http.get<User[]>(`${environment.apiUrl}/mgmt/users`).pipe(catchError(() => of([])))
     }).subscribe({
       next: (res) => {
-        this.connectors.set(res.connectors || []);
-        this.users.set(res.users || []);
+        this.connectors.set(res?.connectors || []);
+        this.users.set(res?.users || []);
         this.groupUsers();
         this.loading.set(false);
       },

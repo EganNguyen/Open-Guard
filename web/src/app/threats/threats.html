@@ -85,7 +85,7 @@
                 <p>{{ error() }}</p>
               </td>
             </tr>
-          } @else if (alerts().length === 0) {
+          } @else if (!alerts() || alerts().length === 0) {
             <tr>
               <td colspan="5" class="px-6 py-12 text-center text-[#6B778C]">
                 <span class="material-symbols-outlined text-4xl mb-2">shield_check</span>
@@ -130,7 +130,7 @@
     </div>
     
     <div class="p-4 bg-[#FAFBFC] border-t border-[#DFE1E6] flex justify-between items-center">
-      <span class="text-xs text-[#6B778C]">Showing {{ alerts().length }} alerts</span>
+      <span class="text-xs text-[#6B778C]">Showing {{ alerts()?.length || 0 }} alerts</span>
       <div class="flex space-x-1">
         <button class="p-1 rounded hover:bg-[#EBECF0] disabled:opacity-50" disabled>
           <span class="material-symbols-outlined text-sm">chevron_left</span>

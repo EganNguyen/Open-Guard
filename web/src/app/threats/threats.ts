@@ -37,8 +37,9 @@ export class ThreatsComponent implements OnInit {
       .pipe(finalize(() => this.loading.set(false)))
       .subscribe({
         next: (alerts) => {
-          this.alerts.set(alerts);
-          this.calculateStats(alerts);
+          const data = alerts || [];
+          this.alerts.set(data);
+          this.calculateStats(data);
         },
         error: (err) => {
           console.error('Failed to fetch threats', err);

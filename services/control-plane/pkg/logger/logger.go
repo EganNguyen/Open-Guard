@@ -1,12 +1,13 @@
 package logger
 
 import (
-	"go.uber.org/zap"
+	"log/slog"
+	"os"
 )
 
-var Log *zap.Logger
+var Log *slog.Logger
 
 func Init() {
-	logger, _ := zap.NewProduction()
-	Log = logger
+	Log = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(Log)
 }

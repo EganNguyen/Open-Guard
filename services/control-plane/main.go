@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"go.uber.org/zap"
+	"log/slog"
 
 	"github.com/openguard/control-plane/pkg/logger"
 	"github.com/openguard/control-plane/pkg/router"
@@ -21,17 +21,16 @@ import (
 func main() {
 	// Initialize logger
 	logger.Init()
-	defer logger.Log.Sync()
-	log := logger.Log.With(zap.String("service", "control-plane"))
+	log := slog.Default().With("service", "control-plane")
 
 	// Initialize OpenTelemetry
 	tp, err := telemetry.InitTracer()
 	if err != nil {
-		log.Fatal("failed to initialize tracer", zap.Error(err))
+		log.Error("failed to initialize tracer", "error", err)
 	}
 	defer func() {
 		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Error("failed to shutdown tracer", zap.Error(err))
+			log.Error("failed to shutdown tracer", "error", err)
 		}
 	}()
 
@@ -67,7 +66,7 @@ func main() {
 	}
 
 	go func() {
-		log.Info("control-plane service starting", zap.String("port", port))
+		log.Info("control-plane service starting", "port", port)
 		var serverErr error
 		certFile := "/certs/control-plane.crt"
 		keyFile := "/certs/control-plane.key"
@@ -81,7 +80,8 @@ func main() {
 		}
 
 		if serverErr != nil && serverErr != http.ErrServerClosed {
-			log.Fatal("server failed", zap.Error(serverErr))
+			log.Error("server failed", "error", serverErr)
+			os.Exit(1)
 		}
 	}()
 
@@ -92,7 +92,7 @@ func main() {
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error("server shutdown failed", zap.Error(err))
+		log.Error("server shutdown failed", "error", err)
 	}
 	
 	fmt.Println("Service exited")

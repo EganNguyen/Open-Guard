@@ -428,7 +428,45 @@ func (r *Repository) GetConnectorByID(ctx context.Context, id string) (map[strin
 }
 func (r *Repository) ListConnectors(ctx context.Context) ([]map[string]interface{}, error) {
 	orgID := rls.OrgID(ctx)
+	isSystem := orgID == "00000000-0000-0000-0000-000000000000"
 	var connectors []map[string]interface{}
+
+	if isSystem {
+		conn, err := r.pool.Acquire(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer conn.Release()
+
+		_, err = conn.Exec(ctx, "SET ROLE openguard_login")
+		if err != nil {
+			return nil, fmt.Errorf("set login role: %w", err)
+		}
+		defer func() { _, _ = conn.Exec(ctx, "RESET ROLE") }()
+
+		rows, err := conn.Query(ctx, `SELECT id, org_id, name, redirect_uris FROM connectors`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var id, name string
+			var orgIDStr *string
+			var uris []string
+			if err := rows.Scan(&id, &orgIDStr, &name, &uris); err != nil {
+				return nil, err
+			}
+			connectors = append(connectors, map[string]interface{}{
+				"id":            id,
+				"org_id":        orgIDStr,
+				"name":          name,
+				"redirect_uris": uris,
+			})
+		}
+		return connectors, nil
+	}
+
 	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		rows, err := conn.Query(ctx, `
 			SELECT id, org_id, name, redirect_uris FROM connectors
@@ -456,8 +494,68 @@ func (r *Repository) ListConnectors(ctx context.Context) ([]map[string]interface
 	})
 	return connectors, err
 }
+
 func (r *Repository) ListUsers(ctx context.Context, orgID string, filter string) ([]map[string]interface{}, error) {
 	var users []map[string]interface{}
+	
+	isSystem := orgID == "00000000-0000-0000-0000-000000000000"
+
+	// If system org, we bypass RLS using openguard_login role
+	if isSystem {
+		conn, err := r.pool.Acquire(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer conn.Release()
+
+		_, err = conn.Exec(ctx, "SET ROLE openguard_login")
+		if err != nil {
+			return nil, fmt.Errorf("set login role: %w", err)
+		}
+		defer func() { _, _ = conn.Exec(ctx, "RESET ROLE") }()
+
+		query := `SELECT id, org_id, email, display_name, role, status, scim_external_id, version, created_at, updated_at FROM users`
+		var args []interface{}
+
+		if filter != "" {
+			if strings.Contains(filter, `userName eq "`) {
+				email := strings.Split(strings.Split(filter, `userName eq "`)[1], `"`)[0]
+				query += ` WHERE email = $1`
+				args = append(args, email)
+			}
+		}
+
+		rows, err := conn.Query(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var id, orgIDStr, email, name, role, status string
+			var externalID *string
+			var version int
+			var created, updated time.Time
+			if err := rows.Scan(&id, &orgIDStr, &email, &name, &role, &status, &externalID, &version, &created, &updated); err != nil {
+				return nil, err
+			}
+			users = append(users, map[string]interface{}{
+				"id":               id,
+				"org_id":           orgIDStr,
+				"email":            email,
+				"display_name":     name,
+				"role":             role,
+				"status":           status,
+				"scim_external_id": externalID,
+				"version":          version,
+				"created_at":       created,
+				"updated_at":       updated,
+			})
+		}
+		return users, nil
+	}
+
+	// Non-system org: use RLS
 	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		query := `SELECT id, org_id, email, display_name, role, status, scim_external_id, version, created_at, updated_at FROM users WHERE org_id = $1`
 		args := []interface{}{orgID}
@@ -502,6 +600,7 @@ func (r *Repository) ListUsers(ctx context.Context, orgID string, filter string)
 	})
 	return users, err
 }
+
 
 func (r *Repository) GetUserByExternalID(ctx context.Context, orgID, externalID string) (map[string]interface{}, error) {
 	return r.getUser(ctx, "org_id = $1 AND scim_external_id = $2", orgID, externalID)

@@ -7,7 +7,6 @@ import (
 	"net/url"
 
 	"github.com/sony/gobreaker"
-	"go.uber.org/zap"
 	"github.com/openguard/control-plane/pkg/middleware"
 )
 
@@ -46,7 +45,7 @@ func NewProxy(targetURL string, cb *gobreaker.CircuitBreaker) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		log := middleware.GetLogger(r.Context())
-		log.Info("Proxying request", zap.String("path", r.URL.Path), zap.String("target", targetURL))
+		log.Info("Proxying request", "path", r.URL.Path, "target", targetURL)
 		proxy.ServeHTTP(w, r)
 	}
 }

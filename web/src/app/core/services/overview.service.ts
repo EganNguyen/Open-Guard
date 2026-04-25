@@ -56,15 +56,15 @@ export class OverviewService {
         const stats = [
           { 
             label: 'Connected Apps', 
-            value: connectors.length.toString(), 
-            trend: connectors.length > 0 ? 'Active' : 'None', 
+            value: (connectors || []).length.toString(), 
+            trend: (connectors || []).length > 0 ? 'Active' : 'None', 
             icon: 'hub', 
             color: 'text-blue-600' 
           },
           { 
             label: 'Active Users', 
-            value: users.length.toString(), 
-            trend: '+'+users.length, 
+            value: (users || []).length.toString(), 
+            trend: '+'+(users || []).length, 
             icon: 'group', 
             color: 'text-green-600' 
           },
@@ -88,7 +88,7 @@ export class OverviewService {
         const activities: Activity[] = [];
         
         // Add connector activities
-        connectors.forEach(c => {
+        (connectors || []).forEach(c => {
           activities.push({
             type: 'connector',
             user: 'system',
@@ -99,7 +99,7 @@ export class OverviewService {
         });
 
         // Add user activities
-        users.forEach(u => {
+        (users || []).forEach(u => {
           activities.push({
             type: 'login',
             user: u.email,

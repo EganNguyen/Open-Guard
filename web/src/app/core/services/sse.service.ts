@@ -32,7 +32,7 @@ export class SseService {
     // Our backend expects it in context (from JWT) or X-Org-ID header.
     // EventSource doesn't support custom headers natively without a polyfill.
     // We'll use a query param or rely on the HttpOnly cookie for auth.
-    const url = `${this.apiUrl}/audit/stream?org_id=${orgId}`;
+    const url = `${this.apiUrl}/audit/v1/events/stream?org_id=${orgId}`;
     
     this.eventSource = new EventSource(url, { withCredentials: true });
 

@@ -10,7 +10,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
-	"go.uber.org/zap"
 
 	iam_middleware "github.com/openguard/services/iam/pkg/middleware"
 	"github.com/openguard/services/iam/pkg/service"
@@ -215,7 +214,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.svc.Logout(r.Context(), jti, expiresAt); err != nil {
 		log := iam_middleware.GetLogger(r.Context())
-		log.Error("logout failed", zap.Error(err))
+		log.Error("logout failed", "error", err)
 		http.Error(w, "logout failed", http.StatusInternalServerError)
 		return
 	}
@@ -255,6 +254,7 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var body struct {
+		OrgID       string `json:"org_id"`
 		Email       string `json:"email"`
 		Password    string `json:"password"`
 		DisplayName string `json:"display_name"`
@@ -266,26 +266,34 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Pull org_id from context per spec §5
-	orgID := shared_middleware.GetOrgID(r.Context())
-	if orgID == "" {
+	ctxOrgID := shared_middleware.GetOrgID(r.Context())
+	if ctxOrgID == "" {
 		http.Error(w, "Unauthorized: missing org_id", http.StatusUnauthorized)
 		return
+	}
+
+	// If body.OrgID is provided, check if the caller is system admin (org_id = 0000...)
+	// Otherwise, use the ctxOrgID
+	targetOrgID := body.OrgID
+	if targetOrgID == "" || ctxOrgID != "00000000-0000-0000-0000-000000000000" {
+		targetOrgID = ctxOrgID
 	}
 
 	tr := otel.Tracer("iam-service")
 	ctx, span := tr.Start(r.Context(), "CreateUser")
 	defer span.End()
 
-	id, _, err := h.svc.RegisterUser(ctx, orgID, body.Email, body.Password, body.DisplayName, body.Role, "")
+	id, _, err := h.svc.RegisterUser(ctx, targetOrgID, body.Email, body.Password, body.DisplayName, body.Role, "")
 	if err != nil {
 		log := iam_middleware.GetLogger(ctx)
-		log.Error("CreateUser failed", zap.Error(err))
+		log.Error("CreateUser failed", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	h.writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 }
+
 
 func (h *Handler) ListConnectors(w http.ResponseWriter, r *http.Request) {
 	connectors, err := h.svc.ListConnectors(r.Context())
@@ -322,7 +330,7 @@ func (h *Handler) CreateConnector(w http.ResponseWriter, r *http.Request) {
 	orgID, err := h.svc.CreateConnector(r.Context(), body.ID, body.Name, body.ClientSecret, body.RedirectURIs)
 	if err != nil {
 		log := iam_middleware.GetLogger(r.Context())
-		log.Error("CreateConnector failed", zap.Error(err))
+		log.Error("CreateConnector failed", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

@@ -60,7 +60,7 @@ export class PoliciesComponent implements OnInit {
     this.loading.set(true);
     this.policyService.listPolicies(user.org_id).subscribe({
       next: (res) => {
-        this.policies.set(res.policies);
+        this.policies.set(res?.policies || []);
         this.loading.set(false);
       },
       error: (err) => {

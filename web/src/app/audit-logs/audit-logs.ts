@@ -34,7 +34,7 @@ export class AuditLogComponent implements OnInit, OnDestroy {
     this.loading.set(true);
     this.auditService.listEvents(orgId).subscribe({
       next: (res) => {
-        this.logs.set(res.events);
+        this.logs.set(res?.events || []);
         this.loading.set(false);
         this.startStreaming();
       },
@@ -48,7 +48,7 @@ export class AuditLogComponent implements OnInit, OnDestroy {
   startStreaming() {
     this.streamSubscription = this.auditService.streamEvents().subscribe({
       next: (event) => {
-        this.logs.update(prev => [event, ...prev.slice(0, 49)]);
+        this.logs.update(prev => [event, ...(prev || []).slice(0, 49)]);
       }
     });
   }

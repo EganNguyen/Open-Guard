@@ -38,7 +38,7 @@
         <button class="text-[#0052CC] hover:underline text-sm font-medium">View all events</button>
       </div>
       <div class="flex-1 overflow-y-auto min-h-[300px]">
-        @if (data.activities.length === 0) {
+        @if (!data.activities || data.activities.length === 0) {
           <div class="p-12 text-center text-[#6B778C]">
             <span class="material-symbols-outlined text-4xl mb-2 opacity-20">history</span>
             <p>No recent security events detected</p>
