@@ -75,6 +75,11 @@ func (c *WebhookConsumer) Start(ctx context.Context) error {
 		go func(msg kafka.Message) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					c.logger.Error("panic in message processing", "error", r, "key", string(msg.Key))
+				}
+			}()
 
 			if err := c.processMessage(ctx, msg); err != nil {
 				c.logger.Error("message processing failed after all retries", "error", err)

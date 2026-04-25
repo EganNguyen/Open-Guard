@@ -25,13 +25,12 @@ func (m *MockKafkaReader) FetchMessage(ctx context.Context) (kafka.Message, erro
 		return kafka.Message{}, ctx.Err()
 	}
 	msg := m.Messages[m.index]
-	// DO NOT advance index here; it's a mock behavior to simulate Fetch not advancing offset
+	m.index++
 	return msg, nil
 }
 
 func (m *MockKafkaReader) CommitMessages(ctx context.Context, msgs ...kafka.Message) error {
 	m.Committed += len(msgs)
-	m.index += len(msgs) // Only advance on commit
 	return nil
 }
 
@@ -100,6 +99,9 @@ func TestAtLeastOnceDelivery_ProcessKilled(t *testing.T) {
 
 		_ = consumer.Start(ctx)
 	}()
+	
+	// Reset reader index to last committed offset to simulate restart
+	reader.index = reader.Committed
 
 	// Since it paniced before CommitMessages was called, Committed should be 0
 	if reader.Committed != 0 {

@@ -116,6 +116,29 @@ func (m *MockRepository) DeleteRefreshToken(ctx context.Context, tokenHash strin
 	return nil
 }
 
+func (m *MockRepository) ClaimRefreshToken(ctx context.Context, tokenHash string) (map[string]interface{}, error) {
+	rt, err := m.GetRefreshToken(ctx, tokenHash)
+	if err != nil {
+		return nil, err
+	}
+	if rt["revoked"].(bool) || time.Now().After(rt["expires_at"].(time.Time)) {
+		return nil, fmt.Errorf("revoked or expired")
+	}
+	delete(m.RefreshTokens, tokenHash)
+	return rt, nil
+}
+
+func (m *MockRepository) RevokeRefreshTokenFamilyByHash(ctx context.Context, tokenHash string) error {
+	if m.RevokedFamilies == nil {
+		m.RevokedFamilies = make(map[uuid.UUID]bool)
+	}
+	if rt, ok := m.RefreshTokens[tokenHash]; ok {
+		familyID := rt["family_id"].(uuid.UUID)
+		m.RevokedFamilies[familyID] = true
+	}
+	return nil
+}
+
 func setup(_ *testing.T) (*service.Service, *MockRepository, *miniredis.Miniredis) {
 	mr, _ := miniredis.Run()
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -137,7 +160,7 @@ func TestLogin_SuccessWithoutMFA(t *testing.T) {
 	s, repo, _ := setup(t)
 	hash, _ := bcrypt.GenerateFromPassword([]byte("password"), 10)
 	repo.Users["1"] = map[string]interface{}{
-		"id": "1", "org_id": "org1", "email": "test@example.com", "password_hash": string(hash),
+		"id": "1", "org_id": "org1", "email": "test@example.com", "password_hash": string(hash), "status": "active",
 	}
 
 	user, token, err := s.Login(context.Background(), "test@example.com", "password", "ua", "127.0.0.1")
@@ -152,7 +175,7 @@ func TestLogin_SuccessWithoutMFA(t *testing.T) {
 func TestLogin_LockedAccount(t *testing.T) {
 	s, repo, _ := setup(t)
 	repo.Users["1"] = map[string]interface{}{
-		"id": "1", "org_id": "org1", "email": "test@example.com", "password_hash": "hash",
+		"id": "1", "org_id": "org1", "email": "test@example.com", "password_hash": "hash", "status": "active",
 	}
 	repo.LockedUntil["test@example.com"] = time.Now().Add(1 * time.Hour)
 
@@ -165,7 +188,7 @@ func TestLogin_LockedAccount(t *testing.T) {
 func TestLogin_LockAfterTenFailures(t *testing.T) {
 	s, repo, _ := setup(t)
 	repo.Users["1"] = map[string]interface{}{
-		"id": "1", "org_id": "org1", "email": "test@example.com", "password_hash": "hash",
+		"id": "1", "org_id": "org1", "email": "test@example.com", "password_hash": "hash", "status": "active",
 	}
 	repo.FailedLogins["test@example.com"] = 9
 
@@ -182,7 +205,7 @@ func TestLogin_MFARequired_ReturnsChallengeToken(t *testing.T) {
 	s, repo, mr := setup(t)
 	hash, _ := bcrypt.GenerateFromPassword([]byte("password"), 10)
 	repo.Users["1"] = map[string]interface{}{
-		"id": "1", "org_id": "org1", "email": "test@example.com", "password_hash": string(hash),
+		"id": "1", "org_id": "org1", "email": "test@example.com", "password_hash": string(hash), "status": "active",
 	}
 	repo.MFAConfigs["1"] = []map[string]interface{}{
 		{"mfa_type": "totp", "secret_encrypted": "enc"},
