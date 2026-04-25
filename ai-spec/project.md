@@ -305,30 +305,87 @@ migration of all consumers.**
 
 ## 12. File Layout Reference
 
-```
+```text
 openguard/
-├── ai-spec/                            ← YOU ARE HERE
-│   ├── project.md                      ← Master Index
-│   ├── rules/                          ← CI-enforced coding patterns
-│   │   ├── openguard-golang-backend/rules.md
-│   │   └── openguard-angular-frontend/rules.md
-│   ├── be_open_guard/                  ← Backend spec (22 files)
-│   │   ├── README.md                   ← BE doc index
-│   │   └── 00-*.md … 21-*.md
-│   ├── fe_open_guard/                  ← Frontend spec (21 files)
-│   │   ├── README.md                   ← FE doc index
-│   │   └── 00-*.md … 20-*.md
-│   └── test_cases/                     ← E2E test scenarios
-├── services/                          ← Go microservices (one dir per service)
-├── sdk/                               ← Go SDK (policy client + event publisher)
-├── shared/                            ← Shared Go module (contracts, middleware, crypto)
-├── web/                               ← Angular 19+ Admin Dashboard
-├── infra/
-│   ├── docker/docker-compose.yml
-│   ├── kafka/topics.json
-│   └── helm/
-├── scripts/
-│   ├── gen-mtls-certs.sh
-│   └── create-topics.sh
-└── Makefile                           ← dev, test, lint, build, migrate, seed, load-test, certs
+├── ai-spec/                            ← Project specifications, rules, and E2E scenarios
+├── apps/                               ← Example applications and integration stubs
+├── infra/                              ← Infrastructure and Deployment
+│   ├── terraform/                      ← Infrastructure as Code (AWS, EKS, RDS, S3)
+│   ├── docker/                         ← Local development (Docker Compose, Postgres init)
+│   ├── k8s/                            ← Kubernetes manifests & Helm charts
+│   ├── certs/                          ← mTLS certificates & Internal CA storage
+│   ├── monitoring/                     ← Observability (Prometheus, Grafana, Loki configs)
+│   └── gateway/                        ← Nginx security proxy & ingress configuration
+├── services/                           ← Go Microservices (Domain Driven Design)
+│   ├── iam/                            ← Identity & Access (OIDC, SCIM, MFA, WebAuthn)
+│   │   ├── main.go                     ← Service entry point
+│   │   └── pkg/
+│   │       ├── handler.go              ← HTTP/REST API handlers
+│   │       ├── repository.go           ← PostgreSQL data access layer
+│   │       ├── router.go               ← API route definitions
+│   │       ├── service.go              ← Core authentication business logic
+│   │       └── saga.go                 ← Distributed transaction (Saga) orchestration
+│   ├── policy/                         ← Policy Evaluation & Enforcement
+│   │   ├── main.go                     ← Service entry point
+│   │   └── pkg/
+│   │       ├── eval.go                 ← RBAC/ABAC evaluation engine
+│   │       ├── cache.go                ← Redis-backed evaluation cache
+│   │       └── repository.go           ← Policy storage & versioning
+│   ├── audit/                          ← Tamper-proof Audit Logging
+│   │   ├── main.go                     ← Service entry point
+│   │   └── pkg/
+│   │       ├── chain.go                ← HMAC hash chain integrity logic
+│   │       └── repository.go           ← Event storage (ClickHouse/MongoDB)
+│   ├── threat/                         ← Real-time Threat Detection
+│   │   ├── main.go                     ← Service entry point
+│   │   └── pkg/
+│   │       ├── engine.go               ← Signal processing & detection logic
+│   │       └── siem.go                 ← SIEM/Syslog integration logic
+│   ├── alerting/                       ← Alert Routing & Dispatcher
+│   ├── compliance/                     ← Posture Analysis & Reporting
+│   ├── connector-registry/             ← App Registration & API Key Management
+│   ├── control-plane/                  ← Org/Tenant Lifecycle Management
+│   ├── dlp/                            ← Data Loss Prevention (PII Scanning)
+│   └── webhook-delivery/               ← Reliable Outbound Webhook System
+├── shared/                             ← Core Go Libraries (Shared across services)
+│   ├── rls/                            ← Row Level Security (RLS) context helpers
+│   ├── middleware/                     ← Reusable Go HTTP middleware
+│   │   ├── apikey.go                   ← API key fast-hash & PBKDF2 validation
+│   │   ├── jwt_auth.go                 ← JWT validation & org_id extraction
+│   │   ├── idempotency.go              ← Request idempotency tracking
+│   │   └── security.go                 ← Security headers & SSRF protection
+│   ├── database/                       ← Migrations & connection pooling
+│   ├── crypto/                         ← AES, JWT, HMAC, & multi-key keyrings
+│   ├── secrets/                        ← Secret management (Vault/AWS/Local)
+│   ├── resilience/                     ← Circuit breakers & Bulkhead patterns
+│   ├── kafka/                          ← Messaging (Outbox, Envelopes, Producers)
+│   └── telemetry/                      ← Structured logging & OpenTelemetry
+├── web/                                ← Angular 19+ Admin Dashboard
+│   ├── src/app/core/                   ← Global Singletons (Services, Guards)
+│   │   ├── services/
+│   │   │   ├── api.service.ts          ← Typed API client with retry logic
+│   │   │   ├── auth.service.ts         ← Session & OIDC management
+│   │   │   └── sse.service.ts          ← Real-time Server-Sent Events
+│   │   ├── guards/                     ← AuthGuard & OrgGuard protection
+│   │   └── interceptors/               ← Auth & Error handling interceptors
+│   ├── src/app/features/               ← Lazy-loaded Business Modules
+│   │   ├── audit-logs/                 ← Audit stream & search UI
+│   │   ├── connectors/                 ← App & API Key management
+│   │   ├── policies/                   ← Rule builder & evaluation UI
+│   │   └── threats/                    ← Detection dashboard & timeline
+│   └── src/app/shared/                 ← Common UI (Redactable, ConfirmDialog)
+├── sdk/                                ← Go SDK for backend integration
+│   ├── client.go                       ← Main SDK client entry point
+│   ├── policy.go                       ← Policy evaluation client
+│   └── events.go                       ← Security event ingestion client
+├── packages/                           ← Monorepo Shared TypeScript Packages
+│   ├── detectors/                      ← Threat detection algorithms (XSS, SQLi, etc.)
+│   ├── core/                           ← Shared business types and utils
+│   └── sdk/                            ← TypeScript SDK for frontend integration
+├── scripts/                            ← Operational Tooling
+│   ├── gen-mtls-certs.sh               ← mTLS & CA generation script
+│   └── create-topics.sh                ← Kafka topic initialization script
+├── Makefile                            ← Master task runner (build, test, deploy)
+└── go.work                             ← Go workspace configuration
 ```
+

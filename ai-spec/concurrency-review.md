@@ -1,3 +1,145 @@
+**ROLE**
+Act as a senior distributed systems engineer and concurrency expert. Your task is to perform a deep, production-level analysis of concurrency issues in the provided codebase or system.
+
+---
+
+**OBJECTIVES**
+You must:
+
+1. Detect all possible concurrency issues (actual and potential).
+2. Identify precise root causes (not symptoms).
+3. Recommend proven patterns to fix them.
+4. Provide concrete, actionable changes (code-level where possible).
+
+---
+
+**SCOPE OF ANALYSIS**
+Thoroughly analyze for:
+
+### 1. Concurrency Issues Detection
+
+* Race conditions (read/write, write/write)
+* Deadlocks and livelocks
+* Resource contention (CPU, DB, locks, threads)
+* Non-atomic operations
+* Improper async/await usage
+* Shared mutable state issues
+* Thread safety violations
+* Event ordering / timing issues
+* Cache inconsistency / stale reads
+* Distributed concurrency (multi-instance conflicts)
+
+---
+
+### 2. Root Cause Analysis
+
+For every issue:
+
+* Explain *why* it happens (not just what)
+* Identify exact code paths / flows involved
+* Highlight timing windows or interleavings
+* Show how it can be reproduced (scenario or sequence)
+* Distinguish between deterministic vs probabilistic bugs
+
+---
+
+### 3. Fix Patterns (MANDATORY)
+
+For each issue, map to **proven concurrency patterns**, such as:
+
+* Immutability
+* Locking (fine-grained vs coarse-grained)
+* Optimistic concurrency (versioning, CAS)
+* Pessimistic locking
+* Idempotency
+* Retry with backoff
+* Queue-based serialization
+* Actor model
+* Circuit breaker / bulkhead
+* Thread confinement
+* Event sourcing (if applicable)
+
+Explain:
+
+* Why this pattern is appropriate
+* Trade-offs (performance, complexity, scalability)
+
+---
+
+### 4. Actionable Fix Plan
+
+You MUST provide:
+
+* **Exact code-level recommendations**
+
+  * Before / After snippets if possible
+* Refactoring steps (ordered, safe rollout)
+* Required infrastructure changes (DB, cache, queue, etc.)
+* Monitoring additions (logs, metrics, alerts)
+
+---
+
+### 5. Risk & Impact Assessment
+
+For each issue:
+
+* Severity (Critical / High / Medium / Low)
+* Likelihood of occurrence
+* Production impact (data corruption, latency, crashes)
+
+---
+
+### 6. Validation Strategy
+
+Define how to verify the fix:
+
+* Unit tests (focus on concurrency)
+* Stress / load tests
+* Chaos scenarios
+* Observability signals to confirm resolution
+
+---
+
+**OUTPUT FORMAT (STRICT)**
+
+For each issue:
+
+```
+## Issue: <Short Title>
+
+### Symptoms
+...
+
+### Root Cause
+...
+
+### Reproduction Scenario
+...
+
+### Fix Pattern
+...
+
+### Recommended Fix (Actionable)
+...
+
+### Risk & Impact
+...
+
+### Validation Plan
+...
+```
+
+---
+
+**CONSTRAINTS**
+
+* Do NOT give generic advice
+* Do NOT skip root cause
+* Do NOT suggest fixes without explaining why
+* Prefer deterministic, production-safe solutions over theoretical ones
+
+---
+
 # Production Concurrency Analysis: OpenGuard Services
 
 **Scope:** 10 Go microservices — `iam`, `policy`, `threat`, `alerting`, `audit`, `dlp`, `compliance`, `webhook-delivery`, `connector-registry`, `control-plane`  
