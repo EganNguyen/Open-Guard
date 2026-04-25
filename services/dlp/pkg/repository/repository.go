@@ -21,7 +21,9 @@ type DLPFinding struct {
 	ID            string    `json:"id"`
 	OrgID         string    `json:"org_id"`
 	EventID       string    `json:"event_id"`
+	PolicyID      string    `json:"policy_id"`
 	FindingType   string    `json:"finding_type"`
+	Action        string    `json:"action"`
 	Confidence    float64   `json:"confidence"`
 	MatchedField  string    `json:"matched_field"`
 	RedactedValue string    `json:"redacted_value"`
@@ -55,7 +57,9 @@ func (r *Repository) InitSchema(ctx context.Context) error {
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			org_id TEXT NOT NULL,
 			event_id TEXT,
+			policy_id UUID,
 			finding_type TEXT NOT NULL,
+			action TEXT,
 			confidence DOUBLE PRECISION,
 			matched_field TEXT,
 			redacted_value TEXT,
@@ -97,13 +101,13 @@ func (r *Repository) CreatePolicy(ctx context.Context, p *DLPPolicy) error {
 
 func (r *Repository) SaveFinding(ctx context.Context, f *DLPFinding) error {
 	return r.pool.QueryRow(ctx,
-		"INSERT INTO dlp_findings (org_id, event_id, finding_type, confidence, matched_field, redacted_value) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at",
-		f.OrgID, f.EventID, f.FindingType, f.Confidence, f.MatchedField, f.RedactedValue,
+		"INSERT INTO dlp_findings (org_id, event_id, policy_id, finding_type, action, confidence, matched_field, redacted_value) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, created_at",
+		f.OrgID, f.EventID, f.PolicyID, f.FindingType, f.Action, f.Confidence, f.MatchedField, f.RedactedValue,
 	).Scan(&f.ID, &f.CreatedAt)
 }
 
 func (r *Repository) ListFindings(ctx context.Context, orgID string) ([]DLPFinding, error) {
-	rows, err := r.pool.Query(ctx, "SELECT id, org_id, event_id, finding_type, confidence, matched_field, redacted_value, created_at FROM dlp_findings WHERE org_id = $1 ORDER BY created_at DESC", orgID)
+	rows, err := r.pool.Query(ctx, "SELECT id, org_id, event_id, policy_id, finding_type, action, confidence, matched_field, redacted_value, created_at FROM dlp_findings WHERE org_id = $1 ORDER BY created_at DESC", orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -112,9 +116,13 @@ func (r *Repository) ListFindings(ctx context.Context, orgID string) ([]DLPFindi
 	var findings []DLPFinding
 	for rows.Next() {
 		var f DLPFinding
-		if err := rows.Scan(&f.ID, &f.OrgID, &f.EventID, &f.FindingType, &f.Confidence, &f.MatchedField, &f.RedactedValue, &f.CreatedAt); err != nil {
+		var policyID *string
+		var action *string
+		if err := rows.Scan(&f.ID, &f.OrgID, &f.EventID, &policyID, &f.FindingType, &action, &f.Confidence, &f.MatchedField, &f.RedactedValue, &f.CreatedAt); err != nil {
 			return nil, err
 		}
+		if policyID != nil { f.PolicyID = *policyID }
+		if action != nil { f.Action = *action }
 		findings = append(findings, f)
 	}
 	return findings, nil

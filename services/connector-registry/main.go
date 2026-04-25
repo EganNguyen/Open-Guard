@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"log/slog"
 	"net/http"
 	"os"
@@ -92,15 +94,40 @@ func main() {
 		port = "8080"
 	}
 
+	var tlsConfig *tls.Config
+	if _, err := os.Stat("/certs/ca.crt"); err == nil {
+		caCert, err := os.ReadFile("/certs/ca.crt")
+		if err == nil {
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(caCert)
+			tlsConfig = &tls.Config{
+				ClientCAs:  caCertPool,
+				ClientAuth: tls.VerifyClientCertIfGiven,
+			}
+			logger.Info("mTLS configured")
+		}
+	}
+
 	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: r,
+		Addr:      ":" + port,
+		Handler:   r,
+		TLSConfig: tlsConfig,
 	}
 
 	go func() {
 		logger.Info("connector-registry starting", "port", port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server failed", "error", err)
+		var serverErr error
+		certFile := "/certs/connector-registry.crt"
+		keyFile := "/certs/connector-registry.key"
+		if _, err := os.Stat(certFile); err == nil {
+			serverErr = srv.ListenAndServeTLS(certFile, keyFile)
+		} else {
+			logger.Warn("TLS certs not found, starting in HTTP mode (DEV ONLY)")
+			serverErr = srv.ListenAndServe()
+		}
+
+		if serverErr != nil && serverErr != http.ErrServerClosed {
+			logger.Error("server failed", "error", serverErr)
 			os.Exit(1)
 		}
 	}()

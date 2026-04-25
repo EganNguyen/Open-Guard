@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -148,9 +152,48 @@ func main() {
 	r := router.NewRouter(h, keyring, rdb)
 
 
-	logger.Info("compliance service starting", "port", port)
-	if err := http.ListenAndServe(":"+port, r); err != nil {
-		logger.Error("server failed", "error", err)
-		os.Exit(1)
+	var tlsConfig *tls.Config
+	if _, err := os.Stat("/certs/ca.crt"); err == nil {
+		caCert, err := os.ReadFile("/certs/ca.crt")
+		if err == nil {
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(caCert)
+			tlsConfig = &tls.Config{
+				ClientCAs:  caCertPool,
+				ClientAuth: tls.VerifyClientCertIfGiven,
+			}
+			logger.Info("mTLS configured")
+		}
 	}
+
+	srv := &http.Server{
+		Addr:      ":" + port,
+		Handler:   r,
+		TLSConfig: tlsConfig,
+	}
+
+	logger.Info("compliance service starting", "port", port)
+	go func() {
+		var serverErr error
+		certFile := "/certs/compliance.crt"
+		keyFile := "/certs/compliance.key"
+		if _, err := os.Stat(certFile); err == nil {
+			serverErr = srv.ListenAndServeTLS(certFile, keyFile)
+		} else {
+			logger.Warn("TLS certs not found, starting in HTTP mode (DEV ONLY)")
+			serverErr = srv.ListenAndServe()
+		}
+
+		if serverErr != nil && serverErr != http.ErrServerClosed {
+			logger.Error("server failed", "error", serverErr)
+			os.Exit(1)
+		}
+	}()
+
+	// Graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	<-sigCh
+	logger.Info("shutting down compliance service")
+	srv.Shutdown(context.Background())
 }

@@ -2,6 +2,7 @@ export interface Connector {
   id: string;
   org_id?: string;
   name: string;
+  description?: string;
   client_secret?: string;
   redirect_uris: string[];
   created_at?: string;

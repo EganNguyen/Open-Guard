@@ -128,29 +128,6 @@ func (d *DataExfiltrationDetector) processEvent(ctx context.Context, m kafka.Mes
 	return nil
 }
 
-	count := countCmd.Val()
-
-	// Get org baseline
-	meanKey := fmt.Sprintf("baseline:%s:access_mean", orgID)
-	stddevKey := fmt.Sprintf("baseline:%s:access_stddev", orgID)
-
-	mean, _ := d.rdb.Get(ctx, meanKey).Float64()
-	stddev, _ := d.rdb.Get(ctx, stddevKey).Float64()
-
-	// If no baseline, we can't detect anomaly yet, or we use a sensible default
-	if mean == 0 {
-		// Fallback: if count is very high (e.g. > 1000 in an hour)
-		if count > 1000 {
-			d.alert(ctx, orgID, userID, count, mean, stddev)
-		}
-		return
-	}
-
-	if float64(count) > mean+3*stddev {
-		d.alert(ctx, orgID, userID, count, mean, stddev)
-	}
-}
-
 func (d *DataExfiltrationDetector) alert(ctx context.Context, orgID, userID string, count int64, mean, stddev float64) {
 	d.logger.Warn("data exfiltration detected", "user_id", userID, "count", count, "mean", mean, "stddev", stddev)
 

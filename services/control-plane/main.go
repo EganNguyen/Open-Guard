@@ -69,8 +69,8 @@ func main() {
 	go func() {
 		log.Info("control-plane service starting", zap.String("port", port))
 		var serverErr error
-		certFile := "/certs/server.crt"
-		keyFile := "/certs/server.key"
+		certFile := "/certs/control-plane.crt"
+		keyFile := "/certs/control-plane.key"
 		if _, err := os.Stat(certFile); err == nil {
 			// TLS certs exist — use HTTPS
 			serverErr = srv.ListenAndServeTLS(certFile, keyFile)

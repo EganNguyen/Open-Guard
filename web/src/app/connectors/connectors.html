@@ -162,13 +162,13 @@
                   <div class="mt-6 space-y-4">
                     <div class="bg-gray-50 p-3 rounded border border-gray-200">
                       <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Client ID</p>
-                      <p class="text-sm font-mono text-gray-800 select-all">{{ registrationResult().id }}</p>
+                      <p class="text-sm font-mono text-gray-800 select-all">{{ registrationResult()?.id }}</p>
                     </div>
                     
                     <div class="bg-gray-50 p-3 rounded border border-gray-200">
                       <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Client Secret</p>
                       <div class="flex items-center justify-between">
-                        <p class="text-sm font-mono text-gray-800 select-all">{{ registrationResult().client_secret }}</p>
+                        <p class="text-sm font-mono text-gray-800 select-all">{{ registrationResult()?.client_secret }}</p>
                         <button class="text-blue-600 hover:text-blue-800 p-1" title="Copy secret">
                           <span class="material-symbols-outlined text-lg">content_copy</span>
                         </button>
@@ -177,7 +177,7 @@
 
                     <div class="bg-blue-50 p-3 rounded border border-blue-200">
                       <p class="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1">Organization ID</p>
-                      <p class="text-sm font-mono text-blue-800">{{ registrationResult().org_id }}</p>
+                      <p class="text-sm font-mono text-blue-800">{{ registrationResult()?.org_id }}</p>
                     </div>
                   </div>
                 </div>

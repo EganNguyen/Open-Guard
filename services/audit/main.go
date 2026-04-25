@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -184,15 +186,36 @@ func main() {
 		})).ServeHTTP(w, r)
 	})
 
+	var tlsConfig *tls.Config
+	if _, err := os.Stat("/certs/ca.crt"); err == nil {
+		caCert, err := os.ReadFile("/certs/ca.crt")
+		if err == nil {
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(caCert)
+			tlsConfig = &tls.Config{
+				ClientCAs:  caCertPool,
+				ClientAuth: tls.VerifyClientCertIfGiven,
+			}
+			logger.Info("mTLS configured")
+		}
+	}
+
 	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: mux,
+		Addr:      ":" + port,
+		Handler:   mux,
+		TLSConfig: tlsConfig,
 	}
 
 	go func() {
 		logger.Info("audit api starting", "port", port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server failed", "error", err)
+		if tlsConfig != nil {
+			if err := srv.ListenAndServeTLS("/certs/audit.crt", "/certs/audit.key"); err != nil && err != http.ErrServerClosed {
+				logger.Error("server failed", "error", err)
+			}
+		} else {
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				logger.Error("server failed", "error", err)
+			}
 		}
 	}()
 

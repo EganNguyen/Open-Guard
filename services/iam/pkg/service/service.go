@@ -20,6 +20,8 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/sony/gobreaker"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/go-webauthn/webauthn/protocol"
+	"net/http"
 )
 
 type ScimPatchOp struct {
@@ -58,6 +60,7 @@ type Repository interface {
 	CreateOutboxEvent(ctx context.Context, tx pgx.Tx, orgID, topic, key string, payload []byte) error
 	UpdateUserStatus(ctx context.Context, userID, status string) error
 	UpdateUserDisplayName(ctx context.Context, userID, displayName string) error
+	UpdateUserSCIM(ctx context.Context, userID, externalID, status string) error
 	GetActiveJTIs(ctx context.Context, userID string) ([]string, error)
 	GetSessionTTL(ctx context.Context, jti string) time.Duration
 	RevokeSessions(ctx context.Context, userID string) error
@@ -115,7 +118,7 @@ func (u *WebAuthnUser) WebAuthnDisplayName() string                { return u.di
 func (u *WebAuthnUser) WebAuthnIcon() string                       { return "" }
 func (u *WebAuthnUser) WebAuthnCredentials() []webauthn.Credential { return u.credentials }
 
-func (s *Service) BeginWebAuthnRegistration(ctx context.Context, userID string) (*webauthn.SessionData, *webauthn.CredentialCreation, error) {
+func (s *Service) BeginWebAuthnRegistration(ctx context.Context, userID string) (*webauthn.SessionData, *protocol.CredentialCreation, error) {
 	if s.webauthn == nil {
 		return nil, nil, fmt.Errorf("webauthn not configured")
 	}
@@ -189,7 +192,7 @@ func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID 
 	return nil
 }
 
-func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (*webauthn.SessionData, *webauthn.CredentialAssertion, error) {
+func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (*webauthn.SessionData, *protocol.CredentialAssertion, error) {
 	if s.webauthn == nil {
 		return nil, nil, fmt.Errorf("webauthn not configured")
 	}

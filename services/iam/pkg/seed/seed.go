@@ -46,7 +46,7 @@ func Seed(ctx context.Context, pool *pgxpool.Pool) error {
 	}{
 		{"admin@openguard.io", "admin123", "System Admin", "admin", systemOrgID},
 		{"test@openguard.io", "test123", "Test User", "user", systemOrgID},
-		{"admin@task.io", "admin123", "Acme Admin", "admin", acmeOrgID},
+		{"admin@acme.example", "changeme123!", "Acme Admin", "admin", acmeOrgID},
 	}
 
 	for _, user := range users {

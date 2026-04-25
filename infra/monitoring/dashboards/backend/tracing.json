@@ -188,6 +188,6 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Distributed Tracing",
+  "title": "Tracing",
   "uid": "openguard-tracing"
 }

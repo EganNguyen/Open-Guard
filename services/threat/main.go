@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"log"
 	"log/slog"
 	"net/http"
@@ -160,6 +162,20 @@ func main() {
 	// Add metrics
 	r.Handle("/metrics", promhttp.Handler())
 
+	var tlsConfig *tls.Config
+	if _, err := os.Stat("/certs/ca.crt"); err == nil {
+		caCert, err := os.ReadFile("/certs/ca.crt")
+		if err == nil {
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(caCert)
+			tlsConfig = &tls.Config{
+				ClientCAs:  caCertPool,
+				ClientAuth: tls.VerifyClientCertIfGiven,
+			}
+			logger.Info("mTLS configured")
+		}
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -167,13 +183,24 @@ func main() {
 
 	logger.Info("Threat service starting", "port", port)
 	server := &http.Server{
-		Addr:    ":" + port,
-		Handler: r,
+		Addr:      ":" + port,
+		Handler:   r,
+		TLSConfig: tlsConfig,
 	}
 
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("Server error", "error", err)
+		var serverErr error
+		certFile := "/certs/threat.crt"
+		keyFile := "/certs/threat.key"
+		if _, err := os.Stat(certFile); err == nil {
+			serverErr = server.ListenAndServeTLS(certFile, keyFile)
+		} else {
+			logger.Warn("TLS certs not found, starting in HTTP mode (DEV ONLY)")
+			serverErr = server.ListenAndServe()
+		}
+
+		if serverErr != nil && serverErr != http.ErrServerClosed {
+			logger.Error("Server error", "error", serverErr)
 		}
 	}()
 

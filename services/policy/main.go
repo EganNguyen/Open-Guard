@@ -171,9 +171,16 @@ func main() {
 
 	go func() {
 		logger.Info("policy service starting", "port", port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server failed", "error", err)
-			os.Exit(1)
+		if tlsConfig != nil {
+			if err := srv.ListenAndServeTLS("/certs/policy.crt", "/certs/policy.key"); err != nil && err != http.ErrServerClosed {
+				logger.Error("server failed", "error", err)
+				os.Exit(1)
+			}
+		} else {
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				logger.Error("server failed", "error", err)
+				os.Exit(1)
+			}
 		}
 	}()
 

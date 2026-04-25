@@ -16,6 +16,8 @@ export interface AuthResponse {
   access_token: string;
   mfa_required?: boolean;
   mfa_challenge?: string;
+  code?: string;
+  state?: string;
 }
 
 export interface LoginCredentials {

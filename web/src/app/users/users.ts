@@ -76,7 +76,7 @@ export class UsersComponent implements OnInit {
 
     if (remainingUsers.length > 0) {
       grouped.unshift({
-        connector: { name: 'System Administration', id: 'system', description: 'Internal OpenGuard control plane users' },
+        connector: { name: 'System Administration', id: 'system', description: 'Internal OpenGuard control plane users', redirect_uris: [] },
         users: remainingUsers
       });
     }

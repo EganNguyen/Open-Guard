@@ -13,7 +13,7 @@ import (
 	"github.com/openguard/control-plane/pkg/middleware"
 	"github.com/openguard/control-plane/pkg/proxy"
 	"github.com/openguard/control-plane/pkg/telemetry"
-	"github.com/openguard/shared/middleware"
+	sharedmiddleware "github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/resilience"
 )
 
@@ -29,7 +29,7 @@ func NewRouter() *chi.Mux {
 	r.Use(middleware.Correlation)
 	r.Use(telemetry.Metrics)
 	r.Use(chimiddleware.Recoverer)
-	r.Use(middleware.SecurityHeaders)
+	r.Use(sharedmiddleware.SecurityHeaders)
 
 	r.Handle("/metrics", promhttp.Handler())
 

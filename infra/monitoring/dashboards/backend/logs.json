@@ -1,0 +1,395 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Graphics --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "target": {
+          "limit": 100,
+          "matchAny": false,
+          "tags": [],
+          "type": "dashboard"
+        },
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 10,
+      "panels": [],
+      "title": "All Services Log Stream",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki_datasource}"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 1
+      },
+      "id": 1,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki_datasource}"
+          },
+          "expr": "{job=~\"openguard-.*\"} | json | level=~\"$level\" | job=~\"openguard-$service\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Live Text Logs (Consolidated)",
+      "type": "logs"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "id": 20,
+      "panels": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki_datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 14
+          },
+          "id": 21,
+          "title": "IAM Logs",
+          "type": "logs",
+          "targets": [
+            {
+              "expr": "{job=\"openguard-iam\"} | json | level=~\"$level\""
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki_datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 14
+          },
+          "id": 22,
+          "title": "Control Plane Logs",
+          "type": "logs",
+          "targets": [
+            {
+              "expr": "{job=\"openguard-control-plane\"} | json | level=~\"$level\""
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki_datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 22
+          },
+          "id": 23,
+          "title": "Policy Logs",
+          "type": "logs",
+          "targets": [
+            {
+              "expr": "{job=\"openguard-policy\"} | json | level=~\"$level\""
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki_datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 22
+          },
+          "id": 24,
+          "title": "Threat Logs",
+          "type": "logs",
+          "targets": [
+            {
+              "expr": "{job=\"openguard-threat\"} | json | level=~\"$level\""
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki_datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 30
+          },
+          "id": 25,
+          "title": "Audit Logs",
+          "type": "logs",
+          "targets": [
+            {
+              "expr": "{job=\"openguard-audit\"} | json | level=~\"$level\""
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki_datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 30
+          },
+          "id": 26,
+          "title": "Alerting Logs",
+          "type": "logs",
+          "targets": [
+            {
+              "expr": "{job=\"openguard-alerting\"} | json | level=~\"$level\""
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki_datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 38
+          },
+          "id": 27,
+          "title": "Webhook Delivery Logs",
+          "type": "logs",
+          "targets": [
+            {
+              "expr": "{job=\"openguard-webhook-delivery\"} | json | level=~\"$level\""
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki_datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 38
+          },
+          "id": 28,
+          "title": "Compliance Logs",
+          "type": "logs",
+          "targets": [
+            {
+              "expr": "{job=\"openguard-compliance\"} | json | level=~\"$level\""
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki_datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 46
+          },
+          "id": 29,
+          "title": "DLP Logs",
+          "type": "logs",
+          "targets": [
+            {
+              "expr": "{job=\"openguard-dlp\"} | json | level=~\"$level\""
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki_datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 46
+          },
+          "id": 30,
+          "title": "Connector Registry Logs",
+          "type": "logs",
+          "targets": [
+            {
+              "expr": "{job=\"openguard-connector-registry\"} | json | level=~\"$level\""
+            }
+          ]
+        }
+      ],
+      "title": "Individual Service Logs",
+      "type": "row"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 36,
+  "style": "dark",
+  "tags": [
+    "openguard",
+    "logs",
+    "loki"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "loki",
+          "value": "loki"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Loki Datasource",
+        "multi": false,
+        "name": "loki_datasource",
+        "options": [],
+        "query": "loki",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "${loki_datasource}"
+        },
+        "definition": "label_values(job)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Service",
+        "multi": false,
+        "name": "service",
+        "options": [],
+        "query": {
+          "label": "job",
+          "refId": "LokiVariableQuery",
+          "stream": "{job=~\"openguard-.*\"}"
+        },
+        "refresh": 1,
+        "regex": "openguard-(.*)",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "INFO|ERROR|WARN|DEBUG",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "INFO|ERROR|WARN|DEBUG"
+        },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Level",
+        "multi": true,
+        "name": "level",
+        "options": [
+          {
+            "text": "INFO",
+            "value": "INFO"
+          },
+          {
+            "text": "ERROR",
+            "value": "ERROR"
+          },
+          {
+            "text": "WARN",
+            "value": "WARN"
+          },
+          {
+            "text": "DEBUG",
+            "value": "DEBUG"
+          }
+        ],
+        "query": "INFO,ERROR,WARN,DEBUG",
+        "skipUrlSync": false,
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Service Logs",
+  "uid": "openguard-iam"
+}

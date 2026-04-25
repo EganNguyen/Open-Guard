@@ -91,7 +91,7 @@ func (r *Repository) InitSchema(ctx context.Context) error {
 			severity     LowCardinality(String),
 			count        UInt64,
 			mttr_seconds UInt64
-		) ENGINE = SummingMergeTree(count, mttr_seconds)
+		) ENGINE = SummingMergeTree()
 		ORDER BY (org_id, day, severity);`,
 	}
 

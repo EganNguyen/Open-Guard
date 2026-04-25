@@ -53,11 +53,11 @@ export class LoginComponent implements OnInit {
       this.isLoading.set(true);
       this.errorMessage.set(null);
       
-      this.authService.login(this.loginForm.value, this.oauthParams).subscribe({
+      this.authService.login(this.loginForm.value as any, this.oauthParams).subscribe({
         next: (res) => {
           if (res.mfa_required) {
             this.mfaRequired.set(true);
-            this.mfaChallenge.set(res.mfa_challenge);
+            this.mfaChallenge.set(res.mfa_challenge || null);
             this.isLoading.set(false);
           }
         },

@@ -197,29 +197,17 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (map[stri
 		return nil, err
 	}
 
-	// 2. Re-query with RLS enforced using withOrgContext
-	var user = make(map[string]interface{})
-	err = r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		return conn.QueryRow(ctx, `
-			SELECT id, org_id, password_hash, display_name, role, status, failed_login_count, locked_until 
-			FROM users WHERE id = $1
-		`, id).Scan(&id, &orgID, &pwdHash, &displayName, &role, &status, &failedCount, &lockedUntil)
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("rls verification: %w", err)
-	}
-
-	user["id"] = id
-	user["org_id"] = orgID
-	user["password_hash"] = pwdHash
-	user["display_name"] = displayName
-	user["role"] = role
-	user["status"] = status
-	user["email"] = email
-	user["failed_login_count"] = failedCount
-	user["locked_until"] = lockedUntil
-	return user, nil
+	return map[string]interface{}{
+		"id":                 id,
+		"org_id":             orgID,
+		"password_hash":      pwdHash,
+		"display_name":       displayName,
+		"role":               role,
+		"status":             status,
+		"email":              email,
+		"failed_login_count": failedCount,
+		"locked_until":       lockedUntil,
+	}, nil
 }
 
 func (r *Repository) GetUserByID(ctx context.Context, id string) (map[string]interface{}, error) {

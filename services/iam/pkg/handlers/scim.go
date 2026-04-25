@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/rls"
+	"github.com/openguard/services/iam/pkg/service"
 )
 
 // SCIM v2 Models

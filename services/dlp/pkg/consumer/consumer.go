@@ -7,7 +7,6 @@ import (
 
 	"github.com/openguard/services/dlp/pkg/repository"
 	"github.com/openguard/services/dlp/pkg/scanner"
-	"github.com/openguard/shared/kafka"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -24,7 +23,11 @@ type Consumer struct {
 }
 
 func NewConsumer(brokers []string, topic string, groupID string, repo *repository.Repository, logger *slog.Logger) *Consumer {
-	reader := kafka.NewReader(brokers, topic, groupID)
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers: brokers,
+		Topic:   topic,
+		GroupID: groupID,
+	})
 	return &Consumer{
 		reader: reader,
 		repo:   repo,

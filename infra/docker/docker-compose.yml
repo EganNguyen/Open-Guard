@@ -242,7 +242,7 @@ services:
       dockerfile: services/control-plane/Dockerfile
     ports: ["8081:8080"]
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:8080/health"]
       interval: 5s
       retries: 5
     depends_on:
@@ -257,7 +257,7 @@ services:
       dockerfile: services/iam/Dockerfile
     ports: ["8082:8080"]
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:8080/health"]
       interval: 5s
       retries: 5
     volumes:
@@ -284,7 +284,7 @@ services:
       dockerfile: services/policy/Dockerfile
     ports: ["8083:8080"]
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:8080/health"]
       interval: 5s
       retries: 5
     volumes:
@@ -332,8 +332,9 @@ services:
       mongo-primary: { condition: service_healthy }
     volumes:
       - ../../data/GeoLite2-City.mmdb:/data/GeoLite2-City.mmdb:ro
+      - ../certs:/certs:ro
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:8080/health"]
       interval: 5s
       retries: 5
 
@@ -342,8 +343,10 @@ services:
       context: ../../
       dockerfile: services/audit/Dockerfile
     ports: ["8085:8080"]
+    volumes:
+      - ../certs:/certs:ro
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:8080/health"]
       interval: 5s
       retries: 5
     environment:
@@ -383,9 +386,11 @@ services:
       localstack: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:8080/health"]
       interval: 5s
       retries: 5
+    volumes:
+      - ../certs:/certs:ro
 
   webhook-delivery:
     build:
@@ -394,10 +399,12 @@ services:
     ports: ["8087:8080"]
     depends_on:
       kafka-init: { condition: service_completed_successfully }
+    volumes:
+      - ../certs:/certs:ro
     environment:
       - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:8080/health"]
       interval: 5s
       retries: 5
 
@@ -423,8 +430,10 @@ services:
       redis: { condition: service_healthy }
       localstack: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
+    volumes:
+      - ../certs:/certs:ro
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:8080/health"]
       interval: 5s
       retries: 5
   task-backend:
@@ -468,8 +477,10 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
+    volumes:
+      - ../certs:/certs:ro
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:8080/health"]
       interval: 5s
       retries: 5
 
@@ -487,8 +498,10 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
+    volumes:
+      - ../certs:/certs:ro
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:8080/health"]
       interval: 5s
       retries: 5
 
@@ -501,7 +514,7 @@ services:
     depends_on:
       gateway: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:80"]
       interval: 10s
       retries: 5
 

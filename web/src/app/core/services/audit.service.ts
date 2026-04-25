@@ -6,12 +6,14 @@ import { environment } from '../../../environments/environment';
 export interface AuditEvent {
   id: string;
   org_id: string;
-  source: string;
+  subject_id: string;
   action: string;
-  actor: string;
-  target: string;
-  data: any;
-  timestamp: string;
+  resource: string;
+  effect: 'allow' | 'deny';
+  matched_policy_ids: string[];
+  cache_hit: boolean;
+  latency_ms: number;
+  created_at: string;
 }
 
 import { SseService } from './sse.service';

@@ -23,3 +23,10 @@ SELECT 'CREATE DATABASE openguard_dlp' WHERE NOT EXISTS (SELECT FROM pg_database
 ALTER DATABASE openguard_iam OWNER TO openguard;
 ALTER DATABASE openguard_policy OWNER TO openguard;
 ALTER DATABASE openguard_dlp OWNER TO openguard;
+
+-- Grant BYPASSRLS to special roles
+ALTER ROLE openguard_login BYPASSRLS;
+ALTER ROLE openguard_outbox BYPASSRLS;
+
+-- Note: we still need to grant SELECT on tables, but that must be done in migrations 
+-- because these roles exist globally but tables are per-database.

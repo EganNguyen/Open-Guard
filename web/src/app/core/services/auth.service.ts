@@ -54,7 +54,7 @@ export class AuthService {
         }
 
         if (oauthParams && res.code) {
-          window.location.href = `${oauthParams.redirect_uri}?code=${res.code}&state=${res.state || ''}`;
+          window.location.href = `${oauthParams['redirect_uri']}?code=${res.code}&state=${res.state || ''}`;
           return;
         }
 
@@ -68,7 +68,7 @@ export class AuthService {
     return this.api.post<AuthResponse>('/auth/mfa/verify', { mfa_challenge: mfaChallenge, code }).pipe(
       tap(res => {
         if (oauthParams && res.code) {
-          window.location.href = `${oauthParams.redirect_uri}?code=${res.code}&state=${res.state || ''}`;
+          window.location.href = `${oauthParams['redirect_uri']}?code=${res.code}&state=${res.state || ''}`;
           return;
         }
 
@@ -79,10 +79,18 @@ export class AuthService {
   }
 
   logout(): void {
-    this.api.post('/auth/logout', {}).subscribe(() => {
-      this.currentUser.set(null);
-      this.router.navigate(['/login']);
+    // Best effort logout: call API but clear local state anyway
+    this.api.post('/auth/logout', {}).subscribe({
+      next: () => this.clearLocalSession(),
+      error: () => this.clearLocalSession()
     });
+  }
+
+  private clearLocalSession(): void {
+    this.currentUser.set(null);
+    if (isPlatformBrowser(this.platformId)) {
+      this.router.navigate(['/login']);
+    }
   }
 
   setCurrentUser(user: User | null): void {

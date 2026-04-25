@@ -51,10 +51,10 @@ func (h *DLPHandler) Scan(w http.ResponseWriter, r *http.Request) {
 			}
 			if match {
 				h.repo.SaveFinding(r.Context(), &repository.DLPFinding{
-					OrgID:    orgID,
-					PolicyID: p.ID,
-					Kind:     f.Kind,
-					Action:   p.Action,
+					OrgID:       orgID,
+					PolicyID:    p.ID,
+					FindingType: f.Kind,
+					Action:      p.Action,
 				})
 			}
 		}

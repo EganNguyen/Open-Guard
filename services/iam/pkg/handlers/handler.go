@@ -276,7 +276,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	ctx, span := tr.Start(r.Context(), "CreateUser")
 	defer span.End()
 
-	id, created, err := h.svc.RegisterUser(ctx, orgID, body.Email, body.Password, body.DisplayName, body.Role, "")
+	id, _, err := h.svc.RegisterUser(ctx, orgID, body.Email, body.Password, body.DisplayName, body.Role, "")
 	if err != nil {
 		log := iam_middleware.GetLogger(ctx)
 		log.Error("CreateUser failed", zap.Error(err))
@@ -466,6 +466,9 @@ func (h *Handler) ReprovisionUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	h.writeJSON(w, http.StatusOK, map[string]string{"status": "reprovisioning_started"})
+}
 
 func (h *Handler) WebAuthnBeginRegistration(w http.ResponseWriter, r *http.Request) {
 	userID := shared_middleware.GetUserID(r.Context())

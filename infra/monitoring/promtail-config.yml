@@ -15,7 +15,13 @@ scrape_configs:
         refresh_interval: 5s
     relabel_configs:
       - source_labels: ['__meta_docker_container_name']
+        regex: '/docker-(.*)-1'
+        target_label: 'job'
+        replacement: 'openguard-$1'
+      - source_labels: ['__meta_docker_container_name']
         regex: '/(.*)'
         target_label: 'container'
       - source_labels: ['__meta_docker_container_log_stream']
         target_label: 'stream'
+      - source_labels: ['__meta_docker_container_log_path']
+        target_label: '__path__'

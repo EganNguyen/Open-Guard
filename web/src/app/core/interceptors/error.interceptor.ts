@@ -13,7 +13,7 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
   return next(req).pipe(
     catchError((err: HttpErrorResponse) => {
       // If 401 and not a refresh request, try to refresh
-      if (err.status === 401 && !req.url.includes('/auth/refresh') && !req.url.includes('/auth/login')) {
+      if (err.status === 401 && !req.url.includes('/auth/refresh') && !req.url.includes('/auth/login') && !req.url.includes('/auth/logout')) {
         return apiService.post('/auth/refresh', {}).pipe(
           switchMap(() => next(req)), // Retry the original request
           catchError((refreshErr) => {

@@ -6,42 +6,72 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  - job_name: 'control-plane'
+  - job_name: 'openguard-control-plane'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
     static_configs:
       - targets: ['control-plane:8080']
         
-  - job_name: 'iam'
+  - job_name: 'openguard-iam'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
     static_configs:
       - targets: ['iam:8080']
 
-  - job_name: 'policy'
+  - job_name: 'openguard-policy'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
     static_configs:
       - targets: ['policy:8080']
 
-  - job_name: 'threat'
+  - job_name: 'openguard-threat'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
     static_configs:
       - targets: ['threat:8080']
 
-  - job_name: 'audit'
+  - job_name: 'openguard-audit'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
     static_configs:
       - targets: ['audit:8080']
 
-  - job_name: 'alerting'
+  - job_name: 'openguard-alerting'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
     static_configs:
       - targets: ['alerting:8080']
 
-  - job_name: 'webhook-delivery'
+  - job_name: 'openguard-webhook-delivery'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
     static_configs:
       - targets: ['webhook-delivery:8080']
 
-  - job_name: 'compliance'
+  - job_name: 'openguard-compliance'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
     static_configs:
       - targets: ['compliance:8080']
 
-  - job_name: 'dlp'
+  - job_name: 'openguard-dlp'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
     static_configs:
       - targets: ['dlp:8080']
 
-  - job_name: 'connector-registry'
+  - job_name: 'openguard-connector-registry'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
     static_configs:
       - targets: ['connector-registry:8080']

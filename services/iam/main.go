@@ -222,7 +222,7 @@ func main() {
 	go func() {
 		logger.Info("external service starting", "port", "8080")
 		if tlsConfig != nil {
-			if err := srv8080.ListenAndServeTLS("/certs/tls.crt", "/certs/tls.key"); err != nil && err != http.ErrServerClosed {
+			if err := srv8080.ListenAndServeTLS("/certs/iam.crt", "/certs/iam.key"); err != nil && err != http.ErrServerClosed {
 				logger.Error("external server failed", "error", err)
 				os.Exit(1)
 			}
@@ -237,7 +237,7 @@ func main() {
 	if internalTLSConfig != nil {
 		go func() {
 			logger.Info("internal service starting (strict mTLS)", "port", "8443")
-			if err := srv8443.ListenAndServeTLS("/certs/tls.crt", "/certs/tls.key"); err != nil && err != http.ErrServerClosed {
+			if err := srv8443.ListenAndServeTLS("/certs/iam.crt", "/certs/iam.key"); err != nil && err != http.ErrServerClosed {
 				logger.Error("internal server failed", "error", err)
 				os.Exit(1)
 			}
