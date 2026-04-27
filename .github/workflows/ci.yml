@@ -38,9 +38,13 @@ jobs:
           pip install sqlfluff
           npm install -g prettier
 
+      - name: Sync Workspace
+        run: go work sync
+
       - name: Run Go Lint # 3. Lint / Format Check
         run: |
-          go list -m -f '{{.Dir}}' | xargs -L1 -I {} sh -c 'cd {} && if find . -name "*.go" | grep -q ".go"; then $(go env GOPATH)/bin/golangci-lint run ./...; fi'
+          # Only lint core services, sdk, and shared to avoid example dependency noise in strict linting
+          $(go env GOPATH)/bin/golangci-lint run ./sdk/... ./shared/... ./services/...
       
       - name: "Check for unsafe AuthJWT usage"
         run: |
