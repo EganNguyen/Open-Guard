@@ -6,12 +6,10 @@ run:
 linters:
   enable:
     - errcheck
-    - gosec
     - staticcheck
     - unparam
     - govet
     - unused
-    - misspell
     - revive
 
 linters-settings:

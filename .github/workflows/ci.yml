@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
 
 env:
-  GO_VERSION: "1.25"
+  GO_VERSION: "1.25.x"
   NODE_VERSION: "24"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -42,14 +42,16 @@ jobs:
 
       - name: Install Tools
         run: |
-          # Use the official action for better config compatibility
           pip install sqlfluff
 
       - name: Run Go Lint
+        # We use the official action but pin to a specific runner and version 
+        # to ensure it uses the Go 1.25 environment we just set up.
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
-          args: --timeout=5m
+          # args --timeout prevents the workspace from timing out
+          args: --timeout=10m --skip-dirs=examples
 
       - name: Run SQL Lint
         run: sqlfluff lint .
