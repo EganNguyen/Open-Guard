@@ -83,6 +83,47 @@ func TestClient_Allow_StaleCache(t *testing.T) {
 	}
 }
 
+func TestClient_Allow_StaleGracePeriod(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, "test-key", WithCacheTTL(100*time.Millisecond))
+	defer c.Close()
+
+	// Pre-seed cache with an expired entry but within 60s grace
+	c.cache.mu.Lock()
+	c.cache.data["user-1:read:file-1"] = cacheEntry{
+		value:     true,
+		expiresAt: time.Now().Add(-1 * time.Second), // Expired 1s ago
+	}
+	c.cache.mu.Unlock()
+
+	// Should return true (stale) because server is down and we are within 60s grace
+	allowed, err := c.Allow(context.Background(), "user-1", "read", "file-1")
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !allowed {
+		t.Error("expected allowed (stale-while-unavailable) within grace period")
+	}
+
+	// Move entry beyond grace period
+	c.cache.mu.Lock()
+	c.cache.data["user-1:read:file-1"] = cacheEntry{
+		value:     true,
+		expiresAt: time.Now().Add(-61 * time.Second), // Expired 61s ago
+	}
+	c.cache.mu.Unlock()
+
+	// Should return false (fail-closed) because grace period exceeded
+	allowed, err = c.Allow(context.Background(), "user-1", "read", "file-1")
+	if allowed {
+		t.Error("expected denied because grace period exceeded")
+	}
+}
+
 func TestClient_CircuitBreaker(t *testing.T) {
 	var count int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

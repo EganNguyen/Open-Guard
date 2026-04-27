@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -18,6 +19,7 @@ import (
 var (
 	testDB     *pgxpool.Pool
 	testMongo  *mongo.Client
+	testCH     clickhouse.Conn
 	mtlsClient *http.Client
 )
 
@@ -40,11 +42,11 @@ func TestMain(m *testing.M) {
 	}
 
 	endpoints := []string{
-		"http://localhost:8080/health", // Gateway (redirects to IAM/Policy)
-		"https://localhost:8081/health", // Control Plane
-		"https://localhost:8082/health", // IAM
-		"https://localhost:8083/health", // Policy
-		"https://localhost:8085/health", // Audit
+		"http://localhost:8080/health",
+		"https://localhost:8081/health",
+		"https://localhost:8082/health",
+		"https://localhost:8083/health",
+		"https://localhost:8085/health",
 	}
 
 	for _, url := range endpoints {
@@ -63,11 +65,20 @@ func TestMain(m *testing.M) {
 		log.Fatalf("failed to connect to mongodb: %v", err)
 	}
 
+	testCH, err = clickhouse.Open(&clickhouse.Options{
+		Addr: []string{"localhost:9000"},
+		Auth: clickhouse.Auth{
+			Database: "openguard",
+			Username: "default",
+			Password: "",
+		},
+	})
+	if err != nil {
+		log.Fatalf("failed to connect to clickhouse: %v", err)
+	}
+
 	// 4. Run tests
 	code := m.Run()
-
-	// 5. Cleanup (optional - left running as requested)
-	// exec.Command("docker", "compose", "-f", "../../infra/docker/docker-compose.yml", "down").Run()
 
 	os.Exit(code)
 }
@@ -83,4 +94,15 @@ func waitForHealth(url string) {
 		time.Sleep(2 * time.Second)
 	}
 	log.Fatalf("service at %s failed to become healthy", url)
+}
+
+func Eventually(t *testing.T, fn func() bool, timeout time.Duration, interval time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return
+		}
+		time.Sleep(interval)
+	}
+	t.Errorf("condition not met within %v", timeout)
 }

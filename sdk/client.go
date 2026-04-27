@@ -123,8 +123,6 @@ func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
 		opt(c)
 	}
 
-	// Re-initialize cache ONLY IF ttl was changed via WithCacheTTL
-	// Actually, better: if c.cache exists, check if ttl matches
 	return c
 }
 
@@ -163,6 +161,10 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return fmt.Errorf("transient api error: status %d", resp.StatusCode)
+		}
+
+		if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusGatewayTimeout {
+			return fmt.Errorf("transient network timeout: status %d", resp.StatusCode)
 		}
 
 		if resp.StatusCode >= 400 {
