@@ -79,6 +79,11 @@ export class AuthService {
   }
 
   logout(): void {
+    if (!this.isAuthenticated()) {
+      this.clearLocalSession();
+      return;
+    }
+
     // Best effort logout: call API but clear local state anyway
     this.api.post('/auth/logout', {}).subscribe({
       next: () => this.clearLocalSession(),

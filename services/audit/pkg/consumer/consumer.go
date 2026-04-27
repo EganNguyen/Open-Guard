@@ -13,20 +13,31 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
-	"github.com/openguard/services/audit/pkg/repository"
 	"github.com/openguard/services/audit/pkg/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
+type KafkaReader interface {
+	FetchMessage(ctx context.Context) (kafka.Message, error)
+	CommitMessages(ctx context.Context, msgs ...kafka.Message) error
+	Close() error
+}
+
+type AuditRepository interface {
+	BulkWrite(ctx context.Context, events []interface{}) error
+	ReserveSequence(ctx context.Context, orgID string, count int64) (int64, string, error)
+	UpdateHashChainCAS(ctx context.Context, orgID, prevHash, newHash string) (bool, error)
+}
+
 type AuditConsumer struct {
-	reader *kafka.Reader
-	repo   *repository.AuditWriteRepository
+	reader KafkaReader
+	repo   AuditRepository
 	logger *slog.Logger
 }
 
-func NewAuditConsumer(brokers string, groupID string, topic string, repo *repository.AuditWriteRepository, logger *slog.Logger) (*AuditConsumer, error) {
+func NewAuditConsumer(brokers string, groupID string, topic string, repo AuditRepository, logger *slog.Logger) (*AuditConsumer, error) {
 	brokerList := strings.Split(brokers, ",")
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:  brokerList,

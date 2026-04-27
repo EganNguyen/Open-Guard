@@ -13,8 +13,13 @@ type UserStatusUpdater interface {
 	UpdateUserStatus(ctx context.Context, userID, status string) error
 }
 
+type KafkaReader interface {
+	ReadMessage(ctx context.Context) (kafka.Message, error)
+	Close() error
+}
+
 type Consumer struct {
-	reader *kafka.Reader
+	reader KafkaReader
 	svc    UserStatusUpdater
 	logger *slog.Logger
 }
