@@ -1,0 +1,27 @@
+{
+  "project_name": "Open-Guard",
+  "root_dir": "/Users/nguyenhoangtuan/Documents/GitHub/Open-Guard",
+  "tech_stack": {
+    "backend": ["Go 1.24+", "Chi", "Kafka", "PostgreSQL", "Redis", "MongoDB", "ClickHouse", "CEL"],
+    "frontend": ["Angular 19+", "Tailwind CSS", "Chart.js"],
+    "infrastructure": ["Docker", "Kubernetes", "mTLS"]
+  },
+  "conventions": {
+    "backend": "Strict context propagation, RLS session handling for multi-tenancy, outbox pattern for reliable events.",
+    "frontend": "Signals-based state management, viewChild for DOM access, Chart.js for visualizations."
+  },
+  "critical_commands": {
+    "setup": "make certs",
+    "dev": "make dev",
+    "test": "make test-acceptance",
+    "build": "go build ./...",
+    "lint": "golangci-lint run ./..."
+  },
+  "monorepo": {
+    "services": "services/",
+    "shared_libs": "shared/",
+    "sdk": "sdk/",
+    "frontend": "web/"
+  },
+  "instructions": "AGENTS.md"
+}
