@@ -43,8 +43,8 @@ jobs:
 
       - name: Run Go Lint # 3. Lint / Format Check
         run: |
-          # Only lint core services, sdk, and shared to avoid example dependency noise in strict linting
-          $(go env GOPATH)/bin/golangci-lint run ./sdk/... ./shared/... ./services/...
+          # Use explicit relative paths from root for the workspace modules
+          $(go env GOPATH)/bin/golangci-lint run ./sdk/... ./shared/... services/iam/... services/policy/... services/alerting/... services/audit/... services/threat/... services/control-plane/... services/dlp/... services/compliance/... services/connector-registry/... services/webhook-delivery/...
       
       - name: "Check for unsafe AuthJWT usage"
         run: |
