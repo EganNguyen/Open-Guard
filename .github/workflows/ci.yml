@@ -116,7 +116,13 @@ jobs:
       - name: Build all modules
         run: |
           go work sync
-          go build ./sdk/... ./shared/... ./services/...
+          # In a Go workspace, we build individual module paths. 
+          # The ./services/... wildcard is invalid if the 'services' directory isn't a module itself.
+          go build ./sdk/... ./shared/... \
+            ./services/iam/... ./services/policy/... ./services/alerting/... \
+            ./services/threat/... ./services/audit/... ./services/compliance/... \
+            ./services/control-plane/... ./services/dlp/... \
+            ./services/connector-registry/... ./services/webhook-delivery/...
 
   # ─────────────────────────────────────────
   # 4. FRONTEND BUILD  (parallel with tests)
