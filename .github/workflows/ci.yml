@@ -1,4 +1,4 @@
-name: Fast CI Pipeline
+name: Production CI Pipeline
 
 on:
   push:
@@ -6,96 +6,140 @@ on:
   pull_request:
     branches: [ "main" ]
 
+env:
+  GO_VERSION: "1.25"
+  NODE_VERSION: "24"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
-  # LINT: Fast linting for production code
+  # =========================
+  # 1. LINT (STRICT GATE)
+  # =========================
   lint:
-    name: "Lint"
+    name: "Lint (Go + Frontend)"
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: "**/*.sum"
+
       - name: Install golangci-lint
-        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin latest
-      - name: Run golangci-lint
         run: |
-          # Run lint in every directory containing a go.mod file, excluding examples.
-          # This ensures correct module context and avoids xargs flag conflicts.
-          find . -name go.mod -not -path "./examples/*" -execdir $(go env GOPATH)/bin/golangci-lint run ./... \;
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+          | sh -s -- -b $(go env GOPATH)/bin latest
 
-  # BUILD & TEST CORE: The absolute bare minimum to ensure code integrity
-  build-and-test:
-    name: "Build & Test"
-    needs: [lint]
+      - name: Run Go Lint
+        run: |
+          # Using workspace-aware linting with explicit context
+          go work sync
+          $(go env GOPATH)/bin/golangci-lint run ./...
+
+  # =========================
+  # 2. TEST (PARALLEL READY)
+  # =========================
+  test:
+    name: "Unit Tests"
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - sdk
+          - shared
+          - services/iam
+          - services/policy
+          - services/alerting
+          - services/threat
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
-          # Fix cache failure by pointing to actual module files in monorepo
           cache-dependency-path: "**/*.sum"
-      
-      - name: Sync Workspace
-        run: go work sync
 
-      - name: Build All Production Modules
+      - name: Run Tests
         run: |
-          go build ./sdk/... ./shared/... services/iam/... services/policy/... services/alerting/... services/audit/... services/threat/... services/control-plane/... services/dlp/... services/compliance/... services/connector-registry/... services/webhook-delivery/...
+          go work sync
+          go test -race -short ./${{ matrix.module }}/...
 
-      - name: Run Core Unit Tests
-        run: |
-          go test -short ./sdk/... ./shared/... services/iam/... services/policy/...
-
-  # DASHBOARD: Build check for frontend
-  web-build:
-    name: "Dashboard Build"
+  # =========================
+  # 3. BUILD
+  # =========================
+  build:
+    name: "Build Services"
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    needs: test
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: "**/*.sum"
+
+      - name: Build Backend
+        run: |
+          go work sync
+          go build ./sdk/... ./shared/... ./services/...
+
+  # =========================
+  # 4. FRONTEND BUILD
+  # =========================
+  web-build:
+    name: "Frontend Build"
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
-          cache: 'npm'
-          cache-dependency-path: 'web/package-lock.json'
-      - name: Build Angular Web
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Web
         working-directory: ./web
         run: |
-          npm install
+          npm ci
           npm run build
 
-  # SECURITY SCAN: Optimized for workspace structure and noise reduction
-  security-scan:
+  # =========================
+  # 5. SECURITY
+  # =========================
+  security:
     name: "Security Scan"
-    needs: [build-and-test]
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    needs: build
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: "**/*.sum"
-      - name: Dependency Scan (Govulncheck)
+
+      - name: Govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          # Use find -execdir to run govulncheck in each module root.
-          # We use || true to allow the job to pass while standard library noise is present in the runner.
-          find . -name go.mod -not -path "./examples/*" -execdir $(go env GOPATH)/bin/govulncheck ./... \; || true
+          # Run govulncheck across all production modules
+          # We use a pattern that works with the workspace
+          go list -m -f '{{.Dir}}' | grep -v "examples" | xargs -L1 -I {} sh -c 'cd {} && govulncheck ./...' || true
