@@ -1,3 +1,8 @@
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+
 linters:
   enable:
     - errcheck
@@ -14,8 +19,3 @@ linters-settings:
     rules:
       - name: exported
         disabled: true
-
-run:
-  timeout: 5m
-  issues-exit-code: 1
-  tests: true
