@@ -32,6 +32,12 @@ fi
 # Cleanup existing
 docker rm -f "openguard-$SERVICE_NAME" 2>/dev/null || true
 
+# Port mapping logic
+PORT_MAP="$PORT:$PORT"
+if [ "$SERVICE_NAME" = "dashboard" ]; then
+    PORT_MAP="$PORT:80"
+fi
+
 # Use explicit container names for peer discovery
 # All services listen on 8080 or 8082, but map to host $PORT
 docker run -d \
@@ -55,7 +61,7 @@ docker run -d \
     -e INFRA_MODE=localstack \
     -e OPENGUARD_API_URL="$API_URL" \
     -v "$(pwd)/infra/certs:/certs:ro" \
-    -p "$PORT:$PORT" \
+    -p "$PORT_MAP" \
     "$IMAGE"
 
 echo "✅ $SERVICE_NAME is running on host port $PORT."
