@@ -2,8 +2,8 @@
   "project_name": "Open-Guard",
   "root_dir": "/Users/nguyenhoangtuan/Documents/GitHub/Open-Guard",
   "tech_stack": {
-    "backend": ["Go 1.24+", "Chi", "Kafka", "PostgreSQL", "Redis", "MongoDB", "ClickHouse", "CEL"],
-    "frontend": ["Angular 19+", "Tailwind CSS", "Chart.js"],
+    "backend": ["Go 1.25", "Chi", "Kafka", "PostgreSQL", "Redis", "MongoDB", "ClickHouse", "CEL"],
+    "frontend": ["Angular 19", "Tailwind CSS", "Chart.js"],
     "infrastructure": ["Docker", "Kubernetes", "mTLS"]
   },
   "conventions": {
