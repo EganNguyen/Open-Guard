@@ -47,13 +47,18 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build Docker Image
-        env:
-          SERVICE: ${{ matrix.service }}
-          DOCKERFILE: ${{ matrix.path }}
-        run: |
-          docker build -t openguard/$SERVICE:${{ github.sha }} -f $DOCKERFILE .
-          docker tag openguard/$SERVICE:${{ github.sha }} openguard/$SERVICE:latest
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.path }}
+          push: false
+          tags: openguard/${{ matrix.service }}:${{ github.sha }},openguard/${{ matrix.service }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   mock-deploy:
     name: Mock Infrastructure & Registry
