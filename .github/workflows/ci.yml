@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
 
 env:
-  GO_VERSION: "1.25.9" # Pin to exact version for toolchain alignment
+  GO_VERSION: "1.25.9"
   NODE_VERSION: "24"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -28,6 +28,10 @@ jobs:
           cache: true
           cache-dependency-path: "**/*.sum"
 
+      - name: Clean Module Cache
+        # Crucial step to avoid toolchain version mismatch from old cached binaries
+        run: go clean -modcache
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -45,11 +49,10 @@ jobs:
           pip install sqlfluff
 
       - name: Run Go Lint
-        # Use the official action with the latest version to support Go 1.25.9
+        # Use the official action (Option C) for best-in-class toolchain alignment
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
-          # Args are managed via .golangci.yml for stability
           args: --timeout=10m
 
       - name: Run SQL Lint
