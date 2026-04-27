@@ -28,3 +28,9 @@ variable "image_tag" {
   default     = "latest"
 }
 
+variable "is_localstack" {
+  description = "Whether to use LocalStack endpoints"
+  type        = bool
+  default     = false
+}
+
