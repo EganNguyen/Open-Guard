@@ -1,5 +1,5 @@
 run:
-  timeout: 5m
+  timeout: 10m
   issues-exit-code: 1
   tests: true
 
@@ -17,3 +17,7 @@ linters-settings:
     rules:
       - name: exported
         disabled: true
+
+issues:
+  exclude-dirs:
+    - examples
