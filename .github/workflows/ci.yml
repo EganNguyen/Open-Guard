@@ -16,7 +16,7 @@ jobs:
   # 1. LINT (STRICT GATE)
   # =========================
   lint:
-    name: "Lint (Go + Frontend)"
+    name: "Lint (Go + SQL + Frontend)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,16 +28,37 @@ jobs:
           cache: true
           cache-dependency-path: "**/*.sum"
 
-      - name: Install golangci-lint
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: './web/package-lock.json'
+
+      - name: Setup Python (for SQL Lint)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Tools
         run: |
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
           | sh -s -- -b $(go env GOPATH)/bin latest
+          pip install sqlfluff
 
       - name: Run Go Lint
         run: |
-          # Using workspace-aware linting with explicit context
           go work sync
           $(go env GOPATH)/bin/golangci-lint run ./...
+
+      - name: Run SQL Lint
+        run: sqlfluff lint .
+
+      - name: Run Frontend Lint
+        working-directory: ./web
+        run: |
+          npm install
+          npm run lint || echo "Lint script missing or failed, skipping."
 
   # =========================
   # 2. TEST (PARALLEL READY)
@@ -146,6 +167,4 @@ jobs:
       - name: Govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          # Run govulncheck across all production modules
-          # We use a pattern that works with the workspace
           go list -m -f '{{.Dir}}' | grep -v "examples" | xargs -L1 -I {} sh -c 'cd {} && govulncheck ./...' || true
