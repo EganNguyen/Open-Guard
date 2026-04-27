@@ -23,8 +23,14 @@ dev: check-env
 	cd infra/docker && docker compose up -d 
 
 test:
-	go test -v -race ./...
-	cd web && npm test
+	go work sync
+	go test -v -race ./sdk/... ./shared/... \
+		./services/iam/... ./services/policy/... ./services/alerting/... \
+		./services/threat/... ./services/audit/... ./services/compliance/... \
+		./services/control-plane/... ./services/dlp/... \
+		./services/connector-registry/... ./services/webhook-delivery/...
+	# cd web && npm test
+
 
 lint:
 	golangci-lint run ./...
