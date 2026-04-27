@@ -17,10 +17,11 @@ import (
 )
 
 var (
-	testDB     *pgxpool.Pool
-	testMongo  *mongo.Client
-	testCH     clickhouse.Conn
-	mtlsClient *http.Client
+	testDBIAM    *pgxpool.Pool
+	testDBPolicy *pgxpool.Pool
+	testMongo    *mongo.Client
+	testCH       clickhouse.Conn
+	mtlsClient   *http.Client
 )
 
 func TestMain(m *testing.M) {
@@ -55,9 +56,16 @@ func TestMain(m *testing.M) {
 
 	// 3. Initialize DB connections for verification
 	ctx := context.Background()
-	testDB, err = pgxpool.New(ctx, "postgres://openguard:openguard@localhost:5432/openguard?sslmode=disable")
+	basePostgres := "postgres://openguard:change-me-in-production@localhost:5432/"
+	
+	testDBIAM, err = pgxpool.New(ctx, basePostgres+"openguard_iam?sslmode=disable")
 	if err != nil {
-		log.Fatalf("failed to connect to postgres: %v", err)
+		log.Fatalf("failed to connect to openguard_iam: %v", err)
+	}
+
+	testDBPolicy, err = pgxpool.New(ctx, basePostgres+"openguard_policy?sslmode=disable")
+	if err != nil {
+		log.Fatalf("failed to connect to openguard_policy: %v", err)
 	}
 
 	testMongo, err = mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))

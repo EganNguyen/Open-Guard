@@ -9,11 +9,18 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-func AssertPostgresRowExists(t *testing.T, query string, args ...interface{}) {
+func AssertIAMRowExists(t *testing.T, query string, args ...interface{}) {
 	var exists bool
-	err := testDB.QueryRow(context.Background(), "SELECT EXISTS("+query+")", args...).Scan(&exists)
+	err := testDBIAM.QueryRow(context.Background(), "SELECT EXISTS("+query+")", args...).Scan(&exists)
 	assert.NoError(t, err)
-	assert.True(t, exists, "Expected row to exist in PostgreSQL")
+	assert.True(t, exists, "Expected row to exist in IAM database")
+}
+
+func AssertPolicyRowExists(t *testing.T, query string, args ...interface{}) {
+	var exists bool
+	err := testDBPolicy.QueryRow(context.Background(), "SELECT EXISTS("+query+")", args...).Scan(&exists)
+	assert.NoError(t, err)
+	assert.True(t, exists, "Expected row to exist in Policy database")
 }
 
 func AssertMongoEventCaptured(t *testing.T, orgID, subject string) {

@@ -21,6 +21,7 @@ import (
 	"github.com/sony/gobreaker"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/go-webauthn/webauthn/protocol"
+	"net"
 	"net/http"
 )
 
@@ -579,6 +580,11 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 }
 
 func (s *Service) IssueTokens(ctx context.Context, orgID, userID, userAgent, ip string, familyID uuid.UUID) (map[string]interface{}, error) {
+	// Strip port from IP if present
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+
 	// Access Token
 	jti := uuid.New().String()
 	ttl := 1 * time.Hour
