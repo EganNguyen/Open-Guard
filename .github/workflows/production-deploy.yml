@@ -1,0 +1,110 @@
+name: Production Deployment
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [iam, policy, audit, threat, alerting, webhook-delivery, compliance, dlp, connector-registry, control-plane, example-app, dashboard]
+        include:
+          - service: iam
+            path: services/iam/Dockerfile
+          - service: policy
+            path: services/policy/Dockerfile
+          - service: audit
+            path: services/audit/Dockerfile
+          - service: threat
+            path: services/threat/Dockerfile
+          - service: alerting
+            path: services/alerting/Dockerfile
+          - service: webhook-delivery
+            path: services/webhook-delivery/Dockerfile
+          - service: compliance
+            path: services/compliance/Dockerfile
+          - service: dlp
+            path: services/dlp/Dockerfile
+          - service: connector-registry
+            path: services/connector-registry/Dockerfile
+          - service: control-plane
+            path: services/control-plane/Dockerfile
+          - service: example-app
+            path: examples/task-management-app/backend/Dockerfile
+          - service: dashboard
+            path: web/Dockerfile
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Tag Docker Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          SERVICE: ${{ matrix.service }}
+          DOCKERFILE: ${{ matrix.path }}
+        run: |
+          docker build -t $ECR_REGISTRY/openguard/$SERVICE:${{ github.sha }} -f $DOCKERFILE .
+          docker tag $ECR_REGISTRY/openguard/$SERVICE:${{ github.sha }} $ECR_REGISTRY/openguard/$SERVICE:latest
+
+      - name: Scan Image (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.login-ecr.outputs.registry }}/openguard/${{ matrix.service }}:${{ github.sha }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          docker push $ECR_REGISTRY/openguard/$SERVICE:${{ github.sha }}
+          docker push $ECR_REGISTRY/openguard/$SERVICE:latest
+
+  deploy-infra:
+    name: Provision Infrastructure
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Apply
+        working-directory: deploy/production/terraform/environments/prod
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          terraform init
+          terraform apply -auto-approve -var="image_tag=${{ github.sha }}"
+
+  update-ecs:
+    name: Update ECS Services
+    needs: deploy-infra
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger ECS Rolling Update
+        run: |
+          echo "Infrastructure provisioned. ECS will perform rolling updates based on latest task definitions."

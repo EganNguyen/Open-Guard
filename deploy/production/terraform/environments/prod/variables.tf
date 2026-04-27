@@ -18,6 +18,13 @@ variable "vpc_cidr" {
 
 variable "domain_name" {
   description = "Root domain for the project"
-  type        = "string"
+  type        = string
   default     = "openguard.com"
 }
+
+variable "image_tag" {
+  description = "Docker image tag to deploy"
+  type        = string
+  default     = "latest"
+}
+

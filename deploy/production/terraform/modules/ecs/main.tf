@@ -4,27 +4,14 @@ variable "private_subnets" { type = list(string) }
 variable "public_subnets" { type = list(string) }
 variable "execution_role_arn" { type = string }
 variable "discovery_namespace_id" { type = string }
+variable "image_tag" { type = string }
 
 # 1. ECS Cluster
 resource "aws_ecs_cluster" "main" {
   name = "openguard-${var.environment}-cluster"
 }
 
-# 2. IAM Task Role (Permissions for the app itself)
-resource "aws_iam_role" "ecs_task_role" {
-  name = "openguard-${var.environment}-ecs-task-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = { Service = "ecs-tasks.amazonaws.com" }
-    }]
-  })
-}
-
-# 3. Microservice Service Template (Example: IAM)
+# 2. Microservice Task Definitions (Example: IAM)
 resource "aws_ecs_task_definition" "iam" {
   family                   = "iam"
   requires_compatibilities = ["FARGATE"]
@@ -37,7 +24,7 @@ resource "aws_ecs_task_definition" "iam" {
   container_definitions = jsonencode([
     {
       name      = "iam"
-      image     = "openguard/iam:latest" # Managed by CI/CD
+      image     = "openguard/iam:${var.image_tag}" # Tagged by CI/CD
       essential = true
       portMappings = [{ containerPort = 8080, hostPort = 8080 }]
       logConfiguration = {
@@ -51,6 +38,7 @@ resource "aws_ecs_task_definition" "iam" {
     }
   ])
 }
+
 
 resource "aws_ecs_service" "iam" {
   name            = "iam"

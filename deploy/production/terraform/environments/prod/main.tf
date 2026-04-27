@@ -29,6 +29,15 @@ module "standalone_data" {
   private_subnets = module.networking.private_subnets
 }
 
+module "waf" {
+  source = "../../modules/waf"
+
+  environment         = var.environment
+  vpc_id              = module.networking.vpc_id
+  public_subnets      = module.networking.public_subnets
+  acm_certificate_arn = module.security.acm_certificate_arn
+}
+
 module "ecs" {
   source = "../../modules/ecs"
 
@@ -38,4 +47,6 @@ module "ecs" {
   public_subnets         = module.networking.public_subnets
   execution_role_arn     = module.security.ecs_execution_role_arn
   discovery_namespace_id = module.networking.service_discovery_namespace_id
+  image_tag              = var.image_tag
 }
+

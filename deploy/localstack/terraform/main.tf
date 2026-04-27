@@ -22,26 +22,21 @@ provider "aws" {
     ecs            = "http://localhost:4566"
     ec2            = "http://localhost:4566"
     iam            = "http://localhost:4566"
-    ecr            = "http://localhost:4566"
-    route53        = "http://localhost:4566"
-    logs           = "http://localhost:4566"
-    servicediscovery = "http://localhost:4566"
   }
 }
 
 # S3 Bucket for Compliance Reports
 resource "aws_s3_bucket" "compliance_reports" {
   bucket = "openguard-compliance-reports"
+  force_destroy = true
 }
 
-# Secrets for mTLS and JWT
-resource "aws_secretsmanager_secret" "mtls_ca_cert" {
+# Use Data source to avoid conflict if already exists
+data "aws_secretsmanager_secret" "mtls_ca_cert" {
   name = "openguard/mtls/ca-cert"
 }
 
 resource "aws_secretsmanager_secret_version" "mtls_ca_cert_v1" {
-  secret_id     = aws_secretsmanager_secret.mtls_ca_cert.id
+  secret_id     = data.aws_secretsmanager_secret.mtls_ca_cert.id
   secret_string = "placeholder-ca-cert"
 }
-
-

@@ -181,11 +181,19 @@ func main() {
 	// Start Saga Consumer (spec §2.5)
 	logger.Info("starting saga consumer", "brokers", brokers)
 	sagaConsumer := saga.NewConsumer(brokers, "openguard-saga-v1", "saga.orchestration", svc, logger.With("component", "saga-consumer"))
-
-
 	go func() {
-		if err := sagaConsumer.Start(ctx); err != nil {
-			logger.Error("saga consumer failed", "error", err)
+		// Connection retry loop for Kafka (spec §1.4)
+		for {
+			if err := sagaConsumer.Start(ctx); err != nil {
+				logger.Error("saga consumer failed, retrying in 5s", "error", err)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(5 * time.Second):
+					continue
+				}
+			}
+			return
 		}
 	}()
 	var tlsConfig *tls.Config

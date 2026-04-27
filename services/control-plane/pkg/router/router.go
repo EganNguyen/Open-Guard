@@ -31,6 +31,35 @@ func NewRouter() *chi.Mux {
 	r.Use(telemetry.Metrics)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(sharedmiddleware.SecurityHeaders)
+	
+	// CORS setup
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			publicURL := os.Getenv("OPENGUARD_PUBLIC_URL")
+			
+			// Allow localhost, the LocalStack domain, AND the persistent InstaTunnel subdomain
+			allowed := origin == "http://localhost:4200" || 
+			           origin == "https://openguard.lb.localstack.cloud" || 
+			           origin == "https://openguard-dev.instatunnel.io" ||
+			           (publicURL != "" && origin == publicURL)
+
+
+
+			if allowed {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+
 
 	r.Handle("/metrics", promhttp.Handler())
 

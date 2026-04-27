@@ -90,11 +90,25 @@ localstack-up: certs
 	@echo "Building Connected App & Dashboard..."
 	docker build -t openguard/example-app:latest -f examples/task-management-app/backend/Dockerfile .
 	docker build -t openguard/dashboard:latest -f web/Dockerfile .
-	@echo "Starting LocalStack via CLI..."
+	@echo "Starting LocalStack Pro on openguard-net..."
+	-docker network create openguard-net
 	LOCALSTACK_AUTH_TOKEN=$(LOCALSTACK_AUTH_TOKEN) localstack start -d
-	@echo "Waiting for LocalStack to be ready..."
+	@echo "Waiting for Data Tier Readiness..."
+	chmod +x deploy/localstack/scripts/wait-for-infra.sh
+	./deploy/localstack/scripts/wait-for-infra.sh
+	@echo "Waiting for LocalStack API..."
 	localstack wait -t 30
-	@echo "Provisioning AWS Resources in LocalStack..."
+	@echo "Connecting LocalStack to openguard-net..."
+	-docker network connect openguard-net localstack-main
+	@echo "Bridging Data Tier to openguard-net..."
+	-docker network connect openguard-net docker-postgres-1
+	-docker network connect openguard-net docker-redis-1
+	-docker network connect openguard-net docker-kafka-1
+	-docker network connect openguard-net docker-mongo-primary-1
+	-docker network connect openguard-net docker-clickhouse-1
+	@echo "Provisioning AWS Resources & Syncing Certs..."
+	export AWS_ACCESS_KEY_ID=test && export AWS_SECRET_ACCESS_KEY=test && export AWS_DEFAULT_REGION=us-east-1 && \
+	INFRA_MODE=localstack ./deploy/production/bootstrap.sh us-east-1 localstack
 	export PATH=$$PATH:/Users/nguyenhoangtuan/Library/Python/3.9/bin && \
 	cd deploy/localstack/terraform && tflocal init && tflocal apply -auto-approve
 	@echo "Deploying Full Stack via ECS Shim..."
@@ -112,18 +126,28 @@ localstack-up: certs
 	./deploy/localstack/scripts/run-ecs-shim.sh control-plane openguard/control-plane:latest 8080
 	./deploy/localstack/scripts/run-ecs-shim.sh example-app openguard/example-app:latest 3005
 	./deploy/localstack/scripts/run-ecs-shim.sh dashboard openguard/dashboard:latest 4200
-
-
-
-
-
-
-localstack-logs:
-	awslocal logs tail /ecs/openguard --follow
-
+	@echo "Waiting for IAM service health..."
+	until [ "$$(docker inspect -f '{{.State.Health.Status}}' openguard-iam 2>/dev/null)" == "healthy" ] || [ "$$(docker inspect -f '{{.State.Running}}' openguard-iam 2>/dev/null)" == "true" ]; do \
+		echo "Waiting for openguard-iam to be running..."; \
+		sleep 2; \
+	done
+	@echo "Small delay for migration readiness..."
+	sleep 5
+	@echo "Initializing Data (Seeding)..."
+	-docker exec openguard-iam env SEED_DB=true /usr/local/bin/service
+	@echo "Deployment Complete."
 
 
 
 localstack-down:
-	docker rm -f localstack_main openguard-iam openguard-policy
+	@echo "Stopping Tunnels and Containers..."
+	-pkill instatunnel
+	-docker rm -f $$(docker ps -aqf "name=openguard-")
+	localstack stop
+
+public-url:
+	@echo "🚀 Starting InstaTunnel public tunnel (openguard-dev.instatunnel.io)..."
+	instatunnel tunnel 4200 --subdomain openguard-dev > /dev/null &
+	@echo "🌐 Public URL is: https://openguard-dev.instatunnel.io"
+
 
