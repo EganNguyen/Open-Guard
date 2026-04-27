@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: 'web/package-lock.json'
+          cache-dependency-path: './web/package-lock.json'
 
       - name: Setup Python (for SQL Lint)
         uses: actions/setup-python@v5
@@ -42,15 +42,14 @@ jobs:
 
       - name: Install Tools
         run: |
-          # Install latest golangci-lint and add to path
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin latest
+          # Use the official action for better config compatibility
           pip install sqlfluff
 
       - name: Run Go Lint
-        run: |
-          go work sync
-          # Run lint with explicit config handling to avoid version mismatches
-          $(go env GOPATH)/bin/golangci-lint run ./...
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
 
       - name: Run SQL Lint
         run: sqlfluff lint .
