@@ -10,6 +10,7 @@ jobs:
     name: Build & Push to ECR
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         service: [iam, policy, audit, threat, alerting, webhook-delivery, compliance, dlp, connector-registry, control-plane, example-app, dashboard]
         include:
