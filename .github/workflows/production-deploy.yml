@@ -1,7 +1,9 @@
-name: Production Deployment (Mock)
+name: OpenGuard CI/CD Pipeline
 
 on:
   push:
+    branches: [ main ]
+  pull_request:
     branches: [ main ]
   workflow_dispatch:
 
@@ -10,8 +12,36 @@ permissions:
   contents: read
 
 jobs:
+  # PHASE 1: CI (Quality Control)
+  ci-quality:
+    name: CI (Lint & Unit Test)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Go Format Check
+        run: |
+          if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then
+            echo "::error::Go files not formatted. Run 'go fmt ./...'"
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: Run Unit Tests
+        run: |
+          go work sync
+          go test -v -race ./sdk/... ./shared/...
+
+  # PHASE 2: Build Microservices
   build-services:
     name: Build Microservices
+    needs: ci-quality
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -42,21 +72,17 @@ jobs:
             path: examples/task-management-app/backend/Dockerfile
           - service: dashboard
             path: web/Dockerfile
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Build Docker Image
-        env:
-          SERVICE: ${{ matrix.service }}
-          DOCKERFILE: ${{ matrix.path }}
         run: |
-          docker build -t openguard/$SERVICE:${{ github.sha }} -f $DOCKERFILE .
-          docker tag openguard/$SERVICE:${{ github.sha }} openguard/$SERVICE:latest
+          docker build -t openguard/${{ matrix.service }}:${{ github.sha }} -f ${{ matrix.path }} .
 
-  mock-deploy:
-    name: Mock Infrastructure & Registry
+  # PHASE 3: CD (Mock Deployment & Integration Tests)
+  cd-mock:
+    name: CD (LocalStack Mock Deploy)
     needs: build-services
     runs-on: ubuntu-latest
     services:
@@ -75,27 +101,15 @@ jobs:
             sleep 5
           done
 
-      - name: Create Mock ECR Repos
-        env:
-          AWS_ACCESS_KEY_ID: test
-          AWS_SECRET_ACCESS_KEY: test
-          AWS_REGION: us-east-1
-        run: |
-          SERVICES="iam policy audit threat alerting webhook-delivery compliance dlp connector-registry control-plane example-app dashboard"
-          for svc in $SERVICES; do
-            aws ecr create-repository --repository-name openguard/$svc --endpoint-url http://localhost:4566
-          done
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform Init & Apply (Mock)
+      - name: Terraform Deploy (Mock)
         working-directory: deploy/production/terraform/environments/prod
         env:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           AWS_REGION: us-east-1
-          TF_VAR_is_localstack: "true"
         run: |
           cat <<EOF > provider_override.tf
           provider "aws" {
@@ -117,21 +131,31 @@ jobs:
               servicediscovery = "http://localhost:4566"
             }
           }
-          terraform {
-            backend "local" {}
-          }
+          terraform { backend "local" {} }
           EOF
           terraform init
           terraform apply -auto-approve -var="image_tag=${{ github.sha }}" -var="domain_name=localhost"
 
-      - name: Verify Mock Deployment
+      - name: Run Integration Smoke Test
         env:
+          AWS_ENDPOINT_URL: http://localhost:4566
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           AWS_REGION: us-east-1
-          AWS_ENDPOINT_URL: http://localhost:4566
         run: |
-          echo "Listing Created Mock Resources:"
+          echo "Verifying deployment state..."
           aws ecs list-clusters --endpoint-url $AWS_ENDPOINT_URL
           aws ecr describe-repositories --endpoint-url $AWS_ENDPOINT_URL
-          aws s3 ls --endpoint-url $AWS_ENDPOINT_URL
+
+  # PHASE 4: CD (Real AWS Production) - Placeholder for Manual Gate
+  cd-production:
+    name: CD (AWS Production)
+    needs: cd-mock
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production # Requires manual approval in GitHub UI
+    steps:
+      - name: Deploy to Real AWS
+        run: |
+          echo "This job requires manual approval in the GitHub UI 'production' environment."
+          echo "Once approved, it would run 'terraform apply' against your REAL AWS account."
