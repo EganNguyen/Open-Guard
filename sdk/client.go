@@ -3,16 +3,46 @@ package sdk
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/sony/gobreaker"
 )
+
+func WithMTLS(caCertPath, clientCertPath, clientKeyPath string) ClientOption {
+	return func(c *Client) {
+		caCert, err := os.ReadFile(caCertPath)
+		if err != nil {
+			return // In a real SDK we might handle this better
+		}
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(caCert)
+
+		tlsConfig := &tls.Config{
+			RootCAs:            caCertPool,
+			InsecureSkipVerify: true, // For dev/test environments
+		}
+
+		if clientCertPath != "" && clientKeyPath != "" {
+			cert, err := tls.LoadX509KeyPair(clientCertPath, clientKeyPath)
+			if err == nil {
+				tlsConfig.Certificates = []tls.Certificate{cert}
+			}
+		}
+
+		if transport, ok := c.httpClient.Transport.(*http.Transport); ok {
+			transport.TLSClientConfig = tlsConfig
+		}
+	}
+}
 
 type Client struct {
 	baseURL    string

@@ -9,18 +9,24 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/openguard/services/connector-registry/pkg/repository"
 	"github.com/openguard/shared/crypto"
 	"github.com/redis/go-redis/v9"
 )
 
+type Repository interface {
+	CreateConnector(ctx context.Context, id, orgID, name, clientSecret string, uris []string, apiKeyPrefix, apiKeyHash string) error
+	FindByPrefix(ctx context.Context, prefix string) (map[string]interface{}, error)
+	GetConnectorByID(ctx context.Context, id string) (map[string]interface{}, error)
+	DeleteConnector(ctx context.Context, id string) error
+}
+
 type Service struct {
-	repo   *repository.Repository
+	repo   Repository
 	rdb    *redis.Client
 	logger *slog.Logger
 }
 
-func NewService(repo *repository.Repository, rdb *redis.Client, logger *slog.Logger) *Service {
+func NewService(repo Repository, rdb *redis.Client, logger *slog.Logger) *Service {
 	return &Service{
 		repo:   repo,
 		rdb:    rdb,
