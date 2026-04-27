@@ -179,7 +179,10 @@ func main() {
 	go sagaWatcher.Run(ctx)
 
 	// Start Saga Consumer (spec §2.5)
+	logger.Info("starting saga consumer", "brokers", brokers)
 	sagaConsumer := saga.NewConsumer(brokers, "openguard-saga-v1", "saga.orchestration", svc, logger.With("component", "saga-consumer"))
+
+
 	go func() {
 		if err := sagaConsumer.Start(ctx); err != nil {
 			logger.Error("saga consumer failed", "error", err)

@@ -75,5 +75,55 @@ generate:
 phase5:
 	opencode run .opencode/phase5-detectors.yaml "Generate all detectors and logic defined in this spec"
 
-geo-db:
-	./scripts/download-geolite2.sh
+localstack-up: certs
+	@echo "Building Microservices..."
+	docker build -t openguard/iam:latest -f services/iam/Dockerfile .
+	docker build -t openguard/policy:latest -f services/policy/Dockerfile .
+	docker build -t openguard/audit:latest -f services/audit/Dockerfile .
+	docker build -t openguard/threat:latest -f services/threat/Dockerfile .
+	docker build -t openguard/alerting:latest -f services/alerting/Dockerfile .
+	docker build -t openguard/webhook-delivery:latest -f services/webhook-delivery/Dockerfile .
+	docker build -t openguard/compliance:latest -f services/compliance/Dockerfile .
+	docker build -t openguard/dlp:latest -f services/dlp/Dockerfile .
+	docker build -t openguard/connector-registry:latest -f services/connector-registry/Dockerfile .
+	docker build -t openguard/control-plane:latest -f services/control-plane/Dockerfile .
+	@echo "Building Connected App & Dashboard..."
+	docker build -t openguard/example-app:latest -f examples/task-management-app/backend/Dockerfile .
+	docker build -t openguard/dashboard:latest -f web/Dockerfile .
+	@echo "Starting LocalStack via CLI..."
+	LOCALSTACK_AUTH_TOKEN=$(LOCALSTACK_AUTH_TOKEN) localstack start -d
+	@echo "Waiting for LocalStack to be ready..."
+	localstack wait -t 30
+	@echo "Provisioning AWS Resources in LocalStack..."
+	export PATH=$$PATH:/Users/nguyenhoangtuan/Library/Python/3.9/bin && \
+	cd deploy/localstack/terraform && tflocal init && tflocal apply -auto-approve
+	@echo "Deploying Full Stack via ECS Shim..."
+	chmod +x deploy/localstack/scripts/run-ecs-shim.sh
+	-docker rm -f $$(docker ps -aqf "name=openguard-")
+	./deploy/localstack/scripts/run-ecs-shim.sh iam openguard/iam:latest 8081
+	./deploy/localstack/scripts/run-ecs-shim.sh policy openguard/policy:latest 8082
+	./deploy/localstack/scripts/run-ecs-shim.sh audit openguard/audit:latest 8083
+	./deploy/localstack/scripts/run-ecs-shim.sh threat openguard/threat:latest 8084
+	./deploy/localstack/scripts/run-ecs-shim.sh alerting openguard/alerting:latest 8085
+	./deploy/localstack/scripts/run-ecs-shim.sh webhook openguard/webhook-delivery:latest 8086
+	./deploy/localstack/scripts/run-ecs-shim.sh compliance openguard/compliance:latest 8087
+	./deploy/localstack/scripts/run-ecs-shim.sh dlp openguard/dlp:latest 8088
+	./deploy/localstack/scripts/run-ecs-shim.sh registry openguard/connector-registry:latest 8089
+	./deploy/localstack/scripts/run-ecs-shim.sh control-plane openguard/control-plane:latest 8080
+	./deploy/localstack/scripts/run-ecs-shim.sh example-app openguard/example-app:latest 3005
+	./deploy/localstack/scripts/run-ecs-shim.sh dashboard openguard/dashboard:latest 4200
+
+
+
+
+
+
+localstack-logs:
+	awslocal logs tail /ecs/openguard --follow
+
+
+
+
+localstack-down:
+	docker rm -f localstack_main openguard-iam openguard-policy
+

@@ -1,0 +1,22 @@
+detectors:
+  brute_force:
+    signal: auth.login.failed
+    threshold: 10
+    window: 60m
+    risk_score: 0.8
+  
+  impossible_travel:
+    signal: data.access
+    threshold: 500km
+    window: 1h
+    risk_score: 0.9
+  
+  off_hours_access:
+    signal: auth.login.success
+    hours: [22, 6]
+    risk_score: 0.5
+  
+  data_exfiltration:
+    signal: data.access
+    threshold: 3-sigma
+    risk_score: 0.7

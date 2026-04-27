@@ -1,0 +1,62 @@
+project:
+  name: Open-Guard
+  tech_stack:
+    backend: Go 1.25
+    frontend: Angular 19
+    infrastructure: Docker, Kafka, PostgreSQL, Redis, MongoDB, ClickHouse
+
+services:
+  control-plane:
+    port: 8080
+    path: services/control-plane
+    type: proxy
+    security: [mtls, api-key]
+  
+  iam:
+    port: 8081
+    path: services/iam
+    database: postgres (openguard_iam)
+    features: [auth, scim, mfa, rls, outbox]
+  
+  policy:
+    port: 8082
+    path: services/policy
+    database: postgres (openguard_policy)
+    features: [rbac, rls, cache, outbox]
+  
+  threat:
+    port: 8083
+    path: services/threat
+    database: redis, mongo
+    features: [streaming, detectors]
+  
+  audit:
+    port: 8084
+    path: services/audit
+    database: mongo (openguard_audit)
+    features: [hash-chain, integrity]
+  
+  alerting:
+    port: 8085
+    path: services/alerting
+    database: mongo
+    features: [siem, webhooks]
+  
+  connector-registry:
+    port: 8090
+    path: services/connector-registry
+    database: postgres (openguard_iam)
+    features: [api-keys, rls]
+  
+  compliance:
+    port: 8092
+    path: services/compliance
+    database: clickhouse
+    features: [reporting, analytics]
+
+shared_libraries:
+  - shared/crypto: [jwt, aes]
+  - shared/rls: [session-handling]
+  - shared/kafka: [outbox, publisher]
+  - shared/resilience: [circuit-breaker]
+  - shared/telemetry: [structured-logging]
