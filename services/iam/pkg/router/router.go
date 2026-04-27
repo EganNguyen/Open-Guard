@@ -21,7 +21,7 @@ import (
 )
 
 // Router sets up the HTTP routes for the IAM service.
-func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, stop <-chan struct{}) *chi.Mux {
+func NewRouter(ctx context.Context, h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, stop <-chan struct{}) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Initialize WebAuthn
@@ -60,7 +60,7 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, 
 		Interval:         10 * time.Second,
 		FailureThreshold: 3,
 		OpenDuration:     5 * time.Second,
-	}, iam_middleware.GetLogger(context.TODO())) // Using context.TODO instead of nil
+	}, iam_middleware.GetLogger(ctx)) // Use service-level context instead of TODO
 
 	authMiddleware := shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker)
 	idemMiddleware := shared_middleware.IdempotencyMiddleware(rdb)

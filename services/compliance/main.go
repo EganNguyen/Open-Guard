@@ -29,6 +29,10 @@ import (
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
+	// Graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	// Initialize OpenTelemetry (INFRA-04)
 	tp, err := telemetry.InitTracer()
 	if err != nil {
@@ -65,7 +69,7 @@ func main() {
 	if pgURL == "" {
 		pgURL = "postgres://openguard:openguard@localhost:5432/openguard?sslmode=disable"
 	}
-	pgPool, err := pgxpool.New(context.Background(), pgURL)
+	pgPool, err := pgxpool.New(ctx, pgURL)
 	if err != nil {
 		logger.Error("failed to connect to postgres", "error", err)
 		os.Exit(1)
@@ -73,10 +77,11 @@ func main() {
 	defer pgPool.Close()
 
 	// Run Migrations (INFRA-02)
-	if err := database.Migrate(context.Background(), pgPool, "migrations"); err != nil {
+	if err := database.Migrate(ctx, pgPool, "migrations"); err != nil {
 		logger.Error("migrations failed", "error", err)
 		os.Exit(1)
 	}
+
 
 	// ── S3/MinIO Storage ─────────────────────────────────────────────────────
 	s3Endpoint := os.Getenv("S3_ENDPOINT")
@@ -94,7 +99,7 @@ func main() {
 		s3Region = "us-east-1"
 	}
 
-	s3Storage, err := storage.NewS3Storage(s3Endpoint, s3AccessKey, s3SecretKey, s3Bucket, s3Region)
+	s3Storage, err := storage.NewS3Storage(ctx, s3Endpoint, s3AccessKey, s3SecretKey, s3Bucket, s3Region)
 	if err != nil {
 		logger.Error("failed to initialize s3 storage", "error", err)
 		os.Exit(1)
@@ -129,7 +134,7 @@ func main() {
 		logger.Error("failed to connect to clickhouse", "error", err)
 		os.Exit(1)
 	}
-	if err := repo.InitSchema(context.Background()); err != nil {
+	if err := repo.InitSchema(ctx); err != nil {
 		logger.Error("failed to init schema", "error", err)
 		os.Exit(1)
 	}
@@ -144,7 +149,7 @@ func main() {
 	)
 	go func() {
 		logger.Info("starting clickhouse writer")
-		if err := cw.Start(context.Background()); err != nil {
+		if err := cw.Start(ctx); err != nil {
 			logger.Error("clickhouse writer failed", "error", err)
 		}
 	}()
@@ -153,7 +158,7 @@ func main() {
 	h := handlers.NewComplianceHandler(repo, bulkhead, s3Storage)
 
 	// 4. Start Background Worker
-	go h.StartWorker(context.Background())
+	go h.StartWorker(ctx)
 
 	// 5. Initialize Router & Start Server
 	r := router.NewRouter(h, keyring, rdb)
@@ -198,9 +203,7 @@ func main() {
 	}()
 
 	// Graceful shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	<-sigCh
+	<-ctx.Done()
 	logger.Info("shutting down compliance service")
 	srv.Shutdown(context.Background())
 }

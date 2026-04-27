@@ -2,11 +2,71 @@ package service_test
 
 import (
 	"encoding/json"
+	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/openguard/services/policy/pkg/repository"
 	"github.com/openguard/services/policy/pkg/service"
 )
+
+func TestEvaluate_CEL(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	s := service.NewService(nil, nil, nil, logger)
+
+	tests := []struct {
+		name       string
+		req        service.EvaluateRequest
+		expression string
+		want       string
+	}{
+		{
+			name:       "CEL Simple Match",
+			req:        service.EvaluateRequest{SubjectID: "user:admin", Action: "read", Resource: "doc1"},
+			expression: "subject == 'user:admin'",
+			want:       "allow",
+		},
+		{
+			name:       "CEL StartsWith",
+			req:        service.EvaluateRequest{SubjectID: "user:admin", Action: "read", Resource: "doc1"},
+			expression: "subject.startsWith('user:')",
+			want:       "allow",
+		},
+		{
+			name:       "CEL List Contains",
+			req:        service.EvaluateRequest{SubjectID: "user1", UserGroups: []string{"admin", "editor"}, Action: "write", Resource: "doc1"},
+			expression: "'admin' in user_groups",
+			want:       "allow",
+		},
+		{
+			name:       "CEL Complex Logic",
+			req:        service.EvaluateRequest{SubjectID: "user1", Action: "delete", Resource: "prod:db"},
+			expression: "subject == 'user1' && resource.startsWith('prod:') && action == 'delete'",
+			want:       "allow",
+		},
+		{
+			name:       "CEL No Match",
+			req:        service.EvaluateRequest{SubjectID: "user1", Action: "read", Resource: "doc1"},
+			expression: "subject == 'user2'",
+			want:       "deny",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policies := []repository.Policy{
+				{
+					ID:    "p1",
+					Logic: json.RawMessage(`{"type":"cel","expression":"` + tt.expression + `"}`),
+				},
+			}
+			effect, _, _ := s.EvaluateInternal(tt.req, policies)
+			if effect != tt.want {
+				t.Errorf("%s: expected %s, got %s", tt.name, tt.want, effect)
+			}
+		})
+	}
+}
 
 func TestEvaluate_AllowOnRBACMatch(t *testing.T) {
 	s := &service.Service{}

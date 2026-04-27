@@ -123,7 +123,7 @@ func TestClient_Retry(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	c := NewClient(ts.URL, "test-key", WithRetry(2, 10*time.Millisecond))
+	c := NewClient(ts.URL, "test-key", WithRetry(2, 10*time.Millisecond, false))
 	defer c.Close()
 
 	allowed, err := c.Allow(context.Background(), "u1", "a1", "r1")

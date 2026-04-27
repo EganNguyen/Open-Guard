@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/common/types"
 	"github.com/jackc/pgx/v5"
 	"github.com/openguard/services/policy/pkg/repository"
 	"github.com/openguard/services/policy/pkg/telemetry"
@@ -52,16 +54,18 @@ type cachedDecision struct {
 }
 
 // PolicyLogic is the JSONB structure stored in policies.logic
-// It supports two rule types:
+// It supports three rule types:
 //
 //	{ "type": "rbac", "subjects": ["user:*"], "actions": ["read:*"], "resources": ["document:*"] }
+//	{ "type": "cel", "expression": "subject.startsWith('user:admin') && resource.contains('confidential')" }
 //	{ "type": "deny_all" }
 //	{ "type": "allow_all" }
 type PolicyLogic struct {
-	Type      string   `json:"type"`
-	Subjects  []string `json:"subjects,omitempty"`
-	Actions   []string `json:"actions,omitempty"`
-	Resources []string `json:"resources,omitempty"`
+	Type       string   `json:"type"`
+	Subjects   []string `json:"subjects,omitempty"`
+	Actions    []string `json:"actions,omitempty"`
+	Resources  []string `json:"resources,omitempty"`
+	Expression string   `json:"expression,omitempty"`
 }
 
 type evalLogEntry struct {
@@ -71,23 +75,35 @@ type evalLogEntry struct {
 
 // Service implements the policy engine business logic.
 type Service struct {
-	repo        *repository.Repository
-	rdb         *redis.Client
+	repo         *repository.Repository
+	rdb          *redis.Client
 	outboxWriter *outbox.Writer
-	sfGroup     singleflight.Group
-	logger      *slog.Logger
-	dbBreaker   *gobreaker.CircuitBreaker
-	refreshSem  chan struct{}
-	logCh       chan evalLogEntry
+	sfGroup      singleflight.Group
+	logger       *slog.Logger
+	dbBreaker    *gobreaker.CircuitBreaker
+	refreshSem   chan struct{}
+	logCh        chan evalLogEntry
+	celEnv       *cel.Env
 }
 
 // NewService creates a new policy service.
 func NewService(repo *repository.Repository, rdb *redis.Client, outboxWriter *outbox.Writer, logger *slog.Logger) *Service {
+	env, err := cel.NewEnv(
+		cel.Variable("subject", cel.StringType),
+		cel.Variable("action", cel.StringType),
+		cel.Variable("resource", cel.StringType),
+		cel.Variable("user_groups", cel.ListType(cel.StringType)),
+	)
+	if err != nil {
+		logger.Error("failed to initialize CEL environment", "error", err)
+	}
+
 	s := &Service{
 		repo:         repo,
 		rdb:          rdb,
 		outboxWriter: outboxWriter,
 		logger:       logger,
+		celEnv:       env,
 		dbBreaker: resilience.NewBreaker(resilience.BreakerConfig{
 			Name:             "policy-db",
 			MaxRequests:      5,
@@ -239,9 +255,13 @@ func (s *Service) evaluateFromDB(ctx context.Context, req EvaluateRequest, key s
 	return resp, nil
 }
 
-// evaluate applies RBAC logic against the policy set.
+// Evaluate applies RBAC logic against the policy set.
 // Default is DENY — all requests are denied unless explicitly allowed.
 // An explicit deny overrides any allow.
+func (s *Service) EvaluateInternal(req EvaluateRequest, policies []repository.Policy) (string, []string, int) {
+	return s.evaluate(req, policies)
+}
+
 func (s *Service) evaluate(req EvaluateRequest, policies []repository.Policy) (string, []string, int) {
 	var matchedIDs []string
 	effect := "deny"
@@ -284,6 +304,42 @@ func (s *Service) evaluate(req EvaluateRequest, policies []repository.Policy) (s
 					maxVersion = p.Version
 				}
 			}
+
+		case "cel":
+			if s.celEnv == nil || logic.Expression == "" {
+				continue
+			}
+
+			ast, issues := s.celEnv.Compile(logic.Expression)
+			if issues != nil && issues.Err() != nil {
+				s.logger.Warn("failed to compile CEL expression", "policy_id", p.ID, "error", issues.Err())
+				continue
+			}
+
+			program, err := s.celEnv.Program(ast)
+			if err != nil {
+				s.logger.Warn("failed to create CEL program", "policy_id", p.ID, "error", err)
+				continue
+			}
+
+			out, _, err := program.Eval(map[string]interface{}{
+				"subject":     req.SubjectID,
+				"action":      req.Action,
+				"resource":    req.Resource,
+				"user_groups": req.UserGroups,
+			})
+			if err != nil {
+				s.logger.Warn("failed to evaluate CEL expression", "policy_id", p.ID, "error", err)
+				continue
+			}
+
+			if out.Type() == types.BoolType && out.Value().(bool) {
+				matchedIDs = append(matchedIDs, p.ID)
+				hasExplicitAllow = true
+				if p.Version > maxVersion {
+					maxVersion = p.Version
+				}
+			}
 		}
 	}
 
@@ -296,6 +352,10 @@ func (s *Service) evaluate(req EvaluateRequest, policies []repository.Policy) (s
 	}
 
 	return effect, matchedIDs, maxVersion
+}
+
+func (s *Service) MatchesGlob(patterns []string, value string) bool {
+	return matchesGlob(patterns, value)
 }
 
 // matchesGlob checks if value matches any pattern in patterns.

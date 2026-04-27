@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -14,6 +15,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/openguard/shared/middleware"
+)
+
+type SIEMType string
+
+const (
+	SIEMGeneric   SIEMType = "generic"
+	SIEMSplunk    SIEMType = "splunk"
+	SIEMDatadog   SIEMType = "datadog"
+	SIEMSentinel  SIEMType = "sentinel"
 )
 
 type SIEMDeliverer struct {
@@ -68,25 +78,24 @@ func Verify(payload []byte, secret, sig, ts string, tolerance int64) error {
 	return nil
 }
 
-func (d *SIEMDeliverer) Deliver(ctx context.Context, webhookURL string, secret string, payload []byte) error {
+func (d *SIEMDeliverer) Deliver(ctx context.Context, siemType SIEMType, webhookURL string, secret string, payload []byte) error {
 	// 1. SSRF validation (runtime)
 	if err := middleware.ValidateOutboundURL(webhookURL); err != nil {
 		return fmt.Errorf("SSRF blocked: %w", err)
 	}
 
-	// 2. Sign payload
-	sig, delivery, ts := Sign(payload, secret)
+	// 2. Format payload for specific SIEM if needed
+	finalPayload, headers := d.formatForSIEM(siemType, payload, secret)
 
 	// 3. Prepare request
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(finalPayload))
 	if err != nil {
 		return err
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-OpenGuard-Signature", sig)
-	req.Header.Set("X-OpenGuard-Delivery", delivery)
-	req.Header.Set("X-OpenGuard-Timestamp", ts)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 
 	// 4. Execute
 	resp, err := d.client.Do(req)
@@ -100,6 +109,43 @@ func (d *SIEMDeliverer) Deliver(ctx context.Context, webhookURL string, secret s
 	}
 
 	return nil
+}
+
+func (d *SIEMDeliverer) formatForSIEM(siemType SIEMType, payload []byte, secret string) ([]byte, map[string]string) {
+	headers := make(map[string]string)
+	headers["Content-Type"] = "application/json"
+
+	switch siemType {
+	case SIEMSplunk:
+		// Splunk HEC (HTTP Event Collector) format
+		splunkPayload := map[string]interface{}{
+			"event": json.RawMessage(payload),
+			"sourcetype": "openguard_alert",
+		}
+		formatted, _ := json.Marshal(splunkPayload)
+		headers["Authorization"] = "Splunk " + secret // In Splunk, secret is the HEC token
+		return formatted, headers
+
+	case SIEMDatadog:
+		headers["DD-API-KEY"] = secret
+		return payload, headers
+
+	case SIEMSentinel:
+		// Azure Sentinel Logic App / Custom Log Ingestion often uses HMAC-SHA256 in a specific header
+		sig, delivery, ts := Sign(payload, secret)
+		headers["X-OpenGuard-Signature"] = sig
+		headers["X-OpenGuard-Delivery"] = delivery
+		headers["X-OpenGuard-Timestamp"] = ts
+		headers["Log-Type"] = "OpenGuardAlert"
+		return payload, headers
+
+	default:
+		sig, delivery, ts := Sign(payload, secret)
+		headers["X-OpenGuard-Signature"] = sig
+		headers["X-OpenGuard-Delivery"] = delivery
+		headers["X-OpenGuard-Timestamp"] = ts
+		return payload, headers
+	}
 }
 
 func ValidateConfig(webhookURL string) error {

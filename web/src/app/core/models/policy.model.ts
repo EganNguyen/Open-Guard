@@ -1,10 +1,11 @@
 import { z } from 'zod';
 
 export const PolicyLogicSchema = z.object({
-  type: z.enum(['rbac', 'deny_all', 'allow_all']),
+  type: z.enum(['rbac', 'deny_all', 'allow_all', 'cel']),
   subjects: z.array(z.string()).optional(),
   actions: z.array(z.string()).optional(),
   resources: z.array(z.string()).optional(),
+  expression: z.string().optional(),
 });
 
 export const PolicySchema = z.object({

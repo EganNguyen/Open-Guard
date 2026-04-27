@@ -17,7 +17,7 @@ type S3Storage struct {
 	bucketName string
 }
 
-func NewS3Storage(endpoint, accessKey, secretKey, bucket, region string) (*S3Storage, error) {
+func NewS3Storage(ctx context.Context, endpoint, accessKey, secretKey, bucket, region string) (*S3Storage, error) {
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		return aws.Endpoint{
 			URL:               endpoint,
@@ -26,7 +26,7 @@ func NewS3Storage(endpoint, accessKey, secretKey, bucket, region string) (*S3Sto
 		}, nil
 	})
 
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
+	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
 		config.WithEndpointResolverWithOptions(customResolver),

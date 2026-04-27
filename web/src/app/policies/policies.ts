@@ -45,12 +45,24 @@ export class PoliciesComponent implements OnInit {
       type: ['rbac', Validators.required],
       subjects: this.fb.array([]),
       actions: this.fb.array([]),
-      resources: this.fb.array([])
+      resources: this.fb.array([]),
+      expression: ['']
     })
   });
 
   ngOnInit() {
     this.loadPolicies();
+    
+    // Subscribe to type changes to adjust validators
+    this.policyForm.get('logic.type')?.valueChanges.subscribe(type => {
+      const expressionControl = this.policyForm.get('logic.expression');
+      if (type === 'cel') {
+        expressionControl?.setValidators([Validators.required]);
+      } else {
+        expressionControl?.clearValidators();
+      }
+      expressionControl?.updateValueAndValidity();
+    });
   }
 
   loadPolicies() {
@@ -115,7 +127,10 @@ export class PoliciesComponent implements OnInit {
     this.policyForm.patchValue({
       name: policy.name,
       description: policy.description,
-      logic: { type: logic.type }
+      logic: { 
+        type: logic.type,
+        expression: logic.expression || ''
+      }
     });
     
     this.showModal.set(true);

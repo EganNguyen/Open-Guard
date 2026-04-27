@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/go-chi/chi/v5 v5.2.5
+	github.com/google/cel-go v0.28.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/openguard/shared v0.0.0
@@ -14,6 +15,8 @@ require (
 )
 
 require (
+	cel.dev/expr v0.25.1 // indirect
+	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.41.6 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.32.16 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.15 // indirect
@@ -46,8 +49,11 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
+	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20240826202546-f6391c0de4c7 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 

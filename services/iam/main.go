@@ -158,7 +158,7 @@ func main() {
 	h := handlers.NewHandler(svc)
 
 	// Setup Router
-	r := router.NewRouter(h, keyring, rdb, ctx.Done())
+	r := router.NewRouter(ctx, h, keyring, rdb, ctx.Done())
 
 	// Initialize Kafka and Outbox Relay
 	brokers := os.Getenv("KAFKA_BROKERS")

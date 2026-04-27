@@ -99,10 +99,11 @@ func (s *AlertSaga) processMessage(ctx context.Context, m kafka.Message) {
 	// For now, assume a mock check or environment variable
 	siemURL := "" // This would come from org config in a real impl
 	siemSecret := ""
+	siemType := webhook.SIEMGeneric
 	if siemURL != "" {
 		if err := s.executeStep(ctx, alert.ID, "siem", func() error {
 			payload, _ := json.Marshal(alert)
-			return s.siem.Deliver(ctx, siemURL, siemSecret, payload)
+			return s.siem.Deliver(ctx, siemType, siemURL, siemSecret, payload)
 		}); err != nil {
 			s.logger.Error("saga step failed", "step", "siem", "alert_id", alert.ID, "error", err)
 		}
