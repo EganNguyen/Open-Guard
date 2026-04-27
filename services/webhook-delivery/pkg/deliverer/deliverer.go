@@ -16,9 +16,12 @@ import (
 	"github.com/openguard/shared/middleware"
 )
 
+type SSRFValidator func(string) error
+
 type Deliverer struct {
-	client *http.Client
-	logger *slog.Logger
+	client    *http.Client
+	logger    *slog.Logger
+	validator SSRFValidator
 }
 
 func NewDeliverer(logger *slog.Logger) *Deliverer {
@@ -26,14 +29,17 @@ func NewDeliverer(logger *slog.Logger) *Deliverer {
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		logger: logger,
+		logger:    logger,
+		validator: middleware.ValidateOutboundURL,
 	}
 }
 
 func (d *Deliverer) Deliver(ctx context.Context, messageKey, target, payload, secret string) error {
 	// 1. SSRF check
-	if err := middleware.ValidateOutboundURL(target); err != nil {
-		return fmt.Errorf("SSRF blocked: %w", err)
+	if d.validator != nil {
+		if err := d.validator(target); err != nil {
+			return fmt.Errorf("SSRF blocked: %w", err)
+		}
 	}
 
 	// 2. Sign payload (reuse alerting HMAC pattern)

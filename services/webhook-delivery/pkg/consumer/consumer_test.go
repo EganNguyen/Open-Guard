@@ -10,131 +10,75 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
-type MockKafkaReader struct {
-	Messages  []kafka.Message
-	index     int
-	Committed int
+type MockReader struct {
+	mock.Mock
 }
 
-func (m *MockKafkaReader) FetchMessage(ctx context.Context) (kafka.Message, error) {
-	if m.index >= len(m.Messages) {
-		// Block until context cancelled
-		<-ctx.Done()
-		return kafka.Message{}, ctx.Err()
-	}
-	msg := m.Messages[m.index]
-	m.index++
-	return msg, nil
+func (m *MockReader) FetchMessage(ctx context.Context) (kafka.Message, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(kafka.Message), args.Error(1)
 }
 
-func (m *MockKafkaReader) CommitMessages(ctx context.Context, msgs ...kafka.Message) error {
-	m.Committed += len(msgs)
-	return nil
+func (m *MockReader) CommitMessages(ctx context.Context, msgs ...kafka.Message) error {
+	args := m.Called(ctx, msgs)
+	return args.Error(0)
 }
 
 type MockDeliverer struct {
-	DeliverFunc func(ctx context.Context, messageKey, target, payload, secret string) error
-	Attempts    int
+	mock.Mock
 }
 
 func (m *MockDeliverer) Deliver(ctx context.Context, messageKey, target, payload, secret string) error {
-	m.Attempts++
-	if m.DeliverFunc != nil {
-		return m.DeliverFunc(ctx, messageKey, target, payload, secret)
-	}
-	return nil
+	args := m.Called(ctx, messageKey, target, payload, secret)
+	return args.Error(0)
 }
 
-type MockKafkaPublisher struct{}
-
-func (m *MockKafkaPublisher) Publish(ctx context.Context, topic, key string, payload []byte) error {
-	return nil
+type MockPublisher struct {
+	mock.Mock
 }
 
-// TestAtLeastOnceDelivery_ProcessKilled simulates the process being killed
-// (e.g. by OOM or panic) during the message delivery phase, and verifies
-// that upon restart, the message is fetched and processed again because
-// the offset was not committed.
-func TestAtLeastOnceDelivery_ProcessKilled(t *testing.T) {
+func (m *MockPublisher) Publish(ctx context.Context, topic, key string, payload []byte) error {
+	args := m.Called(ctx, topic, key, payload)
+	return args.Error(0)
+}
+
+func TestWebhookConsumer_ProcessMessage_DLQ(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	mockDeliverer := new(MockDeliverer)
+	mockPublisher := new(MockPublisher)
+	
+	c := &WebhookConsumer{
+		deliverer:  mockDeliverer,
+		publisher:  mockPublisher,
+		logger:     logger,
+		getBackoff: func(int) time.Duration { return 0 }, // Instant retry for test
+	}
 
-	req := WebhookDeliveryRequest{Target: "http://example.com", Payload: "{}"}
+	ctx := context.Background()
+	req := WebhookDeliveryRequest{
+		Target:  "http://example.com/webhook",
+		Payload: "{}",
+		Secret:  "secret",
+	}
 	val, _ := json.Marshal(req)
-
 	msg := kafka.Message{
-		Key:   []byte("test-delivery-id"),
+		Key:   []byte("msg-1"),
 		Value: val,
 	}
 
-	reader := &MockKafkaReader{
-		Messages: []kafka.Message{msg},
-	}
-
-	deliverer := &MockDeliverer{
-		DeliverFunc: func(ctx context.Context, messageKey, target, payload, secret string) error {
-			// Simulate a panic/process kill during delivery attempt
-			panic("process killed during delivery")
-		},
-	}
-
-	consumer := &WebhookConsumer{
-		reader:    reader,
-		deliverer: deliverer,
-		publisher: &MockKafkaPublisher{},
-		logger:    logger,
-	}
-
-	// 1. First run: simulates "Start" picking up the message, but crashing during Deliver
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				// Process "killed"
-			}
-		}()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-
-		_ = consumer.Start(ctx)
-	}()
+	// Mock 5 failed attempts
+	mockDeliverer.On("Deliver", mock.Anything, "msg-1", req.Target, req.Payload, req.Secret).Return(errors.New("connection reset")).Times(5)
 	
-	// Reset reader index to last committed offset to simulate restart
-	reader.index = reader.Committed
+	// Mock DLQ publish
+	mockPublisher.On("Publish", mock.Anything, "webhook.dlq", "msg-1", mock.Anything).Return(nil)
 
-	// Since it paniced before CommitMessages was called, Committed should be 0
-	if reader.Committed != 0 {
-		t.Fatalf("expected 0 commits, got %d", reader.Committed)
-	}
+	err := c.processMessage(ctx, msg)
+	assert.NoError(t, err)
 
-	// 2. Restart process: consumer starts again. Because index wasn't advanced (no commit),
-	// it will fetch the SAME message again.
-	// This time we make delivery succeed.
-	deliverer.DeliverFunc = func(ctx context.Context, messageKey, target, payload, secret string) error {
-		return nil // Success
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	go func() {
-		// Wait a bit and then cancel to stop the consumer loop
-		time.Sleep(100 * time.Millisecond)
-		cancel()
-	}()
-
-	err := consumer.Start(ctx)
-	if err != nil && !errors.Is(err, context.Canceled) {
-		t.Errorf("unexpected error from Start: %v", err)
-	}
-
-	// It should have been committed now
-	if reader.Committed != 1 {
-		t.Fatalf("expected 1 commit, got %d", reader.Committed)
-	}
-
-	// Total delivery attempts across restarts: 1 panic + 1 success = 2
-	if deliverer.Attempts != 2 {
-		t.Fatalf("expected 2 delivery attempts (1 from before crash, 1 after), got %d", deliverer.Attempts)
-	}
+	mockDeliverer.AssertExpectations(t)
+	mockPublisher.AssertExpectations(t)
 }

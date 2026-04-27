@@ -106,11 +106,15 @@ func NewRouter() *chi.Mux {
 				return
 			}
 			
-			// Map level to slog levels
+			// Map level to slog levels with safety check
 			logLevel := slog.LevelInfo
 			switch payload.Level {
 			case "error":
 				logLevel = slog.LevelError
+				// Safety: If the message looks like a successful HTTP request, downgrade to INFO
+				if status, ok := payload.Context["status"].(float64); ok && status < 400 {
+					logLevel = slog.LevelInfo
+				}
 			case "warn":
 				logLevel = slog.LevelWarn
 			case "debug":

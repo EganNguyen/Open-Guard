@@ -21,11 +21,18 @@ type Deliverer interface {
 	Deliver(ctx context.Context, messageKey, target, payload, secret string) error
 }
 
+type BackoffFunc func(attempt int) time.Duration
+
 type WebhookConsumer struct {
-	reader    KafkaReader
-	deliverer Deliverer
-	publisher KafkaPublisher
-	logger    *slog.Logger
+	reader     KafkaReader
+	deliverer  Deliverer
+	publisher  KafkaPublisher
+	logger     *slog.Logger
+	getBackoff BackoffFunc
+}
+
+func DefaultBackoff(i int) time.Duration {
+	return time.Duration(1<<i) * time.Second
 }
 
 type KafkaPublisher interface {
@@ -48,10 +55,11 @@ func NewWebhookConsumer(brokers string, groupID string, topic string, d Delivere
 	})
 
 	return &WebhookConsumer{
-		reader:    r,
-		deliverer: d,
-		publisher: pub,
-		logger:    logger,
+		reader:     r,
+		deliverer:  d,
+		publisher:  pub,
+		logger:     logger,
+		getBackoff: DefaultBackoff,
 	}
 }
 
@@ -111,7 +119,7 @@ func (c *WebhookConsumer) processMessage(ctx context.Context, m kafka.Message) e
 		c.logger.Warn("webhook delivery attempt failed", "attempt", i+1, "target", req.Target, "error", err)
 
 		// Backoff: 1s, 2s, 4s, 8s, 16s (context-aware)
-		backoff := time.Duration(1<<i) * time.Second
+		backoff := c.getBackoff(i)
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
