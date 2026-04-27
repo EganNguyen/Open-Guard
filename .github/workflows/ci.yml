@@ -43,11 +43,10 @@ jobs:
 
       - name: Run Go Lint # 3. Lint / Format Check
         run: |
-          # Use explicit relative paths from root for the workspace modules
-          # We must ensure the tool uses the workspace context correctly
-          # golangci-lint run is context-aware if run from the root with a go.work file
-          # We add ./... to be explicit about the pattern
-          $(go env GOPATH)/bin/golangci-lint run ./...
+          # Lint each module explicitly using the workspace context.
+          # We use xargs to run golangci-lint on each managed directory to ensure 
+          # module boundaries and dependencies are correctly loaded in the CI environment.
+          go list -m -f '{{.Dir}}' | grep -v "examples" | xargs -L1 -I {} sh -c 'cd {} && golangci-lint run ./...'
       
       - name: "Check for unsafe AuthJWT usage"
         run: |
