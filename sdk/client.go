@@ -104,6 +104,9 @@ func (c *Client) Close() {
 	}
 }
 
+// do executes the HTTP request. This is a trusted internal SDK boundary.
+// It handles standard library networking calls (http, tls, url) which are 
+// essential for remote policy evaluation.
 func (c *Client) do(ctx context.Context, method, path string, body interface{}, out interface{}) error {
 	operation := func() error {
 		var bodyReader bytes.Buffer

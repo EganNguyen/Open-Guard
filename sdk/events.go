@@ -18,6 +18,8 @@ type AuditEvent struct {
 }
 
 // IngestEvent sends a security event to the OpenGuard event pipeline.
+// IngestEvent pushes a security audit event to the OpenGuard control plane.
+// This uses a unique EventID (UUID) for deduplication at the edge.
 func (c *Client) IngestEvent(ctx context.Context, event AuditEvent) error {
 	if event.EventID == "" {
 		event.EventID = uuid.New().String()
