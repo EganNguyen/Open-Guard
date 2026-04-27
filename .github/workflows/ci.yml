@@ -56,6 +56,12 @@ jobs:
           - services/policy
           - services/alerting
           - services/threat
+          - services/audit
+          - services/compliance
+          - services/connector-registry
+          - services/control-plane
+          - services/dlp
+          - services/webhook-delivery
 
     steps:
       - uses: actions/checkout@v4
