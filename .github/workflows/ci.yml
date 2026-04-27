@@ -43,10 +43,9 @@ jobs:
 
       - name: Run Go Lint # 3. Lint / Format Check
         run: |
-          # Lint each module explicitly using the workspace context.
-          # We use xargs to run golangci-lint on each managed directory to ensure 
-          # module boundaries and dependencies are correctly loaded in the CI environment.
-          go list -m -f '{{.Dir}}' | grep -v "examples" | xargs -L1 -I {} sh -c 'cd {} && golangci-lint run ./...'
+          # Use the golangci-lint action's behavior but in our custom script to handle the workspace correctly.
+          # Running from the root with --path-prefix or specific args usually works best for go.work.
+          $(go env GOPATH)/bin/golangci-lint run --timeout=5m
       
       - name: "Check for unsafe AuthJWT usage"
         run: |
