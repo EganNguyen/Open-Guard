@@ -64,16 +64,20 @@ jobs:
         image: localstack/localstack:3.0
         ports:
           - 4566:4566
+        env:
+          SERVICES: ecr,ecs,s3,iam,sts,kms,dynamodb
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Wait for LocalStack
         run: |
-          until curl -s http://localhost:4566/_localstack/health | grep -q "\"ecr\": \"\(running\|available\)\""; do
-            echo "Waiting for LocalStack..."
-            sleep 5
+          echo "Waiting for LocalStack gateway to respond..."
+          until curl -s http://localhost:4566/_localstack/health | grep -q "\"status\": \"\(running\|initialized\)\""; do
+            sleep 2
           done
+          echo "LocalStack is up. Forcing service activation..."
+          aws ecr describe-repositories --endpoint-url http://localhost:4566 --region us-east-1 || true
 
       - name: Create Mock ECR Repos
         env:
