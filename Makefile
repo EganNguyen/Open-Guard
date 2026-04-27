@@ -23,7 +23,7 @@ dev: check-env
 	cd infra/docker && docker compose up -d 
 
 test:
-	go test -v ./...
+	go test -v -race ./...
 	cd web && npm test
 
 lint:
@@ -55,6 +55,9 @@ load-test:
 	@k6 run tests/load/scim-users.js --env BASE_URL=http://localhost:8080
 	@k6 run tests/load/compliance.js --env BASE_URL=http://localhost:8085
 	@k6 run tests/load/kafka-throughput.js --env KAFKA_BROKERS=localhost:9092
+
+test-integration:
+	go test -v ./tests/integration/...
 
 certs:
 	@echo "Generating certificates..."

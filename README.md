@@ -263,14 +263,11 @@ Open [http://localhost:3000](http://localhost:3000) to interact with the task ma
 ### 6. Verify Everything Is Working
 
 ```bash
+# Run the full pipeline integration test (uses real DBs, no mocks)
+make test-integration
+
 # Run the full acceptance test suite
 make test-acceptance
-
-# Check individual SLOs
-curl http://localhost:8082/health       # Policy service
-curl http://localhost:8084/health       # Audit service
-curl http://localhost:9090              # Prometheus
-open http://localhost:3000              # Grafana (admin/admin)
 ```
 
 ---
@@ -687,34 +684,89 @@ Same pattern via `IAM_MFA_ENCRYPTION_KEY_JSON`. Existing TOTP secrets remain rea
 
 Regenerate via the dashboard or `POST /mgmt/connectors/:id/rotate-key`. The previous key remains valid for `CONNECTOR_KEY_ROTATION_GRACE_MINUTES` (default: 60) to allow zero-downtime rollout on the connected app side.
 
+## 🛠 Automated Log Remediation
+
+OpenGuard includes a proactive log crawling and self-healing pipeline. It monitors Loki for `ERROR` level logs and suggests or applies fixes for common systemic issues.
+
+### Log Crawler
+The crawler identifies issues like database permission errors, migration conflicts, and telemetry misconfigurations.
+
+```bash
+# Run the crawler to analyze the last 5 minutes of logs
+./scripts/log_crawler.sh
+```
+
+### Common Fix Patterns
+| Issue Pattern | Root Cause | Automated Action |
+| :--- | :--- | :--- |
+| `permission denied` | Missing RLS context | Checks repository for `rls.SetSessionVar` |
+| `relation already exists` | Non-idempotent migration | Recommends `IF NOT EXISTS` block |
+| `HTTP 200 ... ERROR` | Telemetry level mismatch | Validates status code in `control-plane` |
+
 ---
 
 ## 🧪 Testing
 
+### Integration Tests
+
+The integration test suite (`tests/integration`) verifies the full functional flow of OpenGuard across multiple microservices and real databases without using mocks.
+
+**Coverage:**
+- **Identity:** Org and User creation in `iam`.
+- **Auth:** JWT issuance and verification.
+- **Policy:** Real-time RBAC policy enforcement.
+- **SDK:** Communication via mTLS with the `control-plane`.
+- **Async Pipeline:** Kafka propagation and MongoDB persistence in `audit`.
+
+**Running:**
 ```bash
-# Unit tests (race detector enabled)
-go test ./... -race -count=1
-
-# Integration tests (requires running infrastructure)
+# Automatically starts infrastructure and runs the flow
 make test-integration
+```
 
-# Full acceptance criteria suite (45-step scenario)
-make test-acceptance
+### Unit Tests
 
-# k6 load tests (verifies all SLOs)
-make load-test
+Unit tests are required for all new logic. We use standard library `testing` with Go and Jasmine/Karma with Angular.
 
-# Frontend (Jasmine + Playwright E2E)
+#### Go Backend & SDK
+Run unit tests for all modules (Services, Shared, SDK) using the workspace:
+```bash
+# Run all unit tests with race detection
+make test
+
+# Run tests for a specific service
+go test -v ./services/iam/...
+
+# Run tests with coverage report
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
+
+#### Angular Frontend
+```bash
+# Run Jasmine unit tests
 cd web && npm test
-cd web && npm run e2e
+
+# Run tests in headless mode (CI)
+cd web && npx ng test --watch=false --browsers=ChromeHeadless
+```
+
+### Acceptance & Load Tests
+
+| Test Suite | Purpose | Command |
+| :--- | :--- | :--- |
+| **Acceptance** | 45-step end-to-end functional scenario | `make test-acceptance` |
+| **Load** | Verify p99 latency SLOs via k6 | `make load-test` |
+| **E2E (Web)** | Playwright browser automation | `cd web && npm run e2e` |
+
+### Security & Quality
+
+```bash
+# Static analysis (golangci-lint, sqlfluff, prettier)
+make lint
 
 # Vulnerability scan
 govulncheck ./...
-
-# Lint
-golangci-lint run ./...
-npx prettier --check .
-sqlfluff lint .
 ```
 
 ---
