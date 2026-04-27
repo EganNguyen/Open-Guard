@@ -44,7 +44,9 @@ jobs:
       - name: Run Go Lint # 3. Lint / Format Check
         run: |
           # Use explicit relative paths from root for the workspace modules
-          $(go env GOPATH)/bin/golangci-lint run ./sdk/... ./shared/... services/iam/... services/policy/... services/alerting/... services/audit/... services/threat/... services/control-plane/... services/dlp/... services/compliance/... services/connector-registry/... services/webhook-delivery/...
+          # We must ensure the tool uses the workspace context correctly
+          # golangci-lint run is context-aware if run from the root with a go.work file
+          $(go env GOPATH)/bin/golangci-lint run
       
       - name: "Check for unsafe AuthJWT usage"
         run: |
