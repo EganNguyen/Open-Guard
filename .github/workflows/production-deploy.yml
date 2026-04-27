@@ -10,14 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  build-and-push:
-    name: Build & Push (Mock ECR)
+  build-services:
+    name: Build Microservices
     runs-on: ubuntu-latest
-    services:
-      localstack:
-        image: localstack/localstack:latest
-        ports:
-          - 4566:4566
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +47,27 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Build Docker Image
+        env:
+          SERVICE: ${{ matrix.service }}
+          DOCKERFILE: ${{ matrix.path }}
+        run: |
+          docker build -t openguard/$SERVICE:${{ github.sha }} -f $DOCKERFILE .
+          docker tag openguard/$SERVICE:${{ github.sha }} openguard/$SERVICE:latest
+
+  mock-deploy:
+    name: Mock Infrastructure & Registry
+    needs: build-services
+    runs-on: ubuntu-latest
+    services:
+      localstack:
+        image: localstack/localstack:3.0
+        ports:
+          - 4566:4566
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Wait for LocalStack
         run: |
           until curl -s http://localhost:4566/_localstack/health | grep -q "\"ecr\": \"\(running\|available\)\""; do
@@ -64,42 +80,11 @@ jobs:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           AWS_REGION: us-east-1
-          AWS_ENDPOINT_URL: http://localhost:4566
         run: |
-          aws ecr create-repository --repository-name openguard/${{ matrix.service }} --endpoint-url $AWS_ENDPOINT_URL
-
-      - name: Build and Tag Docker Image
-        env:
-          ECR_REGISTRY: localhost:4566
-          SERVICE: ${{ matrix.service }}
-          DOCKERFILE: ${{ matrix.path }}
-        run: |
-          docker build -t $ECR_REGISTRY/openguard/$SERVICE:${{ github.sha }} -f $DOCKERFILE .
-          docker tag $ECR_REGISTRY/openguard/$SERVICE:${{ github.sha }} $ECR_REGISTRY/openguard/$SERVICE:latest
-
-      - name: Push to Mock ECR
-        env:
-          AWS_ACCESS_KEY_ID: test
-          AWS_SECRET_ACCESS_KEY: test
-          AWS_REGION: us-east-1
-          AWS_ENDPOINT_URL: http://localhost:4566
-        run: |
-          # LocalStack ECR allows unauthenticated pushes from localhost
-          docker push localhost:4566/openguard/${{ matrix.service }}:${{ github.sha }}
-          docker push localhost:4566/openguard/${{ matrix.service }}:latest
-
-  deploy-infra-mock:
-    name: Provision Mock Infrastructure
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    services:
-      localstack:
-        image: localstack/localstack:latest
-        ports:
-          - 4566:4566
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+          SERVICES="iam policy audit threat alerting webhook-delivery compliance dlp connector-registry control-plane example-app dashboard"
+          for svc in $SERVICES; do
+            aws ecr create-repository --repository-name openguard/$svc --endpoint-url http://localhost:4566
+          done
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -112,7 +97,6 @@ jobs:
           AWS_REGION: us-east-1
           TF_VAR_is_localstack: "true"
         run: |
-          # Use local state for mock testing as requested
           cat <<EOF > provider_override.tf
           provider "aws" {
             region = "us-east-1"
@@ -140,7 +124,7 @@ jobs:
           terraform init
           terraform apply -auto-approve -var="image_tag=${{ github.sha }}" -var="domain_name=localhost"
 
-      - name: Verify Mock Resources
+      - name: Verify Mock Deployment
         env:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
@@ -150,3 +134,4 @@ jobs:
           echo "Listing Created Mock Resources:"
           aws ecs list-clusters --endpoint-url $AWS_ENDPOINT_URL
           aws ecr describe-repositories --endpoint-url $AWS_ENDPOINT_URL
+          aws s3 ls --endpoint-url $AWS_ENDPOINT_URL
