@@ -46,7 +46,8 @@ jobs:
           # Use explicit relative paths from root for the workspace modules
           # We must ensure the tool uses the workspace context correctly
           # golangci-lint run is context-aware if run from the root with a go.work file
-          $(go env GOPATH)/bin/golangci-lint run
+          # We add ./... to be explicit about the pattern
+          $(go env GOPATH)/bin/golangci-lint run ./...
       
       - name: "Check for unsafe AuthJWT usage"
         run: |
