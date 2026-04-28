@@ -28,7 +28,7 @@ func WithMTLS(caCertPath, clientCertPath, clientKeyPath string) ClientOption {
 
 		tlsConfig := &tls.Config{
 			RootCAs:            caCertPool,
-			InsecureSkipVerify: true, // For dev/test environments
+			InsecureSkipVerify: false,
 		}
 
 		if clientCertPath != "" && clientKeyPath != "" {
@@ -82,6 +82,20 @@ func WithRetry(attempts int, delay time.Duration, exponential bool) ClientOption
 		c.retryMax = attempts
 		c.retryDelay = delay
 		c.useExponentialBackoff = exponential
+	}
+}
+
+// WithInsecureSkipVerify disables TLS certificate verification.
+// WARNING: Use only in local development. Never in production.
+// This option is intentionally verbose to discourage accidental use.
+func WithInsecureSkipVerify() ClientOption {
+	return func(c *Client) {
+		if transport, ok := c.httpClient.Transport.(*http.Transport); ok {
+			if transport.TLSClientConfig == nil {
+				transport.TLSClientConfig = &tls.Config{}
+			}
+			transport.TLSClientConfig.InsecureSkipVerify = true
+		}
 	}
 }
 

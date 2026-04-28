@@ -2,9 +2,11 @@ package sdk
 
 import (
 	"context"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -174,5 +176,85 @@ func TestClient_Retry(t *testing.T) {
 
 	if atomic.LoadInt32(&count) != 3 {
 		t.Errorf("expected 3 total attempts, got %d", atomic.LoadInt32(&count))
+	}
+}
+
+func TestWithMTLS_VerifiesCertificate(t *testing.T) {
+	// 1. Create a TLS server
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"allowed": true}`)
+	}))
+	defer ts.Close()
+
+	// 2. Save server cert to temp file
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: ts.Certificate().Raw,
+	})
+	tmpCert, err := os.CreateTemp("", "ca.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpCert.Name())
+	if _, err := tmpCert.Write(certPEM); err != nil {
+		t.Fatal(err)
+	}
+	tmpCert.Close()
+
+	// 3. Create client with WithMTLS providing the server's cert as CA
+	c := NewClient(ts.URL, "test-key", WithMTLS(tmpCert.Name(), "", ""))
+	defer c.Close()
+
+	allowed, err := c.Allow(context.Background(), "u1", "a1", "r1")
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !allowed {
+		t.Error("expected allowed")
+	}
+}
+
+func TestWithMTLS_RejectsBadCertificate(t *testing.T) {
+	// 1. Create a TLS server
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"allowed": true}`)
+	}))
+	defer ts.Close()
+
+	// 2. Create client WITHOUT providing the server's CA
+	c := NewClient(ts.URL, "test-key")
+	defer c.Close()
+
+	// 3. Evaluation should return false (fail-closed) and nil error
+	allowed, err := c.Allow(context.Background(), "u1", "a1", "r1")
+	if err != nil {
+		t.Errorf("expected nil error (fail-closed), got %v", err)
+	}
+	if allowed {
+		t.Error("expected denied (fail-closed) on TLS error")
+	}
+}
+
+func TestWithInsecureSkipVerify_SkipsVerification(t *testing.T) {
+	// 1. Create a TLS server
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"allowed": true}`)
+	}))
+	defer ts.Close()
+
+	// 2. Create client with WithInsecureSkipVerify()
+	c := NewClient(ts.URL, "test-key", WithInsecureSkipVerify())
+	defer c.Close()
+
+	// 3. Evaluation should succeed despite untrusted cert
+	allowed, err := c.Allow(context.Background(), "u1", "a1", "r1")
+	if err != nil {
+		t.Fatalf("expected nil error with InsecureSkipVerify, got %v", err)
+	}
+	if !allowed {
+		t.Error("expected allowed")
 	}
 }
