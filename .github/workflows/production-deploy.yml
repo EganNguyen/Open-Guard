@@ -75,14 +75,61 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Wait for LocalStack
+      - name: Debug LocalStack Container
+        if: always()
         run: |
-          echo "Waiting for LocalStack gateway to respond..."
-          until curl -s http://localhost:4566/_localstack/health | grep -q "\"status\": \"\(running\|initialized\)\""; do
+          echo "=== Docker containers ==="
+          docker ps -a
+
+          echo "=== LocalStack logs ==="
+          docker logs $(docker ps -q --filter "ancestor=localstack/localstack:3.0") 2>&1 | tail -50
+
+          echo "=== Port binding ==="
+          ss -tlnp | grep 4566 || netstat -tlnp | grep 4566 || true
+
+          echo "=== Raw health endpoint ==="
+          curl -v http://localhost:4566/_localstack/health 2>&1 || true
+
+      - name: Wait for LocalStack
+        timeout-minutes: 3          # ← job-level safety net
+        run: |
+          echo "Waiting for LocalStack gateway..."
+
+          # Step 1: Wait for the HTTP gateway itself (up to 60s)
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:4566/_localstack/health > /tmp/ls_health.json 2>&1; then
+              echo "Gateway responded on attempt $i"
+              break
+            fi
+            echo "  attempt $i/30..."
             sleep 2
           done
-          echo "LocalStack is up. Forcing service activation..."
-          aws ecr describe-repositories --endpoint-url http://localhost:4566 --region us-east-1 || true
+
+          # Fail fast if gateway never came up
+          cat /tmp/ls_health.json || { echo "ERROR: LocalStack gateway never responded"; exit 1; }
+
+          # Step 2: Wait for specific services to be 'running' (not just 'available')
+          # Use plain string matching, no complex regex escaping
+          echo "Waiting for ECR and ECS to be ready..."
+          for i in $(seq 1 30); do
+            HEALTH=$(curl -sf http://localhost:4566/_localstack/health 2>/dev/null || echo "{}")
+
+            ECR_STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('services',{}).get('ecr','not_found'))" 2>/dev/null || echo "parse_error")
+            ECS_STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('services',{}).get('ecs','not_found'))" 2>/dev/null || echo "parse_error")
+
+            echo "  attempt $i/30 — ecr: $ECR_STATUS, ecs: $ECS_STATUS"
+
+            if [ "$ECR_STATUS" = "running" ] && [ "$ECS_STATUS" = "running" ]; then
+              echo "All required services are ready."
+              exit 0
+            fi
+            sleep 2
+          done
+
+          # If we get here, dump the final health state for debugging
+          echo "ERROR: Services did not become ready in time. Final health response:"
+          curl -sf http://localhost:4566/_localstack/health | python3 -m json.tool || true
+          exit 1
 
       - name: Create Mock ECR Repos
         env:
