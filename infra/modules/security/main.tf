@@ -46,15 +46,6 @@ resource "aws_acm_certificate" "main" {
   lifecycle { create_before_destroy = true }
 }
 
-output "ecr_repository_urls" {
-  value = { for k, v in aws_ecr_repository.services : k => v.repository_url }
-}
-
-output "acm_certificate_arn" {
-  value = var.is_localstack ? "arn:aws:acm:us-east-1:000000000000:certificate/dummy" : aws_acm_certificate.main[0].arn
-}
-
-
 # 4. ECR Repositories
 resource "aws_ecr_repository" "services" {
   for_each = var.is_localstack ? [] : toset([
@@ -101,7 +92,7 @@ output "ecr_repository_urls" {
 }
 
 output "acm_certificate_arn" {
-  value = aws_acm_certificate.main.arn
+  value = var.is_localstack ? "arn:aws:acm:us-east-1:000000000000:certificate/dummy" : aws_acm_certificate.main[0].arn
 }
 
 output "ecs_execution_role_arn" {
@@ -111,4 +102,3 @@ output "ecs_execution_role_arn" {
 output "kms_key_arn" {
   value = aws_kms_key.main.arn
 }
-
