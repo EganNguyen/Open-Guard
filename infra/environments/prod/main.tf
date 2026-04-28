@@ -30,6 +30,7 @@ module "standalone_data" {
   environment     = var.environment
   vpc_id          = module.networking.vpc_id
   private_subnets = module.networking.private_subnets
+  is_localstack   = var.is_localstack
 }
 
 module "waf" {

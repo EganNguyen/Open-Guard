@@ -92,7 +92,8 @@ resource "aws_route_table_association" "private" {
 
 # Route53 Public Zone
 resource "aws_route53_zone" "public" {
-  name = var.domain_name
+  count = var.is_localstack ? 0 : 1
+  name  = var.domain_name
 }
 
 # Route53 Private Zone for Service Discovery
@@ -106,5 +107,5 @@ resource "aws_service_discovery_private_dns_namespace" "internal" {
 output "vpc_id" { value = aws_vpc.main.id }
 output "public_subnets" { value = aws_subnet.public[*].id }
 output "private_subnets" { value = aws_subnet.private[*].id }
-output "hosted_zone_id" { value = aws_route53_zone.public.zone_id }
+output "hosted_zone_id" { value = var.is_localstack ? "" : aws_route53_zone.public[0].zone_id }
 output "service_discovery_namespace_id" { value = var.is_localstack ? "" : aws_service_discovery_private_dns_namespace.internal[0].id }

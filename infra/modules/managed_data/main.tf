@@ -70,6 +70,7 @@ resource "aws_msk_serverless_cluster" "kafka" {
 
 # Security Groups and Subnet Groups
 resource "aws_db_subnet_group" "main" {
+  count      = var.is_localstack ? 0 : 1
   name       = "openguard-${var.environment}-db-subnets"
   subnet_ids = var.private_subnets
 }

@@ -1,6 +1,10 @@
 variable "environment" { type = string }
 variable "vpc_id" { type = string }
 variable "private_subnets" { type = list(string) }
+variable "is_localstack" {
+  type    = bool
+  default = false
+}
 
 # 1. Cloud-Init for MongoDB
 data "cloudinit_config" "mongodb" {
@@ -52,6 +56,7 @@ data "cloudinit_config" "clickhouse" {
 
 # 3. Auto-Scaling Group for Mongo
 resource "aws_launch_template" "mongodb" {
+  count         = var.is_localstack ? 0 : 1
   name_prefix   = "openguard-${var.environment}-mongodb"
   image_id      = "ami-053b0d53c279acc90" # Ubuntu 22.04 LTS
   instance_type = "t3.medium"
@@ -69,13 +74,14 @@ resource "aws_launch_template" "mongodb" {
 }
 
 resource "aws_autoscaling_group" "mongodb" {
+  count               = var.is_localstack ? 0 : 1
   desired_capacity    = 1
   max_size            = 1
   min_size            = 1
   vpc_zone_identifier = var.private_subnets
 
   launch_template {
-    id      = aws_launch_template.mongodb.id
+    id      = aws_launch_template.mongodb[0].id
     version = "$Latest"
   }
 }
