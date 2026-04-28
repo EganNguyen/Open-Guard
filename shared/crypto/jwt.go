@@ -22,6 +22,10 @@ type JWTKey struct {
 	Status    string `json:"status"`    // "active" | "verify_only"
 }
 
+// @AI-INTENT: [Pattern: Key Rotation via Multi-Key Keyring]
+// [Rationale: Security agility. Supporting multiple keys allows for seamless secret rotation.
+// The 'verify_only' status enables the system to accept old tokens while issuing new ones with 'active' keys.]
+
 // Sign generates a signed JWT using the first active key in the keyring.
 func Sign(claims jwt.Claims, keyring []JWTKey) (string, error) {
 	var activeKey *JWTKey

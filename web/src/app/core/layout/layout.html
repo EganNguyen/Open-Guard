@@ -6,7 +6,9 @@
       <div class="w-8 h-8 bg-white rounded flex items-center justify-center flex-shrink-0">
         <span class="text-[#0747A6] font-bold text-xl">O</span>
       </div>
-      <h1 *ngIf="!sidebarCollapsed()" class="text-xl font-bold tracking-tight whitespace-nowrap">OpenGuard</h1>
+      @if (!sidebarCollapsed()) {
+        <h1 class="text-xl font-bold tracking-tight whitespace-nowrap">OpenGuard</h1>
+      }
     </div>
 
     <nav class="flex-1 mt-4 px-3 space-y-1">
@@ -18,7 +20,9 @@
            [title]="sidebarCollapsed() ? item.label : ''">
           <span class="material-symbols-outlined text-lg opacity-80 group-hover:opacity-100 flex-shrink-0"
                 [class.mr-3]="!sidebarCollapsed()">{{ item.icon }}</span>
-          <span *ngIf="!sidebarCollapsed()" class="whitespace-nowrap">{{ item.label }}</span>
+          @if (!sidebarCollapsed()) {
+            <span class="whitespace-nowrap">{{ item.label }}</span>
+          }
         </a>
       }
     </nav>
@@ -30,17 +34,21 @@
              [class.mr-3]="!sidebarCollapsed()">
           {{ user()?.display_name?.charAt(0) || 'U' }}
         </div>
-        <div *ngIf="!sidebarCollapsed()" class="flex-1 min-w-0">
-          <p class="text-xs font-semibold truncate">{{ user()?.display_name || 'Admin' }}</p>
-          <p class="text-[10px] text-blue-200 truncate">{{ user()?.email || 'admin@openguard.io' }}</p>
-        </div>
+        @if (!sidebarCollapsed()) {
+          <div class="flex-1 min-w-0">
+            <p class="text-xs font-semibold truncate">{{ user()?.display_name || 'Admin' }}</p>
+            <p class="text-[10px] text-blue-200 truncate">{{ user()?.email || 'admin@openguard.io' }}</p>
+          </div>
+        }
       </div>
       <button (click)="onLogout()" 
               class="w-full flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-red-600 hover:text-white"
               [title]="sidebarCollapsed() ? 'Sign out' : ''">
         <span class="material-symbols-outlined text-lg flex-shrink-0"
               [class.mr-3]="!sidebarCollapsed()">logout</span>
-        <span *ngIf="!sidebarCollapsed()" class="whitespace-nowrap">Sign out</span>
+        @if (!sidebarCollapsed()) {
+          <span class="whitespace-nowrap">Sign out</span>
+        }
       </button>
     </div>
   </aside>

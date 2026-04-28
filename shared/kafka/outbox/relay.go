@@ -22,6 +22,11 @@ const (
 	notifyChannel = "outbox_new"
 )
 
+// @AI-INTENT: [Pattern: Hybrid Pull/Push Transactional Outbox]
+// [Rationale: Exactly-once delivery with low latency. Combining pg_notify (push) with polling (pull)
+// ensures that events are delivered immediately when the system is healthy, while remaining 
+// resilient to missed notifications or Kafka downtime.]
+
 // Relay polls the outbox table and publishes events to Kafka.
 // It also listens on the pg_notify channel "outbox_new" to wake up immediately
 // on insert rather than waiting for the polling ticker (best of both worlds).

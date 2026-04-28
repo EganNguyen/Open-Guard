@@ -1,0 +1,52 @@
+{
+  "shared_packages": {
+    "shared/crypto": {
+      "consumers": ["iam", "control-plane", "policy", "audit", "compliance"],
+      "critical_tests": ["shared/crypto/...", "services/iam/pkg/handlers/..."],
+      "risk_level": "critical",
+      "rationale": "Heart of the mTLS and JWT security model."
+    },
+    "shared/resilience": {
+      "consumers": ["iam", "policy", "threat", "audit", "compliance", "dlp"],
+      "critical_tests": ["shared/resilience/...", "services/control-plane/..."],
+      "risk_level": "medium",
+      "rationale": "Governs circuit-breaking and retry logic for the entire mesh."
+    },
+    "shared/db": {
+      "consumers": ["iam", "policy", "compliance", "dlp", "connector-registry"],
+      "critical_tests": ["shared/db/...", "tests/integration/..."],
+      "risk_level": "high",
+      "rationale": "Enforces Row-Level Security (RLS). Failures lead to data leaks."
+    },
+    "shared/middleware": {
+      "consumers": ["all services"],
+      "critical_tests": ["services/iam/pkg/router/...", "services/policy/pkg/router/..."],
+      "risk_level": "high",
+      "rationale": "Standardizes auth, logging, and correlation headers."
+    },
+    "shared/telemetry": {
+      "consumers": ["all services"],
+      "critical_tests": ["shared/telemetry/..."],
+      "risk_level": "low",
+      "rationale": "Prometheus and logging standards."
+    }
+  },
+  "event_flow": {
+    "auth.events": {
+      "producer": "iam",
+      "consumers": ["threat", "audit"]
+    },
+    "policy.changes": {
+      "producer": "policy",
+      "consumers": ["control-plane", "audit"]
+    },
+    "data.access": {
+      "producer": "control-plane",
+      "consumers": ["threat", "audit", "compliance"]
+    },
+    "threat.alerts": {
+      "producer": "threat",
+      "consumers": ["alerting", "audit"]
+    }
+  }
+}

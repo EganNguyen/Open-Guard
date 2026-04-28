@@ -10,7 +10,11 @@ Act as a senior system architect and perform a production-level review of this p
 4. Phase Completeness
     * Highlight missing components, edge cases, or unfinished work.
     * Scope: Full codebase + AI-spec (BE + FE), Open Guard BE + FE Phase 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 completeness, connected example app
-5. Actionable Recommendations
+5. AI-Native
+    * Evaluate the AI-native experience, including AI-native features and the AI-native developer experience.
+    * Identify any missing AI-native features or issues with the AI-native developer experience.
+    * Scope: Full AI-native experience for Open Guard.
+6. Actionable Recommendations
     * Provide clear, prioritized recommendations to reach production-grade quality.
     * For every problem identified (bug, gap, redundancy, inconsistency, or incomplete feature) provide a concrete, actionable solution.
     * Output is Markdown (.md) file, Concise, Completion percentages

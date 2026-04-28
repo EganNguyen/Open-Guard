@@ -1,96 +1,96 @@
-<div class="space-y-8" *ngIf="dashboardData$ | async as data; else loadingTpl">
-  <!-- Page Title -->
-  <div class="flex items-center justify-between">
-    <div>
-      <h2 class="text-2xl font-bold text-[#172B4D]">Overview</h2>
-      <p class="text-[#6B778C]">Monitor security posture and system activity across your organization.</p>
+@if (dashboardData$ | async; as data) {
+  <div class="space-y-8">
+    <!-- Page Title -->
+    <div class="flex items-center justify-between">
+      <div>
+        <h2 class="text-2xl font-bold text-[#172B4D]">Overview</h2>
+        <p class="text-[#6B778C]">Monitor security posture and system activity across your organization.</p>
+      </div>
+      <button class="bg-[#0052CC] hover:bg-[#0747A6] text-white px-4 py-2 rounded-md text-sm font-medium shadow-sm flex items-center transition-all">
+        <span class="material-symbols-outlined mr-2 text-lg">download</span>
+        Generate Report
+      </button>
     </div>
-    <button class="bg-[#0052CC] hover:bg-[#0747A6] text-white px-4 py-2 rounded-md text-sm font-medium shadow-sm flex items-center transition-all">
-      <span class="material-symbols-outlined mr-2 text-lg">download</span>
-      Generate Report
-    </button>
-  </div>
 
-  <!-- Stats Grid -->
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-    @for (stat of data.stats; track stat.label) {
-      <div class="bg-white p-6 rounded-lg border border-[#DFE1E6] shadow-sm hover:shadow-md transition-shadow">
-        <div class="flex items-center justify-between mb-4">
-          <div class="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center">
-            <span class="material-symbols-outlined {{ stat.color }}">{{ stat.icon }}</span>
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      @for (stat of data.stats; track stat.label) {
+        <div class="bg-white p-6 rounded-lg border border-[#DFE1E6] shadow-sm hover:shadow-md transition-shadow">
+          <div class="flex items-center justify-between mb-4">
+            <div class="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center">
+              <span class="material-symbols-outlined {{ stat.color }}">{{ stat.icon }}</span>
+            </div>
+            <span class="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-gray-100 text-[#6B778C]">
+              {{ stat.trend }}
+            </span>
           </div>
-          <span class="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-gray-100 text-[#6B778C]">
-            {{ stat.trend }}
-          </span>
+          <h3 class="text-3xl font-bold text-[#172B4D]">{{ stat.value }}</h3>
+          <p class="text-sm text-[#6B778C] font-medium">{{ stat.label }}</p>
         </div>
-        <h3 class="text-3xl font-bold text-[#172B4D]">{{ stat.value }}</h3>
-        <p class="text-sm text-[#6B778C] font-medium">{{ stat.label }}</p>
-      </div>
-    }
-  </div>
-
-  <!-- Content Grid -->
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-    <!-- Recent Activity -->
-    <div class="lg:col-span-2 bg-white rounded-lg border border-[#DFE1E6] shadow-sm flex flex-col">
-      <div class="p-6 border-b border-[#DFE1E6] flex items-center justify-between">
-        <h3 class="font-bold text-[#172B4D]">Recent Security Events</h3>
-        <button class="text-[#0052CC] hover:underline text-sm font-medium">View all events</button>
-      </div>
-      <div class="flex-1 overflow-y-auto min-h-[300px]">
-        @if (!data.activities || data.activities.length === 0) {
-          <div class="p-12 text-center text-[#6B778C]">
-            <span class="material-symbols-outlined text-4xl mb-2 opacity-20">history</span>
-            <p>No recent security events detected</p>
-          </div>
-        }
-        @for (item of data.activities; track $index) {
-          <div class="p-4 border-b border-[#F4F5F7] last:border-0 flex items-center hover:bg-[#FAFBFC] transition-colors">
-            <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mr-4">
-              <span class="material-symbols-outlined text-lg text-[#6B778C]">{{ item.icon }}</span>
-            </div>
-            <div class="flex-1">
-              <p class="text-sm font-medium text-[#172B4D]">{{ item.action }}</p>
-              <p class="text-xs text-[#6B778C]">{{ item.user }}</p>
-            </div>
-            <div class="text-xs text-[#6B778C]">{{ item.time }}</div>
-          </div>
-        }
-      </div>
+      }
     </div>
 
-    <!-- Quick Actions / Status -->
-    <div class="space-y-8">
-      <div class="bg-white p-6 rounded-lg border border-[#DFE1E6] shadow-sm">
-        <h3 class="font-bold text-[#172B4D] mb-4">System Health</h3>
-        <div class="space-y-4">
-          @for (service of data.health; track service.name) {
-            <div class="flex items-center justify-between">
-              <span class="text-sm text-[#6B778C]">{{ service.name }}</span>
-              <span class="flex items-center text-xs font-bold {{ service.color }}">
-                <span class="w-2 h-2 rounded-full {{ service.dot }} mr-2"></span>
-                {{ service.status }}
-              </span>
+    <!-- Content Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <!-- Recent Activity -->
+      <div class="lg:col-span-2 bg-white rounded-lg border border-[#DFE1E6] shadow-sm flex flex-col">
+        <div class="p-6 border-b border-[#DFE1E6] flex items-center justify-between">
+          <h3 class="font-bold text-[#172B4D]">Recent Security Events</h3>
+          <button class="text-[#0052CC] hover:underline text-sm font-medium">View all events</button>
+        </div>
+        <div class="flex-1 overflow-y-auto min-h-[300px]">
+          @if (!data.activities || data.activities.length === 0) {
+            <div class="p-12 text-center text-[#6B778C]">
+              <span class="material-symbols-outlined text-4xl mb-2 opacity-20">history</span>
+              <p>No recent security events detected</p>
+            </div>
+          }
+          @for (item of data.activities; track $index) {
+            <div class="p-4 border-b border-[#F4F5F7] last:border-0 flex items-center hover:bg-[#FAFBFC] transition-colors">
+              <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mr-4">
+                <span class="material-symbols-outlined text-lg text-[#6B778C]">{{ item.icon }}</span>
+              </div>
+              <div class="flex-1">
+                <p class="text-sm font-medium text-[#172B4D]">{{ item.action }}</p>
+                <p class="text-xs text-[#6B778C]">{{ item.user }}</p>
+              </div>
+              <div class="text-xs text-[#6B778C]">{{ item.time }}</div>
             </div>
           }
         </div>
       </div>
 
-      <div class="bg-[#DEEBFF] p-6 rounded-lg border border-[#B3D4FF]">
-        <h3 class="font-bold text-[#0747A6] mb-2">Security Posture</h3>
-        <p class="text-sm text-[#0747A6] opacity-80 mb-4">Your organization's security score is 92/100.</p>
-        <div class="w-full bg-white/50 rounded-full h-2 mb-4">
-          <div class="bg-[#0052CC] h-2 rounded-full" style="width: 92%"></div>
+      <!-- Quick Actions / Status -->
+      <div class="space-y-8">
+        <div class="bg-white p-6 rounded-lg border border-[#DFE1E6] shadow-sm">
+          <h3 class="font-bold text-[#172B4D] mb-4">System Health</h3>
+          <div class="space-y-4">
+            @for (service of data.health; track service.name) {
+              <div class="flex items-center justify-between">
+                <span class="text-sm text-[#6B778C]">{{ service.name }}</span>
+                <span class="flex items-center text-xs font-bold {{ service.color }}">
+                  <span class="w-2 h-2 rounded-full {{ service.dot }} mr-2"></span>
+                  {{ service.status }}
+                </span>
+              </div>
+            }
+          </div>
         </div>
-        <button class="text-[#0052CC] hover:underline text-xs font-bold">View recommendations</button>
+
+        <div class="bg-[#DEEBFF] p-6 rounded-lg border border-[#B3D4FF]">
+          <h3 class="font-bold text-[#0747A6] mb-2">Security Posture</h3>
+          <p class="text-sm text-[#0747A6] opacity-80 mb-4">Your organization's security score is 92/100.</p>
+          <div class="w-full bg-white/50 rounded-full h-2 mb-4">
+            <div class="bg-[#0052CC] h-2 rounded-full" style="width: 92%"></div>
+          </div>
+          <button class="text-[#0052CC] hover:underline text-xs font-bold">View recommendations</button>
+        </div>
       </div>
     </div>
   </div>
-</div>
-
-<ng-template #loadingTpl>
+} @else {
   <div class="flex items-center justify-center p-12">
     <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0052CC]"></div>
     <span class="ml-3 text-[#6B778C]">Fetching system metrics...</span>
   </div>
-</ng-template>
+}

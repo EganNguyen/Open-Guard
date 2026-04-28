@@ -1,4 +1,4 @@
-.PHONY: dev test lint build migrate seed load-test certs help generate generate-phase-5
+.PHONY: dev test lint build migrate seed load-test certs help generate generate-phase-5 ai-check
 
 help:
 	@echo "OpenGuard Makefile Targets:"
@@ -12,6 +12,7 @@ help:
 	@echo "  certs      - Generate mTLS and JWT certificates/keys"
 	@echo "  generate   - Run opencode to generate all phases"
 	@echo "  phase5     - Run opencode to generate Phase 5 (Detectors)"
+	@echo "  ai-check   - Run AI-native architectural diagnostic"
 
 check-env:
 	@test -f .env || (echo "ERROR: .env missing. Copy .env.example to .env and fill in values." && exit 1)
@@ -64,6 +65,9 @@ load-test:
 
 test-integration:
 	go test -v ./tests/integration/...
+
+ai-check:
+	./scripts/ai-check.sh
 
 certs:
 	@echo "Generating certificates..."

@@ -10,6 +10,10 @@ import (
 
 type contextKey struct{}
 
+// @AI-INTENT: [Pattern: Row-Level Security (RLS) Session Management]
+// [Rationale: High-assurance multi-tenancy. By setting 'app.org_id' in the DB session,
+// we delegate tenant isolation to the database engine rather than relying solely on app-layer WHERE clauses.]
+
 // WithOrgID returns a new context with the org_id value.
 func WithOrgID(ctx context.Context, orgID string) context.Context {
 	return context.WithValue(ctx, contextKey{}, orgID)

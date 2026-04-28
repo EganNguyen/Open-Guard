@@ -12,84 +12,84 @@
   </div>
 
   <!-- Table Card -->
-  <div class="bg-white rounded-lg border border-[#DFE1E6] shadow-sm overflow-hidden" *ngIf="connectors$ | async as connectors; else loadingTpl">
-    <div class="overflow-x-auto">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="bg-[#FAFBFC] border-b border-[#DFE1E6]">
-            <th class="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-[#6B778C]">App Name</th>
-            <th class="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-[#6B778C]">Status</th>
-            <th class="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-[#6B778C]">Scopes</th>
-            <th class="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-[#6B778C]">Created</th>
-            <th class="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-[#6B778C]">Event Volume</th>
-            <th class="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-[#6B778C]"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-[#DFE1E6]">
-          @if (connectors.length === 0) {
-            <tr>
-              <td colspan="6" class="px-6 py-12 text-center text-[#6B778C]">
-                <p>No connectors registered yet.</p>
-              </td>
+  @if (connectors$ | async; as connectors) {
+    <div class="bg-white rounded-lg border border-[#DFE1E6] shadow-sm overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-[#FAFBFC] border-b border-[#DFE1E6]">
+              <th class="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-[#6B778C]">App Name</th>
+              <th class="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-[#6B778C]">Status</th>
+              <th class="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-[#6B778C]">Scopes</th>
+              <th class="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-[#6B778C]">Created</th>
+              <th class="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-[#6B778C]">Event Volume</th>
+              <th class="px-6 py-3 text-[11px] font-bold uppercase tracking-wider text-[#6B778C]"></th>
             </tr>
-          } @else {
-            @for (connector of connectors; track connector.id) {
-              <tr class="hover:bg-[#F4F5F7] transition-colors group">
-                <td class="px-6 py-4">
-                  <div class="flex items-center">
-                    <div class="w-8 h-8 rounded bg-gray-100 flex items-center justify-center mr-3">
-                      <span class="material-symbols-outlined text-[#6B778C]">extension</span>
-                    </div>
-                    <span class="text-sm font-semibold text-[#172B4D]">{{ connector.name }}</span>
-                  </div>
-                </td>
-                <td class="px-6 py-4">
-                  <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-green-100 text-green-700">
-                    {{ connector.status }}
-                  </span>
-                </td>
-                <td class="px-6 py-4">
-                  <div class="flex flex-wrap gap-1">
-                    @for (scope of connector.scopes; track scope) {
-                      <span class="bg-[#EBECF0] text-[#42526E] px-2 py-0.5 rounded text-[11px] font-medium">
-                        {{ scope }}
-                      </span>
-                    }
-                  </div>
-                </td>
-                <td class="px-6 py-4 text-sm text-[#6B778C]">{{ connector.createdDate }}</td>
-                <td class="px-6 py-4">
-                  <div class="flex items-center text-sm text-[#172B4D]">
-                    <span class="font-medium">{{ connector.eventVolume }}</span>
-                    <span class="ml-2 text-xs text-green-600">↑ 12%</span>
-                  </div>
-                </td>
-                <td class="px-6 py-4 text-right flex justify-end space-x-2">
-                  <button (click)="editConnector(connector)" class="p-1 rounded-md text-[#6B778C] hover:bg-[#EBECF0] hover:text-[#172B4D] opacity-0 group-hover:opacity-100 transition-all" title="Edit">
-                    <span class="material-symbols-outlined">edit</span>
-                  </button>
-                  <button (click)="confirmDelete(connector)" class="p-1 rounded-md text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all" title="Delete">
-                    <span class="material-symbols-outlined">delete</span>
-                  </button>
+          </thead>
+          <tbody class="divide-y divide-[#DFE1E6]">
+            @if (connectors.length === 0) {
+              <tr>
+                <td colspan="6" class="px-6 py-12 text-center text-[#6B778C]">
+                  <p>No connectors registered yet.</p>
                 </td>
               </tr>
+            } @else {
+              @for (connector of connectors; track connector.id) {
+                <tr class="hover:bg-[#F4F5F7] transition-colors group">
+                  <td class="px-6 py-4">
+                    <div class="flex items-center">
+                      <div class="w-8 h-8 rounded bg-gray-100 flex items-center justify-center mr-3">
+                        <span class="material-symbols-outlined text-[#6B778C]">extension</span>
+                      </div>
+                      <span class="text-sm font-semibold text-[#172B4D]">{{ connector.name }}</span>
+                    </div>
+                  </td>
+                  <td class="px-6 py-4">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-green-100 text-green-700">
+                      {{ connector.status }}
+                    </span>
+                  </td>
+                  <td class="px-6 py-4">
+                    <div class="flex flex-wrap gap-1">
+                      @for (scope of connector.scopes; track scope) {
+                        <span class="bg-[#EBECF0] text-[#42526E] px-2 py-0.5 rounded text-[11px] font-medium">
+                          {{ scope }}
+                        </span>
+                      }
+                    </div>
+                  </td>
+                  <td class="px-6 py-4 text-sm text-[#6B778C]">{{ connector.createdDate }}</td>
+                  <td class="px-6 py-4">
+                    <div class="flex items-center text-sm text-[#172B4D]">
+                      <span class="font-medium">{{ connector.eventVolume }}</span>
+                      <span class="ml-2 text-xs text-green-600">↑ 12%</span>
+                    </div>
+                  </td>
+                  <td class="px-6 py-4 text-right flex justify-end space-x-2">
+                    <button (click)="editConnector(connector)" class="p-1 rounded-md text-[#6B778C] hover:bg-[#EBECF0] hover:text-[#172B4D] opacity-0 group-hover:opacity-100 transition-all" title="Edit">
+                      <span class="material-symbols-outlined">edit</span>
+                    </button>
+                    <button (click)="confirmDelete(connector)" class="p-1 rounded-md text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all" title="Delete">
+                      <span class="material-symbols-outlined">delete</span>
+                    </button>
+                  </td>
+                </tr>
+              }
             }
-          }
-        </tbody>
-      </table>
-    </div>
-    
-    <!-- Pagination Placeholder -->
-    <div class="px-6 py-4 bg-[#FAFBFC] border-t border-[#DFE1E6] flex items-center justify-between text-sm text-[#6B778C]">
-      <span>Showing latest {{ connectors.length }} connectors</span>
-      <div class="flex space-x-2">
-        <button class="px-3 py-1 border border-[#DFE1E6] rounded bg-white text-gray-400 cursor-not-allowed">Previous</button>
-        <button class="px-3 py-1 border border-[#DFE1E6] rounded bg-white text-[#172B4D]">Next</button>
+          </tbody>
+        </table>
+      </div>
+      
+      <!-- Pagination Placeholder -->
+      <div class="px-6 py-4 bg-[#FAFBFC] border-t border-[#DFE1E6] flex items-center justify-between text-sm text-[#6B778C]">
+        <span>Showing latest {{ connectors.length }} connectors</span>
+        <div class="flex space-x-2">
+          <button class="px-3 py-1 border border-[#DFE1E6] rounded bg-white text-gray-400 cursor-not-allowed">Previous</button>
+          <button class="px-3 py-1 border border-[#DFE1E6] rounded bg-white text-[#172B4D]">Next</button>
+        </div>
       </div>
     </div>
-  </div>
-
-  <ng-template #loadingTpl>
+  } @else {
     <div class="bg-white rounded-lg border border-[#DFE1E6] p-12 text-center text-[#6B778C]">
       <div class="flex items-center justify-center space-x-2 mb-4">
         <div class="w-2 h-2 bg-blue-600 rounded-full animate-bounce"></div>
@@ -98,7 +98,7 @@
       </div>
       <p class="text-xs">Fetching connectors...</p>
     </div>
-  </ng-template>
+  }
 
   <!-- Register Connector Modal -->
   @if (showModal()) {

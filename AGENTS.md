@@ -1,5 +1,12 @@
 # AGENTS.md
 
+## 🔍 Navigation & Intent
+Before starting any task, read the **Index Layer** to understand the system map and architectural intent:
+- [**ARCHITECTURE.md**](docs/index/ARCHITECTURE.md): Core design patterns (Outbox, mTLS, RLS).
+- [**INDEX.md**](docs/index/INDEX.md): Service registry, ports, and dependencies.
+- [**INTENT_MAP.md**](docs/index/INTENT_MAP.md): Architectural decision log (The "Why").
+- [**HOTSPOTS.md**](docs/index/HOTSPOTS.md): High-risk areas and brittle logic.
+
 ## High-Signal Context
 Open-Guard is a high-performance security control plane using a "beside, not in front" architecture.
 - **Backend:** Go 1.22+ (using `go.work` workspace). Microservices communicate via **mTLS**.

@@ -168,9 +168,16 @@ helm install openguard openguard/openguard -f values.production.yaml
 
 ## 🤝 Contributing
 
-We utilize AI-assisted development workflows. Please refer to these for architectural standards:
-*   [**AGENTS.md**](AGENTS.md): High-signal context for AI agents.
-*   [**.opencode/config.json**](.opencode/config.json): Machine-readable project specification.
+We utilize AI-assisted development workflows. To help agents navigate this codebase effectively, we maintain a comprehensive **Index Layer**:
+
+- [**ARCHITECTURE.md**](docs/index/ARCHITECTURE.md): Core design patterns (Outbox, mTLS, RLS).
+- [**INDEX.md**](docs/index/INDEX.md): Service registry, ports, and dependencies.
+- [**INTENT_MAP.md**](docs/index/INTENT_MAP.md): Architectural decision log (The "Why").
+- [**HOTSPOTS.md**](docs/index/HOTSPOTS.md): High-risk areas and brittle logic.
+
+Please refer to these for architectural standards:
+- [**AGENTS.md**](AGENTS.md): High-signal context for AI agents.
+- [**.opencode/config.json**](.opencode/config.json): Machine-readable project specification.
 
 Maintain strict **Context Discipline** and **Error Wrapping** boundaries as defined in our [Backend Spec](ai-spec/be_open_guard/00-code-quality-standards.md).
 
