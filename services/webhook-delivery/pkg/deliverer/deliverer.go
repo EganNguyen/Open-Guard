@@ -23,7 +23,7 @@ type Deliverer struct {
 
 func NewDeliverer(logger *slog.Logger) *Deliverer {
 	return &Deliverer{
-		client: middleware.NewSafeHTTPClient(30 * time.Second),
+		client: middleware.NewSafeHTTPClient(30*time.Second, nil),
 		logger: logger,
 	}
 }

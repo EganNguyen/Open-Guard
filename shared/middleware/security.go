@@ -46,13 +46,15 @@ type hostResolver interface {
 	LookupHost(ctx context.Context, host string) ([]string, error)
 }
 
-var defaultResolver hostResolver = net.DefaultResolver
-
 // NewSafeHTTPClient returns an *http.Client whose DialContext resolves
 // the target hostname exactly once, validates each IP against the blocked
 // CIDR list, and connects to the first allowed IP.
 // This prevents DNS rebinding (TOCTOU between validate and connect).
-func NewSafeHTTPClient(timeout time.Duration) *http.Client {
+// If resolver is nil, net.DefaultResolver is used.
+func NewSafeHTTPClient(timeout time.Duration, resolver hostResolver) *http.Client {
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
 	dialer := &net.Dialer{
 		Timeout:   5 * time.Second,
 		KeepAlive: 30 * time.Second,
@@ -68,7 +70,7 @@ func NewSafeHTTPClient(timeout time.Duration) *http.Client {
 				}
 
 				// 1. Resolve host exactly once
-				ips, err := defaultResolver.LookupHost(ctx, host)
+				ips, err := resolver.LookupHost(ctx, host)
 				if err != nil {
 					return nil, fmt.Errorf("SSRF guard: cannot resolve %q: %w", host, err)
 				}

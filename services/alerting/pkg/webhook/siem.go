@@ -40,7 +40,7 @@ func NewSIEMDeliverer() *SIEMDeliverer {
 	}
 
 	return &SIEMDeliverer{
-		client:          middleware.NewSafeHTTPClient(10 * time.Second),
+		client:          middleware.NewSafeHTTPClient(10*time.Second, nil),
 		replayTolerance: tolerance,
 	}
 }

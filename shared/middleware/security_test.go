@@ -30,12 +30,8 @@ func TestNewSafeHTTPClient_BlocksMetadataIP(t *testing.T) {
 		},
 	}
 	
-	// Override default resolver
-	orig := defaultResolver
-	defaultResolver = mock
-	defer func() { defaultResolver = orig }()
-
-	client := NewSafeHTTPClient(1 * time.Second)
+	// Inject mock resolver locally
+	client := NewSafeHTTPClient(1*time.Second, mock)
 
 	tests := []struct {
 		url     string
@@ -84,11 +80,8 @@ func TestNewSafeHTTPClient_NoDNSRebind(t *testing.T) {
 			"rebind.local": {"8.8.8.8"},
 		},
 	}
-	orig := defaultResolver
-	defaultResolver = mock
-	defer func() { defaultResolver = orig }()
 
-	_ = NewSafeHTTPClient(1 * time.Second)
+	_ = NewSafeHTTPClient(1*time.Second, mock)
 
 	// We can't easily test the actual "rebind" without a real dial, 
 	// but we verified in code that DialContext uses the IP returned by LookupHost directly.
