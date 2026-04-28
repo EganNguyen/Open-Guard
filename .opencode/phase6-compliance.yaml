@@ -1,0 +1,19 @@
+# .opencode/phase6-compliance.yaml
+report_types:
+  gdpr:
+    data_sources: [clickhouse, mongodb]
+    sections: [data_inventory, breach_log, erasure_requests, dpa_registry]
+    output: pdf_signed
+  soc2:
+    data_sources: [clickhouse, audit_events]
+    sections: [access_control, availability, change_management, incident_response]
+    output: pdf_signed
+  hipaa:
+    data_sources: [clickhouse, dlp_findings]
+    sections: [access_log, phi_inventory, breach_notification, training]
+    output: pdf_signed
+slo:
+  generation_p99: 30s
+  concurrent_max: 10
+storage: s3_or_compatible
+pdf_signing: rsa_sha256

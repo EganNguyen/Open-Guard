@@ -28,7 +28,28 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 
 	// Validate redirect_uri
 	validRedirect := false
-	for _, uri := range connector["redirect_uris"].([]string) {
+	rawURIs, ok := connector["redirect_uris"]
+	if !ok {
+		http.Error(w, "connector misconfigured", http.StatusInternalServerError)
+		return
+	}
+
+	var redirectURIs []string
+	switch v := rawURIs.(type) {
+	case []string:
+		redirectURIs = v
+	case []interface{}:
+		for _, u := range v {
+			if s, ok := u.(string); ok {
+				redirectURIs = append(redirectURIs, s)
+			}
+		}
+	default:
+		http.Error(w, "connector misconfigured", http.StatusInternalServerError)
+		return
+	}
+
+	for _, uri := range redirectURIs {
 		if uri == redirectURI {
 			validRedirect = true
 			break

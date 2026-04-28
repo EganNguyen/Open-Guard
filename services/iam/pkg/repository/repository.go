@@ -168,6 +168,41 @@ func (r *Repository) RevokeSessions(ctx context.Context, userID string) error {
 	})
 }
 
+// DeprovisionAllUsers sets all users for an organization to deprovisioned.
+func (r *Repository) DeprovisionAllUsers(ctx context.Context, orgID string) error {
+	return r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		_, err := conn.Exec(ctx, `
+			UPDATE users SET status = 'deprovisioned', version = version + 1, updated_at = NOW()
+			WHERE org_id = $1
+		`)
+		return err
+	})
+}
+
+// GetSessionByUserID returns the most recent active session for a user.
+func (r *Repository) GetSessionByUserID(ctx context.Context, userID string) (map[string]interface{}, error) {
+	orgID := rls.OrgID(ctx)
+	var jti, ua, ip string
+	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		return conn.QueryRow(ctx, `
+			SELECT jti, user_agent, ip_address FROM sessions 
+			WHERE user_id = $1 AND expires_at > NOW()
+			ORDER BY created_at DESC LIMIT 1
+		`, userID).Scan(&jti, &ua, &ip)
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return map[string]interface{}{
+		"jti":        jti,
+		"user_agent": ua,
+		"ip_address": ip,
+	}, nil
+}
+
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (map[string]interface{}, error) {
 	// 1. Initial lookup to get org_id (Login path)
 	// This uses a non-RLS query by setting the role to openguard_login
@@ -606,6 +641,7 @@ func (r *Repository) GetUserByExternalID(ctx context.Context, orgID, externalID 
 	return r.getUser(ctx, "org_id = $1 AND scim_external_id = $2", orgID, externalID)
 }
 
+// UpdateUserSCIM updates a user from SCIM and increments the version.
 func (r *Repository) UpdateUserSCIM(ctx context.Context, id string, externalID string, status string) error {
 	orgID := rls.OrgID(ctx)
 	return r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {

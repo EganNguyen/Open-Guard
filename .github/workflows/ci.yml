@@ -15,12 +15,11 @@ env:
 
 jobs:
   # ─────────────────────────────────────────
-  # 1. LINT  (soft gate — warns, never blocks)
+  # 1. LINT  (hard gate)
   # ─────────────────────────────────────────
   lint:
     name: "Lint"
     runs-on: ubuntu-latest
-    continue-on-error: true   # Lint failures are advisory, not fatal
     steps:
       - uses: actions/checkout@v4
 
@@ -43,18 +42,17 @@ jobs:
         with:
           version: latest
           args: --timeout=10m
-        continue-on-error: true
 
       - name: SQL lint
         run: |
           pip install sqlfluff --quiet
-          sqlfluff lint . || true            # never breaks the build
+          sqlfluff lint .
 
       - name: Frontend lint
         working-directory: ./web
         run: |
           npm install --prefer-offline
-          npm run lint || true               # missing script is fine too
+          npm run lint
 
   # ─────────────────────────────────────────
   # 2. UNIT TESTS  (matrix, parallel, -short)

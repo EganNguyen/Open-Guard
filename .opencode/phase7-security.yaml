@@ -1,0 +1,18 @@
+# .opencode/phase7-security.yaml
+security_headers:
+  - Content-Security-Policy
+  - X-Content-Type-Options
+  - X-Frame-Options
+  - Strict-Transport-Security
+  - Referrer-Policy
+ssrf_protection:
+  blocked_cidrs: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+  method: pinned_dial_context  # NOT pre-validate
+idempotency:
+  header: Idempotency-Key
+  storage: redis
+  ttl: 86400
+secret_rotation:
+  jwt_keys: multi_key_keyring
+  aes_keys: multi_key_keyring
+  runbooks: docs/runbooks/

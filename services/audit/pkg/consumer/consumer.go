@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,8 +57,24 @@ func NewAuditConsumer(brokers string, groupID string, topic string, repo AuditRe
 }
 
 func (c *AuditConsumer) Start(ctx context.Context) error {
-	batchSize := 100
-	ticker := time.NewTicker(5 * time.Second)
+	batchSize := 500
+	if val := os.Getenv("AUDIT_BATCH_SIZE"); val != "" {
+		if i, err := strconv.Atoi(val); err == nil && i > 0 {
+			if i > 500 {
+				i = 500
+			}
+			batchSize = i
+		}
+	}
+
+	flushInterval := 1000 * time.Millisecond
+	if val := os.Getenv("AUDIT_FLUSH_INTERVAL_MS"); val != "" {
+		if i, err := strconv.Atoi(val); err == nil && i > 0 {
+			flushInterval = time.Duration(i) * time.Millisecond
+		}
+	}
+
+	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()
 
 	var batch []kafka.Message

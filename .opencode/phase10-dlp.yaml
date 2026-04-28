@@ -1,0 +1,15 @@
+# .opencode/phase10-dlp.yaml
+scanners:
+  regex:
+    patterns: [pii_email, pii_phone, pii_ssn, credit_card, iban, api_key, jwt, private_key]
+  entropy:
+    algorithm: shannon
+    threshold: 4.5
+    min_token_length: 20
+entry_point: scanner.ScanContent(text)
+modes:
+  monitor: log_finding_only
+  block: reject_event_sync
+slo:
+  async_scan_p99: 500ms
+kafka_topic: connector.events

@@ -1,95 +1,121 @@
-<div class="space-y-6">
-  <div class="flex justify-between items-center">
+<div class="space-y-8">
+  <!-- Page Header -->
+  <div class="flex items-center justify-between">
     <div>
-      <h1 class="text-2xl font-bold text-[#172B4D]">Compliance Posture</h1>
-      <p class="text-[#6B778C]">Monitor regulatory compliance and generate reports</p>
+      <h2 class="text-2xl font-bold text-[#172B4D]">Compliance Reports</h2>
+      <p class="text-[#6B778C]">Generate and download automated compliance reports for major frameworks.</p>
     </div>
-    <button class="px-4 py-2 bg-[#0052CC] text-white rounded-md hover:bg-[#0747A6] transition-colors flex items-center">
-      <span class="material-symbols-outlined mr-2">download</span>
-      Generate Report
+    <button (click)="startWizard()" 
+            class="bg-[#0052CC] hover:bg-[#0747A6] text-white px-4 py-2 rounded-md text-sm font-bold shadow-sm transition-all flex items-center">
+      <span class="material-symbols-outlined mr-2">add</span>
+      Generate New Report
     </button>
   </div>
 
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-    <div class="bg-white p-6 rounded-lg shadow-sm border border-[#DFE1E6]">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-semibold text-[#6B778C] uppercase tracking-wider">Overall Score</h3>
-        <span class="material-symbols-outlined text-[#36B37E]">verified</span>
+  <!-- Wizard (Simple Inline) -->
+  @if (wizardStep() === 1 && !loading()) {
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 animate-in fade-in slide-in-from-top-4 duration-300">
+      <h3 class="font-bold text-[#0747A6] mb-4 flex items-center">
+        <span class="material-symbols-outlined mr-2">assignment_add</span>
+        New Report Configuration
+      </h3>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div>
+          <label class="block text-xs font-bold text-[#6B778C] uppercase mb-2">Framework</label>
+          <select [(ngModel)]="selectedFramework" class="w-full border border-[#DFE1E6] rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+            <option value="GDPR">GDPR (EU Data Protection)</option>
+            <option value="SOC2">SOC2 Type II (Security)</option>
+            <option value="HIPAA">HIPAA (Healthcare)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-[#6B778C] uppercase mb-2">Period Start</label>
+          <input type="date" [(ngModel)]="dateRange.start" class="w-full border border-[#DFE1E6] rounded px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-[#6B778C] uppercase mb-2">Period End</label>
+          <input type="date" [(ngModel)]="dateRange.end" class="w-full border border-[#DFE1E6] rounded px-3 py-2 text-sm">
+        </div>
       </div>
-      <div class="flex items-end space-x-2">
-        <span class="text-3xl font-bold text-[#172B4D]">94%</span>
-        <span class="text-sm text-[#36B37E] font-medium mb-1">+2.4%</span>
+      <div class="mt-6 flex justify-end space-x-3">
+        <button (click)="wizardStep.set(0)" class="text-[#6B778C] px-4 py-2 text-sm font-medium hover:underline">Cancel</button>
+        <button (click)="generateReport()" [disabled]="generating()" class="bg-[#0052CC] text-white px-6 py-2 rounded text-sm font-bold disabled:opacity-50">
+          {{ generating() ? 'Triggering...' : 'Generate Report PDF' }}
+        </button>
       </div>
     </div>
-    
-    <div class="bg-white p-6 rounded-lg shadow-sm border border-[#DFE1E6]">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-semibold text-[#6B778C] uppercase tracking-wider">Active Violations</h3>
-        <span class="material-symbols-outlined text-[#FF5630]">warning</span>
-      </div>
-      <div class="flex items-end space-x-2">
-        <span class="text-3xl font-bold text-[#172B4D]">12</span>
-        <span class="text-sm text-[#FF5630] font-medium mb-1">-3 from last week</span>
-      </div>
+  }
+
+  <!-- Reports List -->
+  <div class="bg-white rounded-lg border border-[#DFE1E6] shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-[#DFE1E6] bg-[#FAFBFC] flex justify-between items-center">
+      <h3 class="font-bold text-[#172B4D]">Report History</h3>
+      <span class="text-xs text-[#6B778C]">{{ reports().length }} reports found</span>
     </div>
 
-    <div class="bg-white p-6 rounded-lg shadow-sm border border-[#DFE1E6]">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-semibold text-[#6B778C] uppercase tracking-wider">Last Audit</h3>
-        <span class="material-symbols-outlined text-[#0747A6]">history</span>
+    @if (loading()) {
+      <div class="p-12 flex flex-col items-center justify-center">
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0052CC]"></div>
+        <p class="mt-4 text-[#6B778C]">Loading compliance archive...</p>
       </div>
-      <div class="flex items-end space-x-2">
-        <span class="text-xl font-bold text-[#172B4D]">2 hours ago</span>
+    } @else if (reports().length === 0) {
+      <div class="p-16 text-center">
+        <span class="material-symbols-outlined text-5xl text-[#DFE1E6] mb-4">folder_off</span>
+        <h3 class="text-lg font-bold text-[#172B4D]">No reports generated yet</h3>
+        <p class="text-[#6B778C] mt-2">Generate your first automated compliance audit to see it here.</p>
       </div>
-    </div>
-  </div>
-
-  <div class="bg-white rounded-lg shadow-sm border border-[#DFE1E6] overflow-hidden">
-    <div class="px-6 py-4 border-b border-[#DFE1E6] flex justify-between items-center">
-      <h3 class="font-bold">Compliance Controls</h3>
-      <div class="flex space-x-2">
-        <span class="px-2 py-1 bg-[#EAE6FF] text-[#403294] text-xs font-bold rounded">SOC2</span>
-        <span class="px-2 py-1 bg-[#DEEBFF] text-[#0747A6] text-xs font-bold rounded">GDPR</span>
-        <span class="px-2 py-1 bg-[#E3FCEF] text-[#006644] text-xs font-bold rounded">HIPAA</span>
+    } @else {
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-[#FAFBFC] border-b border-[#DFE1E6]">
+              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Framework</th>
+              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Coverage Period</th>
+              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Status</th>
+              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Created At</th>
+              <th class="px-6 py-4 text-right"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#F4F5F7]">
+            @for (report of reports(); track report.id) {
+              <tr class="hover:bg-[#FAFBFC] transition-colors">
+                <td class="px-6 py-4">
+                  <div class="flex items-center">
+                    <span class="material-symbols-outlined text-[#0747A6] mr-3">{{ getFrameworkIcon(report.framework) }}</span>
+                    <span class="font-bold text-[#172B4D]">{{ report.framework }} Audit</span>
+                  </div>
+                </td>
+                <td class="px-6 py-4 text-sm text-[#6B778C]">
+                  {{ report.period_start | date:'MMM d' }} – {{ report.period_end | date:'MMM d, yyyy' }}
+                </td>
+                <td class="px-6 py-4">
+                  <div class="flex items-center">
+                    @if (report.status === 'processing' || report.status === 'pending') {
+                      <div class="animate-pulse w-2 h-2 rounded-full bg-blue-500 mr-2"></div>
+                      <span class="text-xs font-medium text-blue-600 uppercase italic">Generating...</span>
+                    } @else if (report.status === 'ready') {
+                      <span class="px-2 py-1 rounded bg-green-100 text-green-700 text-[10px] font-bold uppercase tracking-wider">READY</span>
+                    } @else {
+                      <span class="px-2 py-1 rounded bg-red-100 text-red-700 text-[10px] font-bold uppercase tracking-wider">FAILED</span>
+                    }
+                  </div>
+                </td>
+                <td class="px-6 py-4 text-xs text-[#6B778C]">
+                  {{ report.created_at | date:'MMM d, HH:mm' }}
+                </td>
+                <td class="px-6 py-4 text-right">
+                  @if (report.status === 'ready') {
+                    <a [href]="report.download_url" target="_blank" class="text-[#0052CC] font-bold text-sm hover:underline flex items-center justify-end">
+                      <span class="material-symbols-outlined text-sm mr-1">download</span>
+                      Download PDF
+                    </a>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
       </div>
-    </div>
-    <div class="p-0">
-      <table class="w-full text-left text-sm">
-        <thead class="bg-[#F4F5F7] text-[#6B778C] uppercase text-xs">
-          <tr>
-            <th class="px-6 py-3 font-semibold">Control ID</th>
-            <th class="px-6 py-3 font-semibold">Requirement</th>
-            <th class="px-6 py-3 font-semibold">Status</th>
-            <th class="px-6 py-3 font-semibold">Last Verified</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-[#DFE1E6]">
-          <tr>
-            <td class="px-6 py-4 font-mono text-xs">AC-01</td>
-            <td class="px-6 py-4">Access Control Policy & Procedures</td>
-            <td class="px-6 py-4">
-              <span class="px-2 py-1 bg-[#E3FCEF] text-[#006644] text-xs font-bold rounded-full">Compliant</span>
-            </td>
-            <td class="px-6 py-4 text-[#6B778C]">Apr 24, 2026</td>
-          </tr>
-          <tr>
-            <td class="px-6 py-4 font-mono text-xs">IA-02</td>
-            <td class="px-6 py-4">Identification and Authentication (MFA)</td>
-            <td class="px-6 py-4">
-              <span class="px-2 py-1 bg-[#FFFAE6] text-[#BF6300] text-xs font-bold rounded-full">Warning</span>
-            </td>
-            <td class="px-6 py-4 text-[#6B778C]">Apr 23, 2026</td>
-          </tr>
-          <tr>
-            <td class="px-6 py-4 font-mono text-xs">CP-09</td>
-            <td class="px-6 py-4">Information System Backup</td>
-            <td class="px-6 py-4">
-              <span class="px-2 py-1 bg-[#E3FCEF] text-[#006644] text-xs font-bold rounded-full">Compliant</span>
-            </td>
-            <td class="px-6 py-4 text-[#6B778C]">Apr 24, 2026</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    }
   </div>
 </div>

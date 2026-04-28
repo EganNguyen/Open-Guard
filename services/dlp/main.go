@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/segmentio/kafka-go"
 	"github.com/openguard/services/dlp/pkg/handlers"
 	"github.com/openguard/services/dlp/pkg/repository"
 	"github.com/openguard/services/dlp/pkg/router"
@@ -92,7 +94,27 @@ func main() {
 	if brokers == "" {
 		brokers = "localhost:9092"
 	}
-	dlpConsumer := consumer.NewConsumer([]string{brokers}, "control.plane.events", "dlp-service", repo, logger.With("component", "consumer"))
+
+	dlqTopic := os.Getenv("KAFKA_DLQ_TOPIC")
+	if dlqTopic == "" {
+		dlqTopic = "dlp.dlq"
+	}
+
+	dlqWriter := &kafka.Writer{
+		Addr:     kafka.TCP(brokers),
+		Topic:    dlqTopic,
+		Balancer: &kafka.LeastBytes{},
+	}
+	defer dlqWriter.Close()
+
+	maxFailures := 5
+	if val := os.Getenv("MAX_CONSECUTIVE_FAILURES"); val != "" {
+		if i, err := strconv.Atoi(val); err == nil {
+			maxFailures = i
+		}
+	}
+
+	dlpConsumer := consumer.NewConsumer([]string{brokers}, "control.plane.events", "dlp-service", repo, logger.With("component", "consumer"), dlqWriter, maxFailures)
 	go func() {
 		if err := dlpConsumer.Start(context.Background()); err != nil {
 			logger.Error("dlp consumer failed", "error", err)

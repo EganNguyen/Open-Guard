@@ -144,6 +144,20 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.svc.RefreshToken(r.Context(), body.RefreshToken, r.UserAgent(), r.RemoteAddr)
 	if err != nil {
+		if errors.Is(err, service.ErrSessionRevokedRisk) {
+			h.writeJSON(w, http.StatusUnauthorized, map[string]string{
+				"error": "Session revoked due to suspicious activity",
+				"code":  "SESSION_REVOKED_RISK",
+			})
+			return
+		}
+		if errors.Is(err, service.ErrSessionCompromised) {
+			h.writeJSON(w, http.StatusUnauthorized, map[string]string{
+				"error": "Session compromised — refresh token reuse detected",
+				"code":  "SESSION_COMPROMISED",
+			})
+			return
+		}
 		http.Error(w, "Invalid or expired refresh token", http.StatusUnauthorized)
 		return
 	}

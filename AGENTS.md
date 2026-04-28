@@ -9,6 +9,13 @@ Before starting any task, read the **Index Layer** to understand the system map 
 - [**HOTSPOTS.md**](docs/index/HOTSPOTS.md): High-risk areas and brittle logic.
 - [**LEARNING.md**](docs/index/LEARNING.md): Long-term memory and cross-job discoveries.
 
+## 🤖 AI-Native Specifications
+Structured phase definitions for automated guidance:
+- [.opencode/phase5-detectors.yaml](.opencode/phase5-detectors.yaml)
+- [.opencode/phase6-compliance.yaml](.opencode/phase6-compliance.yaml)
+- [.opencode/phase7-security.yaml](.opencode/phase7-security.yaml)
+- [.opencode/phase10-dlp.yaml](.opencode/phase10-dlp.yaml)
+
 ## High-Signal Context
 Open-Guard is a high-performance security control plane using a "beside, not in front" architecture.
 - **Backend:** Go 1.22+ (using `go.work` workspace). Microservices communicate via **mTLS**.

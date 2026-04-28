@@ -11,6 +11,7 @@ import (
 
 type UserStatusUpdater interface {
 	UpdateUserStatus(ctx context.Context, userID, status string) error
+	OffboardOrg(ctx context.Context, orgID string) error
 }
 
 type KafkaReader interface {
@@ -55,6 +56,7 @@ func (c *Consumer) Start(ctx context.Context) error {
 		var event struct {
 			Event  string `json:"event"`
 			UserID string `json:"user_id"`
+			OrgID  string `json:"org_id"`
 			Status string `json:"status"`
 			SagaID string `json:"saga_id"`
 		}
@@ -77,6 +79,11 @@ func (c *Consumer) Start(ctx context.Context) error {
 			c.logger.Info("handling provisioning success", "user_id", event.UserID)
 			if err := c.svc.UpdateUserStatus(ctx, event.UserID, "active"); err != nil {
 				c.logger.Error("failed to update user status", "user_id", event.UserID, "error", err)
+			}
+		case "org.offboard":
+			c.logger.Info("handling organization offboarding", "org_id", event.OrgID)
+			if err := c.svc.OffboardOrg(ctx, event.OrgID); err != nil {
+				c.logger.Error("failed to offboard organization", "org_id", event.OrgID, "error", err)
 			}
 		}
 	}

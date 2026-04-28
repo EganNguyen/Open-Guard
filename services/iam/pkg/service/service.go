@@ -25,6 +25,19 @@ import (
 	"net/http"
 )
 
+const (
+	riskScoreUAFamilyChange  = 60
+	riskScoreIPSubnetChange  = 40
+	riskScoreIPHostChange    = 15
+	riskScoreUAVersionChange = 20
+	riskThresholdRevoke      = 80
+)
+
+var (
+	ErrSessionRevokedRisk = fmt.Errorf("SESSION_REVOKED_RISK")
+	ErrSessionCompromised = fmt.Errorf("SESSION_COMPROMISED")
+)
+
 type ScimPatchOp struct {
 	Op    string          `json:"op"`
 	Path  string          `json:"path"`
@@ -67,6 +80,8 @@ type Repository interface {
 	GetActiveJTIs(ctx context.Context, userID string) ([]string, error)
 	GetSessionTTL(ctx context.Context, jti string) time.Duration
 	RevokeSessions(ctx context.Context, userID string) error
+	GetSessionByUserID(ctx context.Context, userID string) (map[string]interface{}, error)
+	DeprovisionAllUsers(ctx context.Context, orgID string) error
 	GetUserByExternalID(ctx context.Context, orgID, externalID string) (map[string]interface{}, error)
 	SaveWebAuthnCredential(ctx context.Context, orgID, userID string, cred map[string]interface{}) error
 	ListWebAuthnCredentials(ctx context.Context, userID string) ([]map[string]interface{}, error)
@@ -620,13 +635,71 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken, userAgent, ip 
 	rtHash := crypto.HashSHA256(refreshToken)
 	rt, err := s.repo.ClaimRefreshToken(ctx, rtHash)
 	if err != nil {
-		// Not found means: already used (reuse attack) or expired
-		// Trigger family revocation by looking up family from a secondary index
+		// Token reuse = compromise indicator. Revoke entire family.
 		s.repo.RevokeRefreshTokenFamilyByHash(ctx, rtHash)
-		return nil, fmt.Errorf("token invalid, revoked, or already used")
+		return nil, ErrSessionCompromised
+	}
+
+	// Fetch the original session to get stored UA and IP
+	session, err := s.repo.GetSessionByUserID(ctx, rt["user_id"].(string))
+	if err == nil && session != nil {
+		storedUA, _ := session["user_agent"].(string)
+		storedIP, _ := session["ip_address"].(string)
+		score := calculateRiskScore(storedUA, userAgent, storedIP, ip)
+		if score >= riskThresholdRevoke {
+			s.repo.RevokeRefreshTokenFamily(ctx, rt["family_id"].(uuid.UUID))
+			return nil, ErrSessionRevokedRisk
+		}
 	}
 
 	return s.IssueTokens(ctx, rt["org_id"].(string), rt["user_id"].(string), userAgent, ip, rt["family_id"].(uuid.UUID))
+}
+
+func calculateRiskScore(storedUA, currentUA, storedIP, currentIP string) int {
+	score := 0
+
+	storedFamily, storedVersion := parseUserAgent(storedUA)
+	currentFamily, currentVersion := parseUserAgent(currentUA)
+
+	if storedFamily != currentFamily {
+		score += riskScoreUAFamilyChange
+	} else if storedVersion != currentVersion {
+		score += riskScoreUAVersionChange
+	}
+
+	storedNet := ipToSubnet16(storedIP)
+	currentNet := ipToSubnet16(currentIP)
+	if storedNet != currentNet {
+		score += riskScoreIPSubnetChange
+	} else if storedIP != currentIP {
+		score += riskScoreIPHostChange
+	}
+
+	return score
+}
+
+func parseUserAgent(ua string) (family, version string) {
+	// Simple heuristic for parsing UA.
+	// In production, use a library like github.com/mssola/useragent
+	parts := strings.Split(ua, "/")
+	if len(parts) >= 2 {
+		family = parts[0]
+		version = parts[1]
+		return
+	}
+	return ua, "0.0"
+}
+
+func ipToSubnet16(ipStr string) string {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return ipStr
+	}
+	ip = ip.To4()
+	if ip == nil {
+		return ipStr
+	}
+	return fmt.Sprintf("%d.%d", ip[0], ip[1])
 }
 
 func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (map[string]interface{}, string, error) {
