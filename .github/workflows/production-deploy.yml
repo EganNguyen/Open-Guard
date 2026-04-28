@@ -73,7 +73,7 @@ jobs:
         ports:
           - 4566:4566
         env:
-          SERVICES: ecr,ecs,s3,iam,sts,kms,dynamodb,ec2,lambda
+          SERVICES: s3,iam,sts,kms,dynamodb,ec2,lambda,sqs
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -116,42 +116,34 @@ jobs:
           # Fail fast if gateway never came up
           cat /tmp/ls_health.json || { echo "ERROR: LocalStack gateway never responded"; exit 1; }
 
-          # Step 2: "Poke" services to trigger lazy-loading
-          echo "Triggering service initialization..."
-          aws ecr describe-repositories --endpoint-url http://localhost:4566 --region us-east-1 || true
-          aws ecs list-clusters --endpoint-url http://localhost:4566 --region us-east-1 || true
-
-          # Step 3: Wait for specific services to be 'available' or 'running'
-          echo "Waiting for ECR and ECS to be ready..."
+          # Step 2: Wait for core services to be 'available'
+          echo "Waiting for core services (s3, iam)..."
           for i in $(seq 1 30); do
             HEALTH=$(curl -sf http://localhost:4566/_localstack/health 2>/dev/null || echo "{}")
+            
+            S3_STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('services',{}).get('s3','not_found'); print('ready' if s in ['running', 'available'] else s)")
+            IAM_STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('services',{}).get('iam','not_found'); print('ready' if s in ['running', 'available'] else s)")
 
-            ECR_STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('services',{}).get('ecr','not_found'); print('ready' if s in ['running', 'available'] else s)")
-            ECS_STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('services',{}).get('ecs','not_found'); print('ready' if s in ['running', 'available'] else s)")
+            echo "  attempt $i/30 — s3: $S3_STATUS, iam: $IAM_STATUS"
 
-            echo "  attempt $i/30 — ecr: $ECR_STATUS, ecs: $ECS_STATUS"
-
-            if [ "$ECR_STATUS" = "ready" ] && [ "$ECS_STATUS" = "ready" ]; then
-              echo "All required services are ready."
+            if [ "$S3_STATUS" = "ready" ] && [ "$IAM_STATUS" = "ready" ]; then
+              echo "Core services are ready."
               exit 0
             fi
             sleep 2
           done
-
-          # If we get here, dump the final health state for debugging
-          echo "ERROR: Services did not become ready in time. Final health response:"
-          curl -sf http://localhost:4566/_localstack/health | python3 -m json.tool || true
           exit 1
 
-      - name: Create Mock ECR Repos
+      - name: Create Mock Registry (S3)
         env:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           AWS_REGION: us-east-1
         run: |
+          # Use S3 to mock registry/artifact storage since ECR is Pro
           SERVICES="iam policy audit threat alerting webhook-delivery compliance dlp connector-registry control-plane example-app dashboard"
           for svc in $SERVICES; do
-            aws ecr create-repository --repository-name openguard/$svc --endpoint-url http://localhost:4566
+            aws s3 mb s3://openguard-mock-registry-$svc --endpoint-url http://localhost:4566
           done
 
       - name: Setup Terraform
@@ -200,6 +192,6 @@ jobs:
           AWS_ENDPOINT_URL: http://localhost:4566
         run: |
           echo "Listing Created Mock Resources:"
-          aws ecs list-clusters --endpoint-url $AWS_ENDPOINT_URL
-          aws ecr describe-repositories --endpoint-url $AWS_ENDPOINT_URL
           aws s3 ls --endpoint-url $AWS_ENDPOINT_URL
+          aws dynamodb list-tables --endpoint-url $AWS_ENDPOINT_URL
+          aws iam list-users --endpoint-url $AWS_ENDPOINT_URL
