@@ -18,8 +18,6 @@ import (
 func TestDeliverer_Deliver_Success(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	d := NewDeliverer(logger)
-	// Bypass SSRF for local test server
-	d.validator = func(string) error { return nil }
 	
 	secret := "test-secret"
 	payload := "{\"test\":\"data\"}"
@@ -45,6 +43,9 @@ func TestDeliverer_Deliver_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	// Bypass SSRF for local test server by injecting the httptest client
+	d.SetClient(ts.Client())
+
 	err := d.Deliver(context.Background(), messageKey, ts.URL, payload, secret)
 	assert.NoError(t, err)
 }
@@ -52,12 +53,13 @@ func TestDeliverer_Deliver_Success(t *testing.T) {
 func TestDeliverer_Deliver_ServerError(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	d := NewDeliverer(logger)
-	d.validator = func(string) error { return nil }
 	
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer ts.Close()
+
+	d.SetClient(ts.Client())
 
 	err := d.Deliver(context.Background(), "key", ts.URL, "{}", "secret")
 	assert.Error(t, err)
@@ -68,8 +70,8 @@ func TestDeliverer_Deliver_SSRF_Blocked(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	d := NewDeliverer(logger)
 	
-	// RFC1918 address, using default validator
+	// RFC1918 address, using default validator (now baked into client)
 	err := d.Deliver(context.Background(), "key", "http://10.0.0.1/webhook", "{}", "secret")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "SSRF blocked")
+	assert.Contains(t, err.Error(), "SSRF guard")
 }

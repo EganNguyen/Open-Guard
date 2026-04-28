@@ -16,33 +16,25 @@ import (
 	"github.com/openguard/shared/middleware"
 )
 
-type SSRFValidator func(string) error
-
 type Deliverer struct {
-	client    *http.Client
-	logger    *slog.Logger
-	validator SSRFValidator
+	client *http.Client
+	logger *slog.Logger
 }
 
 func NewDeliverer(logger *slog.Logger) *Deliverer {
 	return &Deliverer{
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-		logger:    logger,
-		validator: middleware.ValidateOutboundURL,
+		client: middleware.NewSafeHTTPClient(30 * time.Second),
+		logger: logger,
 	}
 }
 
-func (d *Deliverer) Deliver(ctx context.Context, messageKey, target, payload, secret string) error {
-	// 1. SSRF check
-	if d.validator != nil {
-		if err := d.validator(target); err != nil {
-			return fmt.Errorf("SSRF blocked: %w", err)
-		}
-	}
+// SetClient overrides the internal HTTP client. Used primarily for testing.
+func (d *Deliverer) SetClient(client *http.Client) {
+	d.client = client
+}
 
-	// 2. Sign payload (reuse alerting HMAC pattern)
+func (d *Deliverer) Deliver(ctx context.Context, messageKey, target, payload, secret string) error {
+	// 1. Sign payload (reuse alerting HMAC pattern)
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(ts + "." + payload))

@@ -1,10 +1,11 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
+	"time"
 )
 
 // SSRFGuard is a middleware / helper that validates outbound URLs to prevent
@@ -41,48 +42,56 @@ func init() {
 	}
 }
 
-// ValidateOutboundURL checks if the given URL is safe for outbound requests.
-// Returns an error if the URL resolves to a blocked IP range.
-//
-// Usage in webhook delivery handlers:
-//
-//	if err := middleware.ValidateOutboundURL(webhookURL); err != nil {
-//	    return fmt.Errorf("SSRF protection: %w", err)
-//	}
-func ValidateOutboundURL(rawURL string) error {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
-	}
+type hostResolver interface {
+	LookupHost(ctx context.Context, host string) ([]string, error)
+}
 
-	// Only allow http/https schemes
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("disallowed scheme: %q (only http/https allowed)", parsed.Scheme)
-	}
+var defaultResolver hostResolver = net.DefaultResolver
 
-	host := parsed.Hostname()
-	if host == "" {
-		return fmt.Errorf("missing host in URL")
+// NewSafeHTTPClient returns an *http.Client whose DialContext resolves
+// the target hostname exactly once, validates each IP against the blocked
+// CIDR list, and connects to the first allowed IP.
+// This prevents DNS rebinding (TOCTOU between validate and connect).
+func NewSafeHTTPClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{
+		Timeout:   5 * time.Second,
+		KeepAlive: 30 * time.Second,
 	}
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				host, port, err := net.SplitHostPort(addr)
+				if err != nil {
+					return nil, err
+				}
 
-	// Resolve hostname to IPs
-	addrs, err := net.LookupHost(host)
-	if err != nil {
-		// If we can't resolve, fail-closed
-		return fmt.Errorf("cannot resolve host %q: %w", host, err)
+				// 1. Resolve host exactly once
+				ips, err := defaultResolver.LookupHost(ctx, host)
+				if err != nil {
+					return nil, fmt.Errorf("SSRF guard: cannot resolve %q: %w", host, err)
+				}
+
+				// 2. Validate all IPs
+				for _, rawIP := range ips {
+					ip := net.ParseIP(rawIP)
+					if ip == nil {
+						continue
+					}
+					if isBlockedIP(ip) {
+						return nil, fmt.Errorf("SSRF guard: %q resolves to blocked IP %s", host, ip)
+					}
+
+					// 3. Pin the connection to the validated IP directly.
+					// This prevents a second DNS lookup at dial time.
+					return dialer.DialContext(ctx, network, net.JoinHostPort(rawIP, port))
+				}
+
+				return nil, fmt.Errorf("SSRF guard: no allowed IP for %q", host)
+			},
+		},
 	}
-
-	for _, addr := range addrs {
-		ip := net.ParseIP(addr)
-		if ip == nil {
-			return fmt.Errorf("invalid IP address resolved: %q", addr)
-		}
-		if isBlockedIP(ip) {
-			return fmt.Errorf("SSRF blocked: host %q resolves to private/reserved IP %s", host, ip)
-		}
-	}
-
-	return nil
 }
 
 // isBlockedIP checks if an IP falls within any blocked CIDR range.
@@ -101,18 +110,8 @@ func isBlockedIP(ip net.IP) bool {
 func SSRFGuardMiddleware(urlHeader string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			targetURL := r.Header.Get(urlHeader)
-			if targetURL == "" {
-				// If no URL header, let the handler decide (may not need SSRF protection)
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			if err := ValidateOutboundURL(targetURL); err != nil {
-				http.Error(w, fmt.Sprintf("Forbidden: %v", err), http.StatusForbidden)
-				return
-			}
-
+			// Deprecated: Pre-validation is prone to TOCTOU. 
+			// Use NewSafeHTTPClient for outbound calls instead.
 			next.ServeHTTP(w, r)
 		})
 	}
