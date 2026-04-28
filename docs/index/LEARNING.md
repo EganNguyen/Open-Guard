@@ -1,4 +1,4 @@
-# JOB-002 Learning: SSRF DNS Rebinding Prevention
+# Learning: SSRF DNS Rebinding Prevention
 
 ## Discovery (The "Aha!" Moment)
 Pre-validating a URL before making an HTTP request is insufficient to prevent SSRF if the attacker controls the DNS. Go's `http.Client` will perform a second resolution during the dial if not pinned.
