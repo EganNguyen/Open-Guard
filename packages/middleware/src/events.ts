@@ -47,3 +47,34 @@ export function emitGuardError(detectorId: string, error: Error, request: GuardR
 export function emitGuardRateLimit(request: GuardRequest, detectorId: string, ttl: number): void {
   guardEvents.emit('guard:ratelimit', { request, detectorId, ttl });
 }
+
+// OpenGuardEventEmitter wraps the raw EventEmitter with typed helper methods.
+// This is the preferred API for consumers — do not use guardEvents directly.
+export class OpenGuardEventEmitter {
+  onGuardResult(cb: (response: GuardResponse) => void): () => void {
+    guardEvents.on('guard:result', cb);
+    return () => guardEvents.off('guard:result', cb);
+  }
+
+  onGuardBlock(cb: (event: GuardResultEvent) => void): () => void {
+    guardEvents.on('guard:block', cb);
+    return () => guardEvents.off('guard:block', cb);
+  }
+
+  onGuardError(cb: (event: GuardErrorEvent) => void): () => void {
+    guardEvents.on('guard:error', cb);
+    return () => guardEvents.off('guard:error', cb);
+  }
+
+  onGuardRateLimit(cb: (event: GuardRateLimitEvent) => void): () => void {
+    guardEvents.on('guard:ratelimit', cb);
+    return () => guardEvents.off('guard:ratelimit', cb);
+  }
+
+  off(event: string, listener: (...args: any[]) => void): void {
+    guardEvents.off(event, listener);
+  }
+}
+
+// Singleton instance — imported as `globalEventEmitter` by consumers.
+export const globalEventEmitter = new OpenGuardEventEmitter();
