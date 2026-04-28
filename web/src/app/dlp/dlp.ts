@@ -1,5 +1,5 @@
 import { Component, OnInit, signal, inject } from '@angular/core';
-import { CommonModule } from '@angular/forms';
+import { CommonModule } from '@angular/common';
 import { DlpService, DlpFinding, DlpPolicy } from '../core/services/dlp.service';
 import { LucideAngularModule } from 'lucide-angular';
 

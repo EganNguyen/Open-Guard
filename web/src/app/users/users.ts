@@ -49,7 +49,7 @@ export class UsersComponent implements OnInit {
     this.error.set('');
 
     forkJoin({
-      connectors: this.connectorService.getConnectors().pipe(catchError(() => of([]))),
+      connectors: this.connectorService.listConnectors().pipe(catchError(() => of([]))),
       usersResponse: this.userService
         .listUsers()
         .pipe(
