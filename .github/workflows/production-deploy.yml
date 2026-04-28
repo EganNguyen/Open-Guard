@@ -150,7 +150,7 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init & Apply (Mock)
-        working-directory: deploy/production/terraform/environments/prod
+        working-directory: infra/environments/prod
         env:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test

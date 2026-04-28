@@ -38,12 +38,22 @@ resource "aws_kms_alias" "main" {
 
 # 3. ACM Certificate for openguard.com
 resource "aws_acm_certificate" "main" {
+  count             = var.is_localstack ? 0 : 1
   domain_name       = var.domain_name
-  subject_alternative_names = var.is_localstack ? [] : ["*.${var.domain_name}"]
-  validation_method = var.is_localstack ? "NONE" : "DNS"
+  subject_alternative_names = ["*.${var.domain_name}"]
+  validation_method = "DNS"
 
   lifecycle { create_before_destroy = true }
 }
+
+output "ecr_repository_urls" {
+  value = { for k, v in aws_ecr_repository.services : k => v.repository_url }
+}
+
+output "acm_certificate_arn" {
+  value = var.is_localstack ? "arn:aws:acm:us-east-1:000000000000:certificate/dummy" : aws_acm_certificate.main[0].arn
+}
+
 
 # 4. ECR Repositories
 resource "aws_ecr_repository" "services" {
