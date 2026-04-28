@@ -39,7 +39,7 @@ jobs:
 
       - name: Go lint
         run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.64.5
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.65.0
           for mod in sdk shared services/* tests/integration; do
             if [ -d "$mod" ] && [ -f "$mod/go.mod" ]; then
               echo "::group::Linting $mod"
