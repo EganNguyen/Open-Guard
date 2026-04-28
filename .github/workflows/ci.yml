@@ -43,7 +43,7 @@ jobs:
           for mod in sdk shared services/* tests/integration; do
             if [ -d "$mod" ] && find "$mod" -name "*.go" | grep -q .; then
               echo "Linting $mod..."
-              $(go env GOPATH)/bin/golangci-lint run --timeout=10m "$mod/..."
+              (cd "$mod" && go mod tidy && $(go env GOPATH)/bin/golangci-lint run --timeout=10m ./...)
             fi
           done
 
