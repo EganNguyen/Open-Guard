@@ -1,5 +1,6 @@
 variable "environment" { type = string }
 variable "domain_name" { type = string }
+variable "is_localstack" { type = bool; default = false }
 
 # 1. IAM Execution Role for ECS (Pull images, write logs)
 resource "aws_iam_role" "ecs_execution_role" {
@@ -33,18 +34,17 @@ resource "aws_kms_alias" "main" {
 }
 
 # 3. ACM Certificate for openguard.com
-# Note: Validation requires Route53 DNS entries (handled by default in Route53 module)
 resource "aws_acm_certificate" "main" {
   domain_name       = var.domain_name
-  subject_alternative_names = ["*.${var.domain_name}"]
-  validation_method = "DNS"
+  subject_alternative_names = var.is_localstack ? [] : ["*.${var.domain_name}"]
+  validation_method = var.is_localstack ? "NONE" : "DNS"
 
   lifecycle { create_before_destroy = true }
 }
 
 # 4. ECR Repositories
 resource "aws_ecr_repository" "services" {
-  for_each = toset([
+  for_each = var.is_localstack ? [] : toset([
     "iam", "policy", "audit", "threat", "alerting", 
     "webhook-delivery", "compliance", "dlp", 
     "connector-registry", "control-plane", "example-app", "dashboard"

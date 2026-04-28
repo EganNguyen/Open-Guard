@@ -1,6 +1,7 @@
 variable "vpc_cidr" { type = string }
 variable "environment" { type = string }
 variable "domain_name" { type = string }
+variable "is_localstack" { type = bool; default = false }
 
 data "aws_availability_zones" "available" {
   state = "available"
@@ -42,12 +43,12 @@ resource "aws_internet_gateway" "main" {
 
 # NAT Gateways (One per AZ for HA)
 resource "aws_eip" "nat" {
-  count = 3
+  count = var.is_localstack ? 0 : 3
   tags  = { Name = "openguard-${var.environment}-nat-eip-${count.index}" }
 }
 
 resource "aws_nat_gateway" "main" {
-  count         = 3
+  count         = var.is_localstack ? 0 : 3
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
   tags          = { Name = "openguard-${var.environment}-nat-${count.index}" }
@@ -71,9 +72,12 @@ resource "aws_route_table_association" "public" {
 resource "aws_route_table" "private" {
   count  = 3
   vpc_id = aws_vpc.main.id
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main[count.index].id
+  dynamic "route" {
+    for_each = var.is_localstack ? [] : [1]
+    content {
+      cidr_block     = "0.0.0.0/0"
+      nat_gateway_id = aws_nat_gateway.main[count.index].id
+    }
   }
 }
 
@@ -90,6 +94,7 @@ resource "aws_route53_zone" "public" {
 
 # Route53 Private Zone for Service Discovery
 resource "aws_service_discovery_private_dns_namespace" "internal" {
+  count       = var.is_localstack ? 0 : 1
   name        = "openguard.local"
   description = "Private DNS for microservices"
   vpc         = aws_vpc.main.id
@@ -99,4 +104,4 @@ output "vpc_id" { value = aws_vpc.main.id }
 output "public_subnets" { value = aws_subnet.public[*].id }
 output "private_subnets" { value = aws_subnet.private[*].id }
 output "hosted_zone_id" { value = aws_route53_zone.public.zone_id }
-output "service_discovery_namespace_id" { value = aws_service_discovery_private_dns_namespace.internal.id }
+output "service_discovery_namespace_id" { value = var.is_localstack ? "" : aws_service_discovery_private_dns_namespace.internal[0].id }

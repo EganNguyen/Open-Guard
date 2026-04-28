@@ -1,9 +1,11 @@
 variable "environment" { type = string }
 variable "vpc_id" { type = string }
 variable "private_subnets" { type = list(string) }
+variable "is_localstack" { type = bool; default = false }
 
 # 1. Aurora PostgreSQL Serverless v2 (Main State Store)
 resource "aws_rds_cluster" "postgresql" {
+  count                   = var.is_localstack ? 0 : 1
   cluster_identifier      = "openguard-${var.environment}-db"
   engine                  = "aurora-postgresql"
   engine_mode             = "provisioned"
@@ -22,14 +24,16 @@ resource "aws_rds_cluster" "postgresql" {
 }
 
 resource "aws_rds_cluster_instance" "postgresql" {
-  cluster_identifier = aws_rds_cluster.postgresql.id
+  count              = var.is_localstack ? 0 : 1
+  cluster_identifier = aws_rds_cluster.postgresql[0].id
   instance_class     = "db.serverless"
-  engine             = aws_rds_cluster.postgresql.engine
-  engine_version     = aws_rds_cluster.postgresql.engine_version
+  engine             = aws_rds_cluster.postgresql[0].engine
+  engine_version     = aws_rds_cluster.postgresql[0].engine_version
 }
 
 # 2. ElastiCache for Redis Serverless (Policy Cache)
 resource "aws_elasticache_serverless_cache" "redis" {
+  count  = var.is_localstack ? 0 : 1
   engine = "redis"
   name   = "openguard-${var.environment}-redis"
   
@@ -46,6 +50,7 @@ resource "aws_elasticache_serverless_cache" "redis" {
 
 # 3. MSK Serverless (Kafka Event Bus)
 resource "aws_msk_serverless_cluster" "kafka" {
+  count        = var.is_localstack ? 0 : 1
   cluster_name = "openguard-${var.environment}-kafka"
 
   vpc_config {
@@ -85,6 +90,7 @@ resource "aws_security_group" "db" {
   }
 }
 
-output "postgresql_endpoint" { value = aws_rds_cluster.postgresql.endpoint }
-output "redis_endpoint" { value = aws_elasticache_serverless_cache.redis.endpoint[0].address }
-output "kafka_bootstrap_brokers" { value = aws_msk_serverless_cluster.kafka.arn } # MSK Serverless uses ARN for bootstrap in some SDKs or custom discovery
+output "postgresql_endpoint" { value = var.is_localstack ? "localhost" : aws_rds_cluster.postgresql[0].endpoint }
+output "redis_endpoint" { value = var.is_localstack ? "localhost" : aws_elasticache_serverless_cache.redis[0].endpoint[0].address }
+output "kafka_bootstrap_brokers" { value = var.is_localstack ? "localhost:9092" : aws_msk_serverless_cluster.kafka[0].arn }
+ # MSK Serverless uses ARN for bootstrap in some SDKs or custom discovery

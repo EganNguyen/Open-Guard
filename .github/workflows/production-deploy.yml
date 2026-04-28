@@ -166,15 +166,14 @@ jobs:
             skip_metadata_api_check     = true
             skip_requesting_account_id  = true
             endpoints {
-              ecr            = "http://localhost:4566"
-              ecs            = "http://localhost:4566"
               ec2            = "http://localhost:4566"
               iam            = "http://localhost:4566"
               kms            = "http://localhost:4566"
               s3             = "http://localhost:4566"
               sts            = "http://localhost:4566"
               dynamodb       = "http://localhost:4566"
-              servicediscovery = "http://localhost:4566"
+              route53        = "http://localhost:4566"
+              acm            = "http://localhost:4566"
             }
           }
           terraform {
@@ -182,7 +181,7 @@ jobs:
           }
           EOF
           terraform init
-          terraform apply -auto-approve -var="image_tag=${{ github.sha }}" -var="domain_name=localhost"
+          terraform apply -auto-approve -var="image_tag=${{ github.sha }}" -var="domain_name=openguard.test"
 
       - name: Verify Mock Deployment
         env:

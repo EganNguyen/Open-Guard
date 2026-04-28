@@ -2,9 +2,11 @@ variable "environment" { type = string }
 variable "vpc_id" { type = string }
 variable "public_subnets" { type = list(string) }
 variable "acm_certificate_arn" { type = string }
+variable "is_localstack" { type = bool; default = false }
 
 # 1. Application Load Balancer
 resource "aws_lb" "main" {
+  count              = var.is_localstack ? 0 : 1
   name               = "openguard-${var.environment}-alb"
   internal           = false
   load_balancer_type = "application"
@@ -34,6 +36,7 @@ resource "aws_security_group" "alb" {
 
 # 3. WAF Web ACL
 resource "aws_wafv2_web_acl" "main" {
+  count       = var.is_localstack ? 0 : 1
   name        = "openguard-${var.environment}-waf"
   description = "WAF for OpenGuard ALB"
   scope       = "REGIONAL"
@@ -72,9 +75,10 @@ resource "aws_wafv2_web_acl" "main" {
 }
 
 resource "aws_wafv2_web_acl_association" "main" {
-  resource_arn = aws_lb.main.arn
-  web_acl_arn  = aws_wafv2_web_acl.main.arn
+  count        = var.is_localstack ? 0 : 1
+  resource_arn = aws_lb.main[0].arn
+  web_acl_arn  = aws_wafv2_web_acl.main[0].arn
 }
 
-output "alb_dns_name" { value = aws_lb.main.dns_name }
+output "alb_dns_name" { value = var.is_localstack ? "localhost" : aws_lb.main[0].dns_name }
 output "alb_security_group_id" { value = aws_security_group.alb.id }
