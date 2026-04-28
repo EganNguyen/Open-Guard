@@ -38,9 +38,12 @@ fi
 
 # 4. Production placeholders
 echo -n "Checking for TODOs in Production... "
-TODO_COUNT=$(grep -r "TODO" services/ shared/ | grep -v "_test.go" | wc -l)
+# Only scan Go files and exclude tests to prevent false positives from binaries or unrelated files
+TODO_COUNT=$(grep -rn "TODO" services/ shared/ --include="*.go" | grep -v "_test.go" | wc -l)
 if [ "$TODO_COUNT" -gt 0 ]; then
   echo "⚠️  WARNING ($TODO_COUNT TODOs found in production code)"
+else
+  echo "✅ PASSED"
 fi
 
 # 5. Index Layer Readiness

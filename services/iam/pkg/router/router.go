@@ -60,7 +60,7 @@ func NewRouter(ctx context.Context, h *handlers.Handler, keyring []crypto.JWTKey
 		Interval:         10 * time.Second,
 		FailureThreshold: 3,
 		OpenDuration:     5 * time.Second,
-	}, iam_middleware.GetLogger(ctx)) // Use service-level context instead of TODO
+	}, iam_middleware.GetLogger(ctx))
 
 	authMiddleware := shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker)
 	idemMiddleware := shared_middleware.IdempotencyMiddleware(rdb)
