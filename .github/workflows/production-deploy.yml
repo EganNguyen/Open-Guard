@@ -73,7 +73,7 @@ jobs:
         ports:
           - 4566:4566
         env:
-          SERVICES: ecr,ecs,s3,iam,sts,kms,dynamodb
+          SERVICES: ecr,ecs,s3,iam,sts,kms,dynamodb,ec2,lambda
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -111,18 +111,22 @@ jobs:
           # Fail fast if gateway never came up
           cat /tmp/ls_health.json || { echo "ERROR: LocalStack gateway never responded"; exit 1; }
 
-          # Step 2: Wait for specific services to be 'running' (not just 'available')
-          # Use plain string matching, no complex regex escaping
+          # Step 2: "Poke" services to trigger lazy-loading
+          echo "Triggering service initialization..."
+          aws ecr describe-repositories --endpoint-url http://localhost:4566 --region us-east-1 || true
+          aws ecs list-clusters --endpoint-url http://localhost:4566 --region us-east-1 || true
+
+          # Step 3: Wait for specific services to be 'available' or 'running'
           echo "Waiting for ECR and ECS to be ready..."
           for i in $(seq 1 30); do
             HEALTH=$(curl -sf http://localhost:4566/_localstack/health 2>/dev/null || echo "{}")
 
-            ECR_STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('services',{}).get('ecr','not_found'))" 2>/dev/null || echo "parse_error")
-            ECS_STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('services',{}).get('ecs','not_found'))" 2>/dev/null || echo "parse_error")
+            ECR_STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('services',{}).get('ecr','not_found'); print('ready' if s in ['running', 'available'] else s)")
+            ECS_STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('services',{}).get('ecs','not_found'); print('ready' if s in ['running', 'available'] else s)")
 
             echo "  attempt $i/30 — ecr: $ECR_STATUS, ecs: $ECS_STATUS"
 
-            if [ "$ECR_STATUS" = "running" ] && [ "$ECS_STATUS" = "running" ]; then
+            if [ "$ECR_STATUS" = "ready" ] && [ "$ECS_STATUS" = "ready" ]; then
               echo "All required services are ready."
               exit 0
             fi
