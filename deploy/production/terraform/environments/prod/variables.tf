@@ -1,18 +1,18 @@
 variable "aws_region" {
   description = "AWS region"
-  type        = "string"
+  type        = string
   default     = "us-east-1"
 }
 
 variable "environment" {
   description = "Deployment environment"
-  type        = "string"
+  type        = string
   default     = "prod"
 }
 
 variable "vpc_cidr" {
   description = "CIDR block for VPC"
-  type        = "string"
+  type        = string
   default     = "10.0.0.0/16"
 }
 
