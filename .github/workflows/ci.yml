@@ -41,7 +41,7 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
-          args: --timeout=10m
+          args: --timeout=10m ./sdk/... ./shared/... ./services/iam/... ./services/policy/... ./services/audit/... ./services/dlp/... ./services/compliance/... ./services/control-plane/... ./services/connector-registry/... ./services/alerting/... ./services/threat/... ./services/webhook-delivery/... ./tests/integration/...
 
       - name: SQL lint
         run: |
