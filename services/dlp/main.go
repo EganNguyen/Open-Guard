@@ -13,14 +13,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/redis/go-redis/v9"
-	"github.com/segmentio/kafka-go"
+	"github.com/openguard/services/dlp/pkg/consumer"
 	"github.com/openguard/services/dlp/pkg/handlers"
 	"github.com/openguard/services/dlp/pkg/repository"
 	"github.com/openguard/services/dlp/pkg/router"
-	"github.com/openguard/services/dlp/pkg/consumer"
 	"github.com/openguard/services/dlp/pkg/telemetry"
 	"github.com/openguard/shared/crypto"
+	"github.com/redis/go-redis/v9"
+	"github.com/segmentio/kafka-go"
 )
 
 func main() {
@@ -52,7 +52,7 @@ func main() {
 	}
 	rdb := redis.NewClient(rOptions)
 	defer rdb.Close()
-	
+
 	var keyring []crypto.JWTKey
 	if keysJSON := os.Getenv("JWT_KEYS"); keysJSON != "" {
 		if err := json.Unmarshal([]byte(keysJSON), &keyring); err != nil {

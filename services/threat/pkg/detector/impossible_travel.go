@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openguard/services/threat/pkg/alert"
+	sharedkafka "github.com/openguard/shared/kafka"
 	"github.com/oschwald/geoip2-golang"
 	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
-	"github.com/openguard/services/threat/pkg/alert"
-	sharedkafka "github.com/openguard/shared/kafka"
 )
 
 type LastLogin struct {
@@ -140,11 +140,11 @@ func (d *ImpossibleTravelDetector) processEvent(ctx context.Context, m kafka.Mes
 		redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
 		return last
 	`)
-	
+
 	redisKey := "travel:" + userID
 	payload, _ := json.Marshal(current)
 	val, err := script.Run(ctx, d.rdb, []string{redisKey}, payload, d.windowSecs).Result()
-	
+
 	if err == nil {
 		var last LastLogin
 		if errStr, ok := val.(string); ok && errStr != "" {
@@ -167,13 +167,13 @@ func (d *ImpossibleTravelDetector) detect(ctx context.Context, userID string, la
 	timeDelta := current.Timestamp.Sub(last.Timestamp).Seconds()
 
 	if dist > d.threshold && timeDelta < float64(d.windowSecs) {
-		d.logger.Warn("impossible travel detected", 
-			"user_id", userID, 
-			"distance_km", dist, 
+		d.logger.Warn("impossible travel detected",
+			"user_id", userID,
+			"distance_km", dist,
 			"time_delta_sec", timeDelta,
 			"last_ip", last.IP,
 			"current_ip", current.IP)
-		
+
 		d.publishThreatEvent(ctx, userID, dist, timeDelta)
 	}
 }
@@ -197,14 +197,14 @@ func (d *ImpossibleTravelDetector) publishThreatEvent(ctx context.Context, userI
 	}
 
 	payload, _ := json.Marshal(a)
-	
+
 	if d.pub != nil {
 		alertID := a.ID.Hex()
 		if err := d.pub.Publish(ctx, "threat.alerts", alertID, payload); err != nil {
 			d.logger.Error("failed to publish to kafka", "error", err)
 		}
 	}
-	
+
 	d.rdb.Set(ctx, "threat:travel:"+userID, payload, 24*time.Hour)
 }
 

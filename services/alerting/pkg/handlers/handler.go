@@ -84,7 +84,7 @@ func (h *AlertHandler) ResolveAlert(w http.ResponseWriter, r *http.Request) {
 
 func (h *AlertHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	orgID := middleware.GetOrgID(r.Context())
-	
+
 	stats, err := h.repo.GetStats(r.Context(), orgID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

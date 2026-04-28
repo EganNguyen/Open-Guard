@@ -15,17 +15,17 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/redis/go-redis/v9"
+	"encoding/json"
 	"github.com/openguard/services/alerting/pkg/handlers"
 	"github.com/openguard/services/alerting/pkg/repository"
 	"github.com/openguard/services/alerting/pkg/router"
 	"github.com/openguard/services/alerting/pkg/saga"
-	"github.com/openguard/services/alerting/pkg/webhook"
 	"github.com/openguard/services/alerting/pkg/telemetry"
+	"github.com/openguard/services/alerting/pkg/webhook"
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/secrets"
-	"encoding/json"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -41,7 +41,7 @@ func main() {
 	} else {
 		defer tp.Shutdown(ctx)
 	}
-	
+
 	// Config
 	mongoURI := os.Getenv("MONGO_URI")
 	if mongoURI == "" {
@@ -64,7 +64,7 @@ func main() {
 	}
 	rdb := redis.NewClient(rOptions)
 	defer rdb.Close()
-	
+
 	var keyring []crypto.JWTKey
 	secretProvider, err := secrets.GetProvider(ctx)
 	if err != nil {
@@ -90,7 +90,7 @@ func main() {
 	// 1. Initialize MongoDB
 	mongoCtx, mongoCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer mongoCancel()
-	
+
 	client, err := mongo.Connect(mongoCtx, options.Client().ApplyURI(mongoURI))
 	if err != nil {
 		logger.Error("failed to connect to mongodb", "error", err)
@@ -124,7 +124,7 @@ func main() {
 		siem,
 		logger,
 	)
-	
+
 	go func() {
 		logger.Info("starting alert saga")
 		if err := alertSaga.Start(ctx); err != nil {

@@ -11,16 +11,16 @@ import (
 )
 
 type Alert struct {
-	ID         primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	OrgID      string             `bson:"org_id" json:"org_id"`
-	UserID     string             `bson:"user_id" json:"user_id"`
-	Detector   string             `bson:"detector" json:"type"`
-	Score      float64            `bson:"score" json:"risk_score"`
-	Severity   string             `bson:"severity" json:"severity"` // MEDIUM/HIGH/CRITICAL
-	Status     string             `bson:"status" json:"status"`     // open/acknowledged/resolved
-	CreatedAt  time.Time          `bson:"created_at" json:"created_at"`
-	ResolvedAt *time.Time         `bson:"resolved_at,omitempty" json:"resolved_at,omitempty"`
-	MTTR       *int64             `bson:"mttr_seconds,omitempty" json:"mttr_seconds,omitempty"`
+	ID         primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
+	OrgID      string                 `bson:"org_id" json:"org_id"`
+	UserID     string                 `bson:"user_id" json:"user_id"`
+	Detector   string                 `bson:"detector" json:"type"`
+	Score      float64                `bson:"score" json:"risk_score"`
+	Severity   string                 `bson:"severity" json:"severity"` // MEDIUM/HIGH/CRITICAL
+	Status     string                 `bson:"status" json:"status"`     // open/acknowledged/resolved
+	CreatedAt  time.Time              `bson:"created_at" json:"created_at"`
+	ResolvedAt *time.Time             `bson:"resolved_at,omitempty" json:"resolved_at,omitempty"`
+	MTTR       *int64                 `bson:"mttr_seconds,omitempty" json:"mttr_seconds,omitempty"`
 	Metadata   map[string]interface{} `bson:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
@@ -113,7 +113,7 @@ func (s *Store) ResolveAlert(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	var alert Alert
 	err = s.db.Collection("alerts").FindOne(ctx, bson.M{"_id": oid}).Decode(&alert)
 	if err != nil {
@@ -124,8 +124,8 @@ func (s *Store) ResolveAlert(ctx context.Context, id string) error {
 	mttr := int64(now.Sub(alert.CreatedAt).Seconds())
 
 	_, err = s.db.Collection("alerts").UpdateOne(ctx, bson.M{"_id": oid}, bson.M{"$set": bson.M{
-		"status":      "resolved",
-		"resolved_at": now,
+		"status":       "resolved",
+		"resolved_at":  now,
 		"mttr_seconds": mttr,
 	}})
 	return err
@@ -135,8 +135,8 @@ func (s *Store) GetStats(ctx context.Context, orgID string) (map[string]interfac
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{"org_id": orgID}}},
 		{{Key: "$group", Value: bson.M{
-			"_id":           "$severity",
-			"count":         bson.M{"$sum": 1},
+			"_id":          "$severity",
+			"count":        bson.M{"$sum": 1},
 			"avg_mttr_sec": bson.M{"$avg": "$mttr_seconds"},
 		}}},
 	}

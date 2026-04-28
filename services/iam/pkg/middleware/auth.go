@@ -10,7 +10,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-
 const (
 	UserIDKey    contextKey = "user_id"
 	OrgIDKey     contextKey = "org_id"

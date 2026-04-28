@@ -76,8 +76,8 @@ func (r *Repository) GetConnectorByID(ctx context.Context, id string) (map[strin
 			"redirect_uris":  uris,
 			"api_key_prefix": prefix,
 			"api_key_hash":   hash,
-			"created_at":    createdAt,
-			"updated_at":    updatedAt,
+			"created_at":     createdAt,
+			"updated_at":     updatedAt,
 		}
 		return nil
 	})

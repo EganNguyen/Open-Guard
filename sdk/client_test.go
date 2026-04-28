@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestClient_Allow_FailClosed(t *testing.T) {
@@ -23,12 +25,8 @@ func TestClient_Allow_FailClosed(t *testing.T) {
 	defer c.Close()
 
 	allowed, err := c.Allow(context.Background(), "user-1", "read", "file-1")
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if allowed {
-		t.Error("expected denied (fail-closed)")
-	}
+	require.NoError(t, err)
+	require.False(t, allowed, "expected denied (fail-closed)")
 }
 
 func TestClient_Allow_FailOpen(t *testing.T) {
@@ -41,12 +39,8 @@ func TestClient_Allow_FailOpen(t *testing.T) {
 	defer c.Close()
 
 	allowed, err := c.Allow(context.Background(), "user-1", "read", "file-1")
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if !allowed {
-		t.Error("expected allowed (fail-open)")
-	}
+	require.NoError(t, err)
+	require.True(t, allowed, "expected allowed (fail-open)")
 }
 
 func TestClient_Allow_StaleCache(t *testing.T) {
@@ -55,7 +49,7 @@ func TestClient_Allow_StaleCache(t *testing.T) {
 		atomic.AddInt32(&count, 1)
 		if atomic.LoadInt32(&count) == 1 {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{"allowed": true}`)
+			_, _ = fmt.Fprint(w, `{"allowed": true}`)
 		} else {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
@@ -68,21 +62,16 @@ func TestClient_Allow_StaleCache(t *testing.T) {
 
 	// 1. First call: success, cached
 	allowed, err := c.Allow(context.Background(), "user-1", "read", "file-1")
-	if err != nil || !allowed {
-		t.Fatalf("expected (true, nil), got (%v, %v)", allowed, err)
-	}
+	require.NoError(t, err)
+	require.True(t, allowed)
 
 	// 2. Wait for expiry but within grace period (60s)
 	time.Sleep(200 * time.Millisecond)
 
 	// 3. Second call: server fails, should serve stale from cache
 	allowed, err = c.Allow(context.Background(), "user-1", "read", "file-1")
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if !allowed {
-		t.Error("expected allowed from stale cache")
-	}
+	require.NoError(t, err)
+	require.True(t, allowed, "expected allowed from stale cache")
 }
 
 func TestClient_Allow_StaleGracePeriod(t *testing.T) {
@@ -104,12 +93,8 @@ func TestClient_Allow_StaleGracePeriod(t *testing.T) {
 
 	// Should return true (stale) because server is down and we are within 60s grace
 	allowed, err := c.Allow(context.Background(), "user-1", "read", "file-1")
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if !allowed {
-		t.Error("expected allowed (stale-while-unavailable) within grace period")
-	}
+	require.NoError(t, err)
+	require.True(t, allowed, "expected allowed (stale-while-unavailable) within grace period")
 
 	// Move entry beyond grace period
 	c.cache.mu.Lock()
@@ -121,9 +106,8 @@ func TestClient_Allow_StaleGracePeriod(t *testing.T) {
 
 	// Should return false (fail-closed) because grace period exceeded
 	allowed, err = c.Allow(context.Background(), "user-1", "read", "file-1")
-	if allowed {
-		t.Error("expected denied because grace period exceeded")
-	}
+	require.NoError(t, err)
+	require.False(t, allowed, "expected denied because grace period exceeded")
 }
 
 func TestClient_CircuitBreaker(t *testing.T) {
@@ -139,15 +123,15 @@ func TestClient_CircuitBreaker(t *testing.T) {
 	defer c.Close()
 
 	// Call 1: failure
-	c.Allow(context.Background(), "u1", "a1", "r1")
+	_, _ = c.Allow(context.Background(), "u1", "a1", "r1")
 	// Call 2: failure, should trip breaker
-	c.Allow(context.Background(), "u1", "a1", "r1")
+	_, _ = c.Allow(context.Background(), "u1", "a1", "r1")
 
 	initialCount := atomic.LoadInt32(&count)
-	
+
 	// Call 3: breaker should be open, no request to server
-	c.Allow(context.Background(), "u1", "a1", "r1")
-	
+	_, _ = c.Allow(context.Background(), "u1", "a1", "r1")
+
 	if atomic.LoadInt32(&count) != initialCount {
 		t.Errorf("expected no more requests after breaker tripped, got %d", atomic.LoadInt32(&count))
 	}
@@ -162,7 +146,7 @@ func TestClient_Retry(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"allowed": true}`)
+		_, _ = fmt.Fprint(w, `{"allowed": true}`)
 	}))
 	defer ts.Close()
 
@@ -170,9 +154,8 @@ func TestClient_Retry(t *testing.T) {
 	defer c.Close()
 
 	allowed, err := c.Allow(context.Background(), "u1", "a1", "r1")
-	if err != nil || !allowed {
-		t.Fatalf("expected (true, nil) after retries, got (%v, %v)", allowed, err)
-	}
+	require.NoError(t, err)
+	require.True(t, allowed, "expected (true, nil) after retries")
 
 	if atomic.LoadInt32(&count) != 3 {
 		t.Errorf("expected 3 total attempts, got %d", atomic.LoadInt32(&count))
@@ -183,7 +166,7 @@ func TestWithMTLS_VerifiesCertificate(t *testing.T) {
 	// 1. Create a TLS server
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"allowed": true}`)
+		_, _ = fmt.Fprint(w, `{"allowed": true}`)
 	}))
 	defer ts.Close()
 
@@ -193,33 +176,32 @@ func TestWithMTLS_VerifiesCertificate(t *testing.T) {
 		Bytes: ts.Certificate().Raw,
 	})
 	tmpCert, err := os.CreateTemp("", "ca.pem")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpCert.Name())
-	if _, err := tmpCert.Write(certPEM); err != nil {
-		t.Fatal(err)
-	}
-	tmpCert.Close()
+	require.NoError(t, err)
+
+	defer func() {
+		_ = os.Remove(tmpCert.Name())
+	}()
+
+	_, err = tmpCert.Write(certPEM)
+	require.NoError(t, err)
+
+	err = tmpCert.Close()
+	require.NoError(t, err)
 
 	// 3. Create client with WithMTLS providing the server's cert as CA
 	c := NewClient(ts.URL, "test-key", WithMTLS(tmpCert.Name(), "", ""))
 	defer c.Close()
 
 	allowed, err := c.Allow(context.Background(), "u1", "a1", "r1")
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if !allowed {
-		t.Error("expected allowed")
-	}
+	require.NoError(t, err)
+	require.True(t, allowed, "expected allowed")
 }
 
 func TestWithMTLS_RejectsBadCertificate(t *testing.T) {
 	// 1. Create a TLS server
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"allowed": true}`)
+		_, _ = fmt.Fprint(w, `{"allowed": true}`)
 	}))
 	defer ts.Close()
 
@@ -229,19 +211,15 @@ func TestWithMTLS_RejectsBadCertificate(t *testing.T) {
 
 	// 3. Evaluation should return false (fail-closed) and nil error
 	allowed, err := c.Allow(context.Background(), "u1", "a1", "r1")
-	if err != nil {
-		t.Errorf("expected nil error (fail-closed), got %v", err)
-	}
-	if allowed {
-		t.Error("expected denied (fail-closed) on TLS error")
-	}
+	require.NoError(t, err, "expected nil error (fail-closed)")
+	require.False(t, allowed, "expected denied (fail-closed) on TLS error")
 }
 
 func TestWithInsecureSkipVerify_SkipsVerification(t *testing.T) {
 	// 1. Create a TLS server
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"allowed": true}`)
+		_, _ = fmt.Fprint(w, `{"allowed": true}`)
 	}))
 	defer ts.Close()
 
@@ -251,10 +229,6 @@ func TestWithInsecureSkipVerify_SkipsVerification(t *testing.T) {
 
 	// 3. Evaluation should succeed despite untrusted cert
 	allowed, err := c.Allow(context.Background(), "u1", "a1", "r1")
-	if err != nil {
-		t.Fatalf("expected nil error with InsecureSkipVerify, got %v", err)
-	}
-	if !allowed {
-		t.Error("expected allowed")
-	}
+	require.NoError(t, err)
+	require.True(t, allowed, "expected allowed")
 }

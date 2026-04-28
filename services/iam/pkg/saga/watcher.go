@@ -39,7 +39,7 @@ func (w *Watcher) Run(ctx context.Context) {
 
 func (w *Watcher) checkExpired(ctx context.Context) {
 	now := float64(time.Now().Unix())
-	
+
 	// Atomic: claim expired sagas using Lua script
 	script := redis.NewScript(`
 		local members = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, 100)
@@ -47,7 +47,7 @@ func (w *Watcher) checkExpired(ctx context.Context) {
 		redis.call('ZREM', KEYS[1], unpack(members))
 		return members
 	`)
-	
+
 	sagaIDs, err := script.Run(ctx, w.rdb, []string{"saga:deadlines"}, now).StringSlice()
 	if err != nil || len(sagaIDs) == 0 {
 		return

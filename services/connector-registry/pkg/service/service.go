@@ -38,9 +38,9 @@ func (s *Service) RegisterConnector(ctx context.Context, id, orgID, name string,
 	// 1. Generate API Key (ogk_ prefix + 32 bytes random)
 	apiKeyRaw := s.generateAPIKey()
 	apiKeyPrefix := apiKeyRaw[:12] // ogk_ + first 8 chars
-	
+
 	// 2. Hash API Key using PBKDF2 (R-08)
-	// We'll use a standard PBKDF2 implementation from shared/crypto if available, 
+	// We'll use a standard PBKDF2 implementation from shared/crypto if available,
 	// or implement it here. Let's assume shared/crypto has a HashPBKDF2.
 	// For now, I'll use a placeholder and implementation later.
 	hash := crypto.HashPBKDF2(apiKeyRaw)
@@ -70,7 +70,7 @@ func (s *Service) ValidateAPIKey(ctx context.Context, apiKey string) (map[string
 			// Cache hit. Verify hash.
 			if crypto.VerifyPBKDF2(apiKey, cachedHash) {
 				s.logger.Debug("apikey cache hit and verified", "prefix", prefix)
-				// Fetch metadata from cache or DB? 
+				// Fetch metadata from cache or DB?
 				// Spec says cache for 5 mins. Let's cache the whole connector object.
 				cachedData, err := s.rdb.Get(ctx, "apikey:data:"+prefix).Result()
 				if err == nil {

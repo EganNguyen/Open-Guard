@@ -45,14 +45,14 @@ func WithMTLS(caCertPath, clientCertPath, clientKeyPath string) ClientOption {
 }
 
 type Client struct {
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
-	cache      *localCache
-	failOpen   bool
-	breaker    *gobreaker.CircuitBreaker // nil = no circuit breaker
-	retryMax   int                       // 0 = no retry
-	retryDelay time.Duration
+	baseURL               string
+	apiKey                string
+	httpClient            *http.Client
+	cache                 *localCache
+	failOpen              bool
+	breaker               *gobreaker.CircuitBreaker // nil = no circuit breaker
+	retryMax              int                       // 0 = no retry
+	retryDelay            time.Duration
 	useExponentialBackoff bool
 }
 
@@ -70,7 +70,7 @@ func WithCircuitBreaker(threshold int, timeout time.Duration) ClientOption {
 			Timeout:     timeout,
 			ReadyToTrip: func(counts gobreaker.Counts) bool {
 				// Trip if failure rate > 50% or consecutive failures reached
-				return counts.ConsecutiveFailures >= uint32(threshold) || 
+				return counts.ConsecutiveFailures >= uint32(threshold) ||
 					(counts.Requests >= 10 && float64(counts.TotalFailures)/float64(counts.Requests) > 0.5)
 			},
 		})
@@ -147,7 +147,7 @@ func (c *Client) Close() {
 }
 
 // do executes the HTTP request. This is a trusted internal SDK boundary.
-// It handles standard library networking calls (http, tls, url) which are 
+// It handles standard library networking calls (http, tls, url) which are
 // essential for remote policy evaluation.
 func (c *Client) do(ctx context.Context, method, path string, body interface{}, out interface{}) error {
 	operation := func() error {
@@ -171,7 +171,9 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return fmt.Errorf("transient api error: status %d", resp.StatusCode)
@@ -236,7 +238,7 @@ func isTransient(err error) bool {
 	}
 	// Check for transient status codes or network errors
 	msg := err.Error()
-	return bytes.Contains([]byte(msg), []byte("transient")) || 
-		bytes.Contains([]byte(msg), []byte("timeout")) || 
+	return bytes.Contains([]byte(msg), []byte("transient")) ||
+		bytes.Contains([]byte(msg), []byte("timeout")) ||
 		bytes.Contains([]byte(msg), []byte("connection refused"))
 }

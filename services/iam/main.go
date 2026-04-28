@@ -68,7 +68,7 @@ func main() {
 	config.MinConns = 5
 	config.MaxConnLifetime = 30 * time.Minute
 	config.MaxConnIdleTime = 5 * time.Minute
-	
+
 	config.AfterRelease = func(conn *pgx.Conn) bool {
 		ctx := context.Background()
 		conn.Exec(ctx, "SELECT set_config('app.org_id', '', false)")
@@ -170,10 +170,10 @@ func main() {
 
 	relayLogger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("component", "outbox-relay")
 	relay := outbox.NewRelay(pool, kp, "outbox_records", 5*time.Second, relayLogger)
-	
+
 	// Start Outbox Relay in background
 	go relay.Run(ctx)
-	
+
 	// Start Saga Watcher (spec §2.5)
 	sagaWatcher := saga.NewWatcher(rdb, kp, logger.With("component", "saga-watcher"))
 	go sagaWatcher.Run(ctx)
@@ -266,6 +266,6 @@ func main() {
 		srv8443.Shutdown(shutdownCtx)
 	}
 	authPool.Shutdown()
-	
+
 	fmt.Println("Service exited")
 }

@@ -144,8 +144,8 @@ var globTests = []struct {
 	{[]string{"*"}, "anything", true},
 	{[]string{"read:documents"}, "read:documents", true},
 	{[]string{"read:documents"}, "read:documents:extra", false},
-	{[]string{"user:*"}, "user:", true},   // boundary: prefix with empty suffix
-	{[]string{}, "read:docs", false},       // empty patterns → no match
+	{[]string{"user:*"}, "user:", true}, // boundary: prefix with empty suffix
+	{[]string{}, "read:docs", false},    // empty patterns → no match
 }
 
 func TestMatchesGlob(t *testing.T) {

@@ -38,11 +38,11 @@ func Seed(ctx context.Context, pool *pgxpool.Pool) error {
 
 	// 2. Create Users
 	users := []struct {
-		email   string
-		pass    string
-		name    string
-		role    string
-		orgID   string
+		email string
+		pass  string
+		name  string
+		role  string
+		orgID string
 	}{
 		{"admin@openguard.io", "admin123", "System Admin", "admin", systemOrgID},
 		{"test@openguard.io", "test123", "Test User", "user", systemOrgID},

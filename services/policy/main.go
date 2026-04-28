@@ -52,7 +52,7 @@ func main() {
 	pgConfig.MinConns = 2
 	pgConfig.MaxConnLifetime = 30 * time.Minute
 	pgConfig.MaxConnIdleTime = 5 * time.Minute
-	
+
 	pgConfig.AfterRelease = func(conn *pgx.Conn) bool {
 		ctx := context.Background()
 		conn.Exec(ctx, "SELECT set_config('app.org_id', '', false)")

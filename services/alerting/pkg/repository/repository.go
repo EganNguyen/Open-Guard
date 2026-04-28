@@ -43,11 +43,11 @@ type Alert struct {
 }
 
 type SagaStep struct {
-	Step      string    `bson:"step" json:"step"`
-	Status    string    `bson:"status" json:"status"`
-	Error     string    `bson:"error,omitempty" json:"error,omitempty"`
-	At        time.Time `bson:"at" json:"at"`
-	Retries   int       `bson:"retries" json:"retries"`
+	Step    string    `bson:"step" json:"step"`
+	Status  string    `bson:"status" json:"status"`
+	Error   string    `bson:"error,omitempty" json:"error,omitempty"`
+	At      time.Time `bson:"at" json:"at"`
+	Retries int       `bson:"retries" json:"retries"`
 }
 
 type Repository struct {
@@ -68,7 +68,7 @@ func (r *Repository) Create(ctx context.Context, alert *Alert) error {
 
 func (r *Repository) List(ctx context.Context, orgID string, status AlertStatus, severity AlertSeverity, cursor string, limit int64) ([]Alert, string, error) {
 	coll := r.DB.Collection("alerts")
-	
+
 	filter := bson.M{"org_id": orgID}
 	if status != "" {
 		filter["status"] = status
@@ -81,7 +81,7 @@ func (r *Repository) List(ctx context.Context, orgID string, status AlertStatus,
 	}
 
 	opts := options.Find().SetLimit(limit).SetSort(bson.M{"_id": 1})
-	
+
 	cur, err := coll.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, "", err
@@ -114,7 +114,7 @@ func (r *Repository) GetByID(ctx context.Context, orgID, id string) (*Alert, err
 func (r *Repository) Acknowledge(ctx context.Context, orgID, id string) error {
 	coll := r.DB.Collection("alerts")
 	now := time.Now()
-	_, err := coll.UpdateOne(ctx, 
+	_, err := coll.UpdateOne(ctx,
 		bson.M{"_id": id, "org_id": orgID, "status": StatusOpen},
 		bson.M{"$set": bson.M{"status": StatusAcknowledged, "ack_at": now}},
 	)
@@ -123,7 +123,7 @@ func (r *Repository) Acknowledge(ctx context.Context, orgID, id string) error {
 
 func (r *Repository) Resolve(ctx context.Context, orgID, id string) error {
 	coll := r.DB.Collection("alerts")
-	
+
 	// Need to get created_at to compute MTTR
 	alert, err := r.GetByID(ctx, orgID, id)
 	if err != nil {
@@ -133,7 +133,7 @@ func (r *Repository) Resolve(ctx context.Context, orgID, id string) error {
 	now := time.Now()
 	mttr := now.Sub(alert.CreatedAt).Seconds()
 
-	_, err = coll.UpdateOne(ctx, 
+	_, err = coll.UpdateOne(ctx,
 		bson.M{"_id": id, "org_id": orgID},
 		bson.M{"$set": bson.M{
 			"status":       StatusResolved,
@@ -146,7 +146,7 @@ func (r *Repository) Resolve(ctx context.Context, orgID, id string) error {
 
 func (r *Repository) GetStats(ctx context.Context, orgID string) (map[string]interface{}, error) {
 	coll := r.DB.Collection("alerts")
-	
+
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{"org_id": orgID}}},
 		{{Key: "$group", Value: bson.M{
@@ -167,29 +167,29 @@ func (r *Repository) GetStats(ctx context.Context, orgID string) (map[string]int
 	if err := cur.All(ctx, &b); err != nil {
 		return nil, err
 	}
-	
+
 	severityCounts := make(map[string]int32)
 	var totalMTTR float64
 	var mttrCount int
-	
+
 	for _, res := range b {
 		sev := res["_id"].(string)
 		count := res["count"].(int32)
 		severityCounts[sev] = count
-		
+
 		if avgMTTR, ok := res["avg_mttr"].(float64); ok {
 			totalMTTR += avgMTTR
 			mttrCount++
 		}
 	}
-	
+
 	results["severity_counts"] = severityCounts
 	if mttrCount > 0 {
 		results["avg_mttr"] = totalMTTR / float64(mttrCount)
 	} else {
 		results["avg_mttr"] = 0
 	}
-	
+
 	return results, nil
 }
 

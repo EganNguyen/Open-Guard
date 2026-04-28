@@ -18,7 +18,7 @@ import (
 func TestDeliverer_Deliver_Success(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	d := NewDeliverer(logger)
-	
+
 	secret := "test-secret"
 	payload := "{\"test\":\"data\"}"
 	messageKey := "msg-123"
@@ -27,10 +27,10 @@ func TestDeliverer_Deliver_Success(t *testing.T) {
 		assert.Equal(t, "POST", r.Method)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		assert.Equal(t, messageKey, r.Header.Get("X-OpenGuard-Delivery"))
-		
+
 		sig := r.Header.Get("X-OpenGuard-Signature")
 		timestamp := r.Header.Get("X-OpenGuard-Timestamp")
-		
+
 		mac := hmac.New(sha256.New, []byte(secret))
 		mac.Write([]byte(timestamp + "." + payload))
 		expectedSig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
@@ -38,7 +38,7 @@ func TestDeliverer_Deliver_Success(t *testing.T) {
 
 		body, _ := io.ReadAll(r.Body)
 		assert.Equal(t, payload, string(body))
-		
+
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
@@ -53,7 +53,7 @@ func TestDeliverer_Deliver_Success(t *testing.T) {
 func TestDeliverer_Deliver_ServerError(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	d := NewDeliverer(logger)
-	
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -69,7 +69,7 @@ func TestDeliverer_Deliver_ServerError(t *testing.T) {
 func TestDeliverer_Deliver_SSRF_Blocked(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	d := NewDeliverer(logger)
-	
+
 	// RFC1918 address, using default validator (now baked into client)
 	err := d.Deliver(context.Background(), "key", "http://10.0.0.1/webhook", "{}", "secret")
 	assert.Error(t, err)

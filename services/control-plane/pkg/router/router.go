@@ -31,20 +31,18 @@ func NewRouter() *chi.Mux {
 	r.Use(telemetry.Metrics)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(sharedmiddleware.SecurityHeaders)
-	
+
 	// CORS setup
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 			publicURL := os.Getenv("OPENGUARD_PUBLIC_URL")
-			
+
 			// Allow localhost, the LocalStack domain, AND the persistent InstaTunnel subdomain
-			allowed := origin == "http://localhost:4200" || 
-			           origin == "https://openguard.lb.localstack.cloud" || 
-			           origin == "https://openguard-dev.instatunnel.io" ||
-			           (publicURL != "" && origin == publicURL)
-
-
+			allowed := origin == "http://localhost:4200" ||
+				origin == "https://openguard.lb.localstack.cloud" ||
+				origin == "https://openguard-dev.instatunnel.io" ||
+				(publicURL != "" && origin == publicURL)
 
 			if allowed {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -59,7 +57,6 @@ func NewRouter() *chi.Mux {
 			next.ServeHTTP(w, r)
 		})
 	})
-
 
 	r.Handle("/metrics", promhttp.Handler())
 
@@ -134,7 +131,7 @@ func NewRouter() *chi.Mux {
 				http.Error(w, "invalid request", http.StatusBadRequest)
 				return
 			}
-			
+
 			// Map level to slog levels with safety check
 			logLevel := slog.LevelInfo
 			switch payload.Level {
@@ -164,4 +161,3 @@ func envOrDefault(key, def string) string {
 	}
 	return def
 }
-

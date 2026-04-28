@@ -94,6 +94,6 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("server shutdown failed", "error", err)
 	}
-	
+
 	fmt.Println("Service exited")
 }

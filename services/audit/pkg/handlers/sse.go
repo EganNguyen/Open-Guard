@@ -31,7 +31,7 @@ func (h *SseHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	
+
 	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
 	if allowedOrigin == "" {
 		// Authenticated SSE stream must not be served cross-origin without an explicit allow-list.
@@ -52,18 +52,18 @@ func (h *SseHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	
+
 	// MongoDB Change Stream
 	pipeline := mongo.Pipeline{
 		bson.D{{Key: "$match", Value: bson.D{
 			{Key: "fullDocument.org_id", Value: orgID},
 		}}},
 	}
-	
+
 	coll := h.repo.DB.Collection("audit_events")
-	
+
 	watchOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
-	
+
 	// Resume token support
 	lastEventID := r.URL.Query().Get("lastEventId")
 	if lastEventID != "" {
@@ -85,12 +85,12 @@ func (h *SseHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 		if err := cs.Decode(&change); err != nil {
 			continue
 		}
-		
+
 		// Use event_id as SSE ID (QUAL-05)
 		if eventID, ok := change.FullDocument["event_id"].(string); ok && eventID != "" {
 			fmt.Fprintf(w, "id: %s\n", eventID)
 		}
-		
+
 		data, _ := json.Marshal(change.FullDocument)
 		fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()

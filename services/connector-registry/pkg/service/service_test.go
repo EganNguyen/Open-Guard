@@ -52,7 +52,7 @@ func TestService_RegisterConnector(t *testing.T) {
 	apiKey, err := svc.RegisterConnector(ctx, id, orgID, name, uris)
 	assert.NoError(t, err)
 	assert.Contains(t, apiKey, "ogk_")
-	
+
 	mockRepo.AssertExpectations(t)
 }
 
@@ -60,14 +60,14 @@ func TestService_DeleteConnector_InvalidatesCache(t *testing.T) {
 	mr, _ := miniredis.Run()
 	defer mr.Close()
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	
+
 	mockRepo := new(MockRepository)
 	svc := NewService(mockRepo, rdb, slog.New(slog.NewTextHandler(os.Stdout, nil)))
 
 	ctx := context.Background()
 	id := "conn-1"
 	prefix := "ogk_test_key"
-	
+
 	mockRepo.On("GetConnectorByID", ctx, id).Return(map[string]interface{}{
 		"api_key_prefix": prefix,
 	}, nil)
@@ -75,13 +75,13 @@ func TestService_DeleteConnector_InvalidatesCache(t *testing.T) {
 
 	// Pre-seed cache
 	rdb.Set(ctx, "apikey:hash:"+prefix, "somehash", 0)
-	
+
 	err := svc.DeleteConnector(ctx, id)
 	assert.NoError(t, err)
 
 	// Check cache is gone
 	exists, _ := rdb.Exists(ctx, "apikey:hash:"+prefix).Result()
 	assert.Equal(t, int64(0), exists)
-	
+
 	mockRepo.AssertExpectations(t)
 }

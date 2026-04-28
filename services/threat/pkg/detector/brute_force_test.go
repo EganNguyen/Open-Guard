@@ -17,7 +17,7 @@ func TestBruteForce_DetectsAfterThreshold(t *testing.T) {
 
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	
+
 	d := &BruteForceDetector{
 		rdb:         rdb,
 		maxAttempts: 3,
@@ -51,14 +51,14 @@ func TestBruteForce_TracksIPAndEmailSeparately(t *testing.T) {
 	ctx := context.Background()
 	ipKey := "bruteforce:ip:1.1.1.1"
 	userKey := "bruteforce:user:user1"
-	
+
 	d.trackFailedAttempt(ctx, ipKey)
 	d.trackFailedAttempt(ctx, userKey)
 	d.trackFailedAttempt(ctx, userKey)
 
 	userCount, _ := rdb.ZCard(ctx, userKey).Result()
 	ipCount, _ := rdb.ZCard(ctx, ipKey).Result()
-	
+
 	assert.Equal(t, int64(2), userCount)
 	assert.Equal(t, int64(1), ipCount)
 }

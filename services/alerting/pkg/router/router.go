@@ -35,7 +35,7 @@ func NewRouter(h *handlers.AlertHandler, keyring []crypto.JWTKey, rdb *redis.Cli
 	}, nil)
 
 	v1 := r.PathPrefix("/v1/threats").Subrouter()
-	
+
 	// Apply JWT authentication with blocklist to all v1 routes
 	v1.Use(middleware.AuthJWTWithBlocklist(keyring, rdb, breaker))
 

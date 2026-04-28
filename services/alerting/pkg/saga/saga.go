@@ -8,17 +8,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/segmentio/kafka-go"
 	"github.com/openguard/services/alerting/pkg/repository"
 	"github.com/openguard/services/alerting/pkg/webhook"
+	"github.com/segmentio/kafka-go"
 )
 
 type AlertSaga struct {
-	reader     *kafka.Reader
-	publisher  KafkaPublisher
-	repo       *repository.Repository
-	siem       *webhook.SIEMDeliverer
-	logger     *slog.Logger
+	reader    *kafka.Reader
+	publisher KafkaPublisher
+	repo      *repository.Repository
+	siem      *webhook.SIEMDeliverer
+	logger    *slog.Logger
 }
 
 type KafkaPublisher interface {
@@ -149,12 +149,12 @@ func (s *AlertSaga) executeStep(ctx context.Context, alertID, stepName string, f
 			return ctx.Err()
 		}
 	}
-	
+
 	s.repo.UpdateSagaStep(ctx, alertID, repository.SagaStep{
-		Step:   stepName,
-		Status: "failed",
-		Error:  lastErr.Error(),
-		At:     time.Now(),
+		Step:    stepName,
+		Status:  "failed",
+		Error:   lastErr.Error(),
+		At:      time.Now(),
 		Retries: 5,
 	})
 	return lastErr

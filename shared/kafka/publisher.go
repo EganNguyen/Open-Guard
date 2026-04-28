@@ -22,11 +22,11 @@ func NewPublisher(brokers []string) *Publisher {
 		writer: &kafka.Writer{
 			Addr:                   kafka.TCP(brokers...),
 			Balancer:               &kafka.LeastBytes{},
-			RequiredAcks:           kafka.RequireAll,   // Wait for all ISR replicas per spec §4.2
-			Async:                  false,              // Synchronous: wait for ack before returning
-			AllowAutoTopicCreation: false,              // Topics must be pre-created in production
-			BatchSize:              1,                  // One message per write for outbox reliability
-			BatchTimeout:           0,                  // No batching delay
+			RequiredAcks:           kafka.RequireAll, // Wait for all ISR replicas per spec §4.2
+			Async:                  false,            // Synchronous: wait for ack before returning
+			AllowAutoTopicCreation: false,            // Topics must be pre-created in production
+			BatchSize:              1,                // One message per write for outbox reliability
+			BatchTimeout:           0,                // No batching delay
 		},
 	}
 }

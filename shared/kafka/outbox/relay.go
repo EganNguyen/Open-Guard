@@ -24,7 +24,7 @@ const (
 
 // @AI-INTENT: [Pattern: Hybrid Pull/Push Transactional Outbox]
 // [Rationale: Exactly-once delivery with low latency. Combining pg_notify (push) with polling (pull)
-// ensures that events are delivered immediately when the system is healthy, while remaining 
+// ensures that events are delivered immediately when the system is healthy, while remaining
 // resilient to missed notifications or Kafka downtime.]
 
 // Relay polls the outbox table and publishes events to Kafka.
@@ -167,7 +167,7 @@ func (r *Relay) drain(ctx context.Context) {
 	rows.Close()
 
 	if len(records) == 0 {
-		tx.Rollback(ctx)
+		_ = tx.Rollback(ctx)
 		return
 	}
 

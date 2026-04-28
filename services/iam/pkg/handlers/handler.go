@@ -13,10 +13,10 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	iam_middleware "github.com/openguard/services/iam/pkg/middleware"
 	"github.com/openguard/services/iam/pkg/service"
 	shared_middleware "github.com/openguard/shared/middleware"
-	"github.com/go-webauthn/webauthn/webauthn"
 )
 
 // Handler manages HTTP requests for the IAM service.
@@ -310,7 +310,6 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 }
 
-
 func (h *Handler) ListConnectors(w http.ResponseWriter, r *http.Request) {
 	connectors, err := h.svc.ListConnectors(r.Context())
 	if err != nil {
@@ -413,19 +412,19 @@ func (h *Handler) VerifyBackupCode(w http.ResponseWriter, r *http.Request) {
 	// 1. Get userID from challenge (logic repeated from VerifyMFA for simplicity)
 	// Ideally VerifyMFAAndLogin should handle both TOTP and Backup Codes
 	// But the spec says POST /auth/mfa/backup-verify
-	
-	// I'll update VerifyMFAAndLogin in service.go to handle both, 
+
+	// I'll update VerifyMFAAndLogin in service.go to handle both,
 	// OR I'll implement the logic here.
-	
+
 	// Actually, let's keep it simple as per prompt:
 	// "Add a POST /auth/mfa/backup-verify endpoint and wire it to VerifyBackupCode"
-	
-	// Wait, VerifyBackupCode in service.go takes userID. 
+
+	// Wait, VerifyBackupCode in service.go takes userID.
 	// I need to get userID from challengeToken first.
-	
+
 	// I'll add a helper to service.go to get userID from challenge or just use VerifyBackupCode.
 	// Actually, I'll update the handler to use a new service method that handles the challenge too.
-	
+
 	user, token, err := h.svc.VerifyBackupCodeAndLogin(r.Context(), body.ChallengeToken, body.Code, r.UserAgent(), r.RemoteAddr)
 	if err != nil {
 		http.Error(w, "Invalid backup code", http.StatusUnauthorized)

@@ -21,8 +21,8 @@ var Rules = []ScanRule{
 		Re:   regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),
 	},
 	{
-		Kind: "credit_card",
-		Re:   regexp.MustCompile(`\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b`),
+		Kind:     "credit_card",
+		Re:       regexp.MustCompile(`\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b`),
 		Validate: LuhnCheck,
 	},
 	{
@@ -42,7 +42,7 @@ var Rules = []ScanRule{
 func LuhnCheck(s string) bool {
 	var sum int
 	var alternate bool
-	
+
 	// Remove non-digits
 	digits := ""
 	for _, r := range s {
@@ -50,7 +50,7 @@ func LuhnCheck(s string) bool {
 			digits += string(r)
 		}
 	}
-	
+
 	if len(digits) < 13 {
 		return false
 	}
@@ -70,9 +70,9 @@ func LuhnCheck(s string) bool {
 }
 
 type Finding struct {
-	Kind      string `json:"kind"`
-	Value     string `json:"value,omitempty"`
-	Location  string `json:"location,omitempty"`
+	Kind      string  `json:"kind"`
+	Value     string  `json:"value,omitempty"`
+	Location  string  `json:"location,omitempty"`
 	RiskScore float64 `json:"risk_score"`
 }
 

@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
-	"github.com/segmentio/kafka-go"
 	"github.com/openguard/services/threat/pkg/alert"
 	sharedkafka "github.com/openguard/shared/kafka"
+	"github.com/redis/go-redis/v9"
+	"github.com/segmentio/kafka-go"
 )
 
 const (
@@ -147,7 +147,7 @@ func (d *BruteForceDetector) trackFailedAttempt(ctx context.Context, key string)
 		if err != nil {
 			d.logger.Error("failed to check alert dedup key", "error", err)
 		}
-		
+
 		if set {
 			d.logger.Warn("brute force attack detected, firing alert", "key", key, "attempts", count)
 			d.publishThreatEvent(ctx, key, count)

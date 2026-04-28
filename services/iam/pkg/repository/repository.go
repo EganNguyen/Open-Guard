@@ -103,6 +103,7 @@ func (r *Repository) UpdateUserDisplayName(ctx context.Context, userID, displayN
 		return err
 	})
 }
+
 // CreateSession inserts a new session record.
 func (r *Repository) CreateSession(ctx context.Context, orgID, userID, jti, userAgent, ipAddress string, expiresAt time.Time) error {
 	return r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
@@ -224,7 +225,7 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (map[stri
 		SELECT id, org_id, password_hash, display_name, role, status, failed_login_count, locked_until 
 		FROM users WHERE email = $1
 	`, email).Scan(&id, &orgID, &pwdHash, &displayName, &role, &status, &failedCount, &lockedUntil)
-	
+
 	// Reset role back to default (openguard_app) before releasing
 	_, _ = conn.Exec(ctx, "RESET ROLE")
 
@@ -277,18 +278,18 @@ func (r *Repository) IncrementFailedLogin(ctx context.Context, email string) (in
 	// we use the openguard_login role to bypass RLS for this specific update if needed,
 	// or we find the orgID first.
 	// Let's find the orgID first to stay consistent.
-	
+
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
 		return 0, err
 	}
 	defer conn.Release()
-	
+
 	_, _ = conn.Exec(ctx, "SET ROLE openguard_login")
 	var orgID string
 	_ = conn.QueryRow(ctx, "SELECT org_id FROM users WHERE email = $1", email).Scan(&orgID)
 	_, _ = conn.Exec(ctx, "RESET ROLE")
-	
+
 	if orgID == "" {
 		return 0, ErrNotFound
 	}
@@ -532,7 +533,7 @@ func (r *Repository) ListConnectors(ctx context.Context) ([]map[string]interface
 
 func (r *Repository) ListUsers(ctx context.Context, orgID string, filter string) ([]map[string]interface{}, error) {
 	var users []map[string]interface{}
-	
+
 	isSystem := orgID == "00000000-0000-0000-0000-000000000000"
 
 	// If system org, we bypass RLS using openguard_login role
@@ -635,7 +636,6 @@ func (r *Repository) ListUsers(ctx context.Context, orgID string, filter string)
 	})
 	return users, err
 }
-
 
 func (r *Repository) GetUserByExternalID(ctx context.Context, orgID, externalID string) (map[string]interface{}, error) {
 	return r.getUser(ctx, "org_id = $1 AND scim_external_id = $2", orgID, externalID)

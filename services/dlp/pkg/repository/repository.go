@@ -11,7 +11,7 @@ type DLPPolicy struct {
 	ID        string    `json:"id"`
 	OrgID     string    `json:"org_id"`
 	Name      string    `json:"name"`
-	Rules     []string  `json:"rules"` // email, ssn, etc.
+	Rules     []string  `json:"rules"`  // email, ssn, etc.
 	Action    string    `json:"action"` // audit, block, mask
 	Enabled   bool      `json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
@@ -93,7 +93,7 @@ func (r *Repository) ListPolicies(ctx context.Context, orgID string) ([]DLPPolic
 }
 
 func (r *Repository) CreatePolicy(ctx context.Context, p *DLPPolicy) error {
-	return r.pool.QueryRow(ctx, 
+	return r.pool.QueryRow(ctx,
 		"INSERT INTO dlp_policies (org_id, name, rules, action, enabled) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at",
 		p.OrgID, p.Name, p.Rules, p.Action, p.Enabled,
 	).Scan(&p.ID, &p.CreatedAt)
@@ -121,8 +121,12 @@ func (r *Repository) ListFindings(ctx context.Context, orgID string) ([]DLPFindi
 		if err := rows.Scan(&f.ID, &f.OrgID, &f.EventID, &policyID, &f.FindingType, &action, &f.Confidence, &f.MatchedField, &f.RedactedValue, &f.CreatedAt); err != nil {
 			return nil, err
 		}
-		if policyID != nil { f.PolicyID = *policyID }
-		if action != nil { f.Action = *action }
+		if policyID != nil {
+			f.PolicyID = *policyID
+		}
+		if action != nil {
+			f.Action = *action
+		}
 		findings = append(findings, f)
 	}
 	return findings, nil

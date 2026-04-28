@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
-	"github.com/segmentio/kafka-go"
 	"github.com/openguard/services/threat/pkg/alert"
 	sharedkafka "github.com/openguard/shared/kafka"
+	"github.com/redis/go-redis/v9"
+	"github.com/segmentio/kafka-go"
 )
 
 type PrivilegeEscalationDetector struct {
@@ -28,7 +28,7 @@ func NewPrivilegeEscalationDetector(redisAddr string, brokers string, groupID st
 	})
 
 	brokerList := strings.Split(brokers, ",")
-	
+
 	authReader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: brokerList,
 		GroupID: groupID + "-auth",
@@ -53,12 +53,12 @@ func NewPrivilegeEscalationDetector(redisAddr string, brokers string, groupID st
 
 func (d *PrivilegeEscalationDetector) Run(ctx context.Context) error {
 	d.logger.Info("Starting PrivilegeEscalationDetector")
-	
+
 	// We need to run two consumers. For simplicity in this implementation, we'll use goroutines.
-	
+
 	go d.consumeAuth(ctx)
 	go d.consumePolicy(ctx)
-	
+
 	<-ctx.Done()
 	return nil
 }

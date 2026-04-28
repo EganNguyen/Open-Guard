@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/segmentio/kafka-go"
 	"github.com/openguard/services/compliance/pkg/repository"
+	"github.com/segmentio/kafka-go"
 )
 
 type ClickHouseWriter struct {

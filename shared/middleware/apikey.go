@@ -34,10 +34,10 @@ type APIKeyLookup interface {
 }
 
 const (
-	apiKeyHeaderName  = "X-OpenGuard-Key"
-	apiKeyPrefix      = "ogk_"       // Connector API keys start with this prefix
-	apiKeyCacheTTL    = 5 * time.Minute
-	apiKeyPrefixLen   = 8            // "ogk_" + 4 chars = 8 chars for prefix matching
+	apiKeyHeaderName = "X-OpenGuard-Key"
+	apiKeyPrefix     = "ogk_" // Connector API keys start with this prefix
+	apiKeyCacheTTL   = 5 * time.Minute
+	apiKeyPrefixLen  = 8 // "ogk_" + 4 chars = 8 chars for prefix matching
 )
 
 // APIKeyAuth is a middleware that authenticates requests using a simple fixed API key.
@@ -118,7 +118,9 @@ func APIKeyAuthComplex(lookup APIKeyLookup) func(http.Handler) http.Handler {
 			}
 
 			// Cache success for 5 minutes (non-blocking)
-			go lookup.CacheSet(context.Background(), keyHash, result, apiKeyCacheTTL)
+			go func() {
+				_ = lookup.CacheSet(context.Background(), keyHash, result, apiKeyCacheTTL)
+			}()
 
 			ctx = context.WithValue(ctx, ConnectorIDKey, connectorID)
 			ctx = context.WithValue(ctx, OrgIDKey, orgID)
@@ -138,7 +140,7 @@ func verifyPBKDF2(rawKey, storedHash string) bool {
 	}
 
 	var iterations int
-	fmt.Sscanf(parts[2], "%d", &iterations)
+	_, _ = fmt.Sscanf(parts[2], "%d", &iterations)
 	if iterations < 600000 {
 		return false // reject weak hashes
 	}

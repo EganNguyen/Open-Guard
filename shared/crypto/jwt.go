@@ -104,6 +104,7 @@ func NewStandardClaims(orgID, userID, jti string, ttl time.Duration) StandardCla
 		UserID: userID,
 	}
 }
+
 // LoadKeyring parses a JSON-encoded keyring.
 func LoadKeyring(jsonStr string) ([]JWTKey, error) {
 	var keyring []JWTKey

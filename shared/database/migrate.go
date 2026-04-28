@@ -59,7 +59,6 @@ func RunWithLock(ctx context.Context, rdb *redis.Client, lockKey string, logger 
 	return task(ctx)
 }
 
-
 // Migrate runs all .sql files in the specified directory against the pool.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, migrationsDir string) error {
 	slog.Info("running migrations", "dir", migrationsDir)

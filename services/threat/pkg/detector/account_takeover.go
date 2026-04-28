@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
-	"github.com/segmentio/kafka-go"
 	"github.com/openguard/services/threat/pkg/alert"
 	sharedkafka "github.com/openguard/shared/kafka"
+	"github.com/redis/go-redis/v9"
+	"github.com/segmentio/kafka-go"
 )
 
 type AccountTakeoverDetector struct {
@@ -100,7 +100,7 @@ func (d *AccountTakeoverDetector) processEvent(ctx context.Context, m kafka.Mess
 		if err != nil {
 			return err
 		}
-		
+
 		// 2. Compute device fingerprint
 		ua, _ := event["user_agent"].(string)
 		al, _ := event["accept_language"].(string)

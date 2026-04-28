@@ -111,7 +111,7 @@ func NewService(repo *repository.Repository, rdb *redis.Client, outboxWriter *ou
 			FailureThreshold: 10,
 			OpenDuration:     30 * time.Second,
 		}, logger),
-		refreshSem: make(chan struct{}, 100),  // max 100 concurrent background refreshes
+		refreshSem: make(chan struct{}, 100),      // max 100 concurrent background refreshes
 		logCh:      make(chan evalLogEntry, 1000), // drop logs if buffer full
 	}
 
@@ -270,7 +270,7 @@ func (s *Service) evaluate(req EvaluateRequest, policies []repository.Policy) (s
 	hasExplicitDeny := false
 
 	for _, p := range policies {
-// ... (I'll just replace the whole function signature and the return)
+		// ... (I'll just replace the whole function signature and the return)
 		var logic PolicyLogic
 		if err := json.Unmarshal(p.Logic, &logic); err != nil {
 			s.logger.Warn("failed to parse policy logic, skipping", "policy_id", p.ID, "error", err)

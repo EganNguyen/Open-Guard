@@ -7,20 +7,20 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/openguard/services/iam/pkg/service"
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/rls"
-	"github.com/openguard/services/iam/pkg/service"
 )
 
 // SCIM v2 Models
 type scimUser struct {
-	Schemas    []string `json:"schemas"`
-	ID         string   `json:"id"`
-	ExternalID string   `json:"externalId,omitempty"`
-	UserName   string   `json:"userName"`
-	DisplayName string  `json:"displayName"`
-	Active     bool     `json:"active"`
-	Emails     []struct {
+	Schemas     []string `json:"schemas"`
+	ID          string   `json:"id"`
+	ExternalID  string   `json:"externalId,omitempty"`
+	UserName    string   `json:"userName"`
+	DisplayName string   `json:"displayName"`
+	Active      bool     `json:"active"`
+	Emails      []struct {
 		Value   string `json:"value"`
 		Primary bool   `json:"primary"`
 	} `json:"emails"`
@@ -90,7 +90,7 @@ func (h *Handler) PostScimUser(w http.ResponseWriter, r *http.Request) {
 		email = payload.Emails[0].Value
 	}
 
-	// Password might be generated or provided in a different field for SCIM, 
+	// Password might be generated or provided in a different field for SCIM,
 	// but here we use a random one if not provided.
 	password := crypto.GenerateRandomString(32)
 
@@ -105,12 +105,12 @@ func (h *Handler) PostScimUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, _ := h.svc.GetCurrentUser(ctx, id)
-	
+
 	status := http.StatusCreated
 	if !created {
 		status = http.StatusOK
 	}
-	
+
 	h.writeJSON(w, status, h.mapToScim(user))
 }
 
@@ -162,11 +162,11 @@ func (h *Handler) PatchScimUser(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) mapToScim(user map[string]interface{}) scimUser {
 	s := scimUser{
-		Schemas:    []string{"urn:ietf:params:scim:schemas:core:2.0:User"},
-		ID:         user["id"].(string),
-		UserName:   user["email"].(string),
+		Schemas:     []string{"urn:ietf:params:scim:schemas:core:2.0:User"},
+		ID:          user["id"].(string),
+		UserName:    user["email"].(string),
 		DisplayName: user["display_name"].(string),
-		Active:     user["status"].(string) == "active",
+		Active:      user["status"].(string) == "active",
 	}
 	if extID, ok := user["scim_external_id"].(*string); ok && extID != nil {
 		s.ExternalID = *extID
@@ -175,11 +175,11 @@ func (h *Handler) mapToScim(user map[string]interface{}) scimUser {
 		Value   string `json:"value"`
 		Primary bool   `json:"primary"`
 	}{Value: user["email"].(string), Primary: true})
-	
+
 	s.Meta.ResourceType = "User"
 	s.Meta.Version = fmt.Sprintf("v%d", user["version"].(int))
 	s.Meta.Location = fmt.Sprintf("/scim/v2/Users/%s", s.ID)
-	
+
 	return s
 }
 

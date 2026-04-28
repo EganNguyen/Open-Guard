@@ -31,7 +31,7 @@ func NewAuditReadRepository(client *mongo.Client, dbName string) *AuditReadRepos
 
 func (r *AuditWriteRepository) BulkWrite(ctx context.Context, events []interface{}) error {
 	coll := r.DB.Collection("audit_events")
-	
+
 	var models []mongo.WriteModel
 	for _, event := range events {
 		models = append(models, mongo.NewInsertOneModel().SetDocument(event))
@@ -52,7 +52,7 @@ func (r *AuditWriteRepository) ReserveSequence(ctx context.Context, orgID string
 	err = coll.FindOneAndUpdate(ctx,
 		bson.M{"org_id": orgID},
 		bson.M{
-			"$inc": bson.M{"sequence": count},
+			"$inc":         bson.M{"sequence": count},
 			"$setOnInsert": bson.M{"hash": "", "created_at": time.Now()},
 		},
 		opts,
@@ -81,12 +81,12 @@ func (r *AuditWriteRepository) UpdateHashChainCAS(ctx context.Context, orgID, pr
 
 func (r *AuditReadRepository) FindEvents(ctx context.Context, filter bson.M, limit int64, offset int64) ([]map[string]interface{}, error) {
 	coll := r.DB.Collection("audit_events")
-	
+
 	opts := options.Find().
 		SetLimit(limit).
 		SetSkip(offset).
 		SetSort(bson.M{"timestamp": -1})
-	
+
 	cursor, err := coll.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, err
@@ -102,12 +102,12 @@ func (r *AuditReadRepository) FindEvents(ctx context.Context, filter bson.M, lim
 
 func (r *AuditReadRepository) GetLatestHash(ctx context.Context, orgID string) (string, int64, error) {
 	coll := r.DB.Collection("hash_chains")
-	
+
 	var result struct {
 		Hash     string `bson:"hash"`
 		Sequence int64  `bson:"sequence"`
 	}
-	
+
 	err := coll.FindOne(ctx, bson.M{"org_id": orgID}).Decode(&result)
 	if err == mongo.ErrNoDocuments {
 		return "", 0, nil

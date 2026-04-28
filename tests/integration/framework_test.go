@@ -57,7 +57,7 @@ func TestMain(m *testing.M) {
 	// 3. Initialize DB connections for verification
 	ctx := context.Background()
 	basePostgres := "postgres://openguard:change-me-in-production@localhost:5432/"
-	
+
 	testDBIAM, err = pgxpool.New(ctx, basePostgres+"openguard_iam?sslmode=disable")
 	if err != nil {
 		log.Fatalf("failed to connect to openguard_iam: %v", err)

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/openguard/shared/crypto"
@@ -19,8 +21,6 @@ import (
 	"github.com/pquerna/otp/totp"
 	"github.com/redis/go-redis/v9"
 	"github.com/sony/gobreaker"
-	"github.com/go-webauthn/webauthn/webauthn"
-	"github.com/go-webauthn/webauthn/protocol"
 	"net"
 	"net/http"
 )
@@ -199,10 +199,10 @@ func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID,
 
 	// Persist credential
 	credMap := map[string]interface{}{
-		"id":              hex.EncodeToString(credential.ID),
-		"public_key":      hex.EncodeToString(credential.PublicKey),
+		"id":               hex.EncodeToString(credential.ID),
+		"public_key":       hex.EncodeToString(credential.PublicKey),
 		"attestation_type": credential.AttestationType,
-		"sign_count":      credential.Authenticator.SignCount,
+		"sign_count":       credential.Authenticator.SignCount,
 	}
 
 	if err := s.repo.SaveWebAuthnCredential(ctx, orgID, userID, credMap); err != nil {
@@ -225,7 +225,7 @@ func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (string,
 
 	userID := user["id"].(string)
 	credentials, _ := s.repo.ListWebAuthnCredentials(ctx, userID)
-	
+
 	wUser := &WebAuthnUser{
 		id:          []byte(userID),
 		displayName: user["display_name"].(string),
@@ -573,11 +573,11 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 		_, _ = resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
 			return nil, s.rdb.Set(ctx, "mfa_challenge:"+challengeToken, user["id"].(string), 5*time.Minute).Err()
 		})
-		
+
 		return map[string]interface{}{
-			"mfa_required":    true,
+			"mfa_required":  true,
 			"mfa_challenge": challengeToken,
-			"user_id":         user["id"].(string),
+			"user_id":       user["id"].(string),
 		}, "", nil
 	}
 
@@ -767,12 +767,11 @@ func (s *Service) SignToken(orgID, userID, jti string, ttl time.Duration) (strin
 	return crypto.Sign(claims, s.keyring)
 }
 
-
 func (s *Service) Logout(ctx context.Context, jti string, expiresAt time.Time) error {
 	if s.rdb == nil {
 		return nil
 	}
-	
+
 	ttl := time.Until(expiresAt)
 	if ttl <= 0 {
 		return nil
@@ -950,7 +949,7 @@ func (s *Service) OffboardOrg(ctx context.Context, orgID string) error {
 	// 2. Revoke sessions for each user
 	for _, u := range users {
 		userID := u["id"].(string)
-		
+
 		// Revoke in Redis
 		jtis, err := s.repo.GetActiveJTIs(ctx, userID)
 		if err == nil && s.rdb != nil {
@@ -975,13 +974,13 @@ func (s *Service) OffboardOrg(ctx context.Context, orgID string) error {
 
 	// 4. Publish completion event to outbox
 	event := map[string]interface{}{
-		"event":   "org.iam.offboarded",
-		"org_id":  orgID,
-		"status":  "completed",
-		"ts":      time.Now().Unix(),
+		"event":  "org.iam.offboarded",
+		"org_id": orgID,
+		"status": "completed",
+		"ts":     time.Now().Unix(),
 	}
 	payload, _ := json.Marshal(event)
-	
+
 	tx, err := s.repo.BeginTx(ctx)
 	if err == nil {
 		defer tx.Rollback(ctx)

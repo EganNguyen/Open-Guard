@@ -19,7 +19,7 @@ func NewDLPHandler(repo *repository.Repository) *DLPHandler {
 
 func (h *DLPHandler) Scan(w http.ResponseWriter, r *http.Request) {
 	orgID := middleware.GetOrgID(r.Context())
-	
+
 	var req struct {
 		Content string `json:"content"`
 	}
@@ -31,7 +31,7 @@ func (h *DLPHandler) Scan(w http.ResponseWriter, r *http.Request) {
 	// 1. Run scanners
 	regexFindings := scanner.ScanRegex(req.Content)
 	entropyFindings := scanner.ScanEntropy(req.Content)
-	
+
 	allFindings := append(regexFindings, entropyFindings...)
 
 	// 2. Persist findings (simplified: match against all active policies)

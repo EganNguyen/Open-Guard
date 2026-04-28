@@ -40,7 +40,7 @@ func IdempotencyMiddleware(rdb *redis.Client) func(http.Handler) http.Handler {
 					w.Header().Set("Content-Type", "application/json")
 					w.Header().Set("X-Idempotency-Replayed", "true")
 					w.WriteHeader(entry.StatusCode)
-					w.Write(entry.Body)
+					_, _ = w.Write(entry.Body)
 					return
 				}
 			}

@@ -23,16 +23,16 @@ var blockedCIDRs []*net.IPNet
 
 func init() {
 	blocked := []string{
-		"10.0.0.0/8",       // RFC-1918 Class A
-		"172.16.0.0/12",    // RFC-1918 Class B
-		"192.168.0.0/16",   // RFC-1918 Class C
-		"127.0.0.0/8",      // Loopback IPv4
-		"::1/128",           // Loopback IPv6
-		"169.254.0.0/16",   // Link-local / AWS metadata
-		"fe80::/10",         // Link-local IPv6
-		"fd00::/8",          // Unique local IPv6 (GCP metadata: fd00:ec2::254)
-		"0.0.0.0/8",         // Unspecified
-		"100.64.0.0/10",     // Shared address space (RFC 6598)
+		"10.0.0.0/8",     // RFC-1918 Class A
+		"172.16.0.0/12",  // RFC-1918 Class B
+		"192.168.0.0/16", // RFC-1918 Class C
+		"127.0.0.0/8",    // Loopback IPv4
+		"::1/128",        // Loopback IPv6
+		"169.254.0.0/16", // Link-local / AWS metadata
+		"fe80::/10",      // Link-local IPv6
+		"fd00::/8",       // Unique local IPv6 (GCP metadata: fd00:ec2::254)
+		"0.0.0.0/8",      // Unspecified
+		"100.64.0.0/10",  // Shared address space (RFC 6598)
 	}
 	for _, cidr := range blocked {
 		_, network, err := net.ParseCIDR(cidr)
@@ -112,7 +112,7 @@ func isBlockedIP(ip net.IP) bool {
 func SSRFGuardMiddleware(urlHeader string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Deprecated: Pre-validation is prone to TOCTOU. 
+			// Deprecated: Pre-validation is prone to TOCTOU.
 			// Use NewSafeHTTPClient for outbound calls instead.
 			next.ServeHTTP(w, r)
 		})

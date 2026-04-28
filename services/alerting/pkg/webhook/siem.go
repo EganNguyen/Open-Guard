@@ -20,10 +20,10 @@ import (
 type SIEMType string
 
 const (
-	SIEMGeneric   SIEMType = "generic"
-	SIEMSplunk    SIEMType = "splunk"
-	SIEMDatadog   SIEMType = "datadog"
-	SIEMSentinel  SIEMType = "sentinel"
+	SIEMGeneric  SIEMType = "generic"
+	SIEMSplunk   SIEMType = "splunk"
+	SIEMDatadog  SIEMType = "datadog"
+	SIEMSentinel SIEMType = "sentinel"
 )
 
 type SIEMDeliverer struct {
@@ -112,7 +112,7 @@ func (d *SIEMDeliverer) formatForSIEM(siemType SIEMType, payload []byte, secret 
 	case SIEMSplunk:
 		// Splunk HEC (HTTP Event Collector) format
 		splunkPayload := map[string]interface{}{
-			"event": json.RawMessage(payload),
+			"event":      json.RawMessage(payload),
 			"sourcetype": "openguard_alert",
 		}
 		formatted, _ := json.Marshal(splunkPayload)
@@ -145,7 +145,7 @@ func ValidateConfig(webhookURL string) error {
 	if webhookURL == "" {
 		return nil
 	}
-	// Note: Validating during delivery with NewSafeHTTPClient is the only 
+	// Note: Validating during delivery with NewSafeHTTPClient is the only
 	// way to prevent DNS rebinding. This is a basic scheme check.
-	return nil 
+	return nil
 }

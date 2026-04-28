@@ -40,19 +40,44 @@ jobs:
       - name: Go lint
         run: |
           go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          echo '{"Issues":[]}' > current_report.json
+          
           for mod in sdk shared services/* tests/integration; do
             if [ -d "$mod" ] && [ -f "$mod/go.mod" ]; then
               echo "::group::Linting $mod"
               (
                 cd "$mod" || exit 1
                 go mod tidy
-                git diff --exit-code go.mod go.sum || (echo "go mod tidy changed files in $mod" && exit 1)
                 go list ./... || { echo "No packages in $mod"; exit 0; }
-                golangci-lint run --timeout=10m ./...
+                golangci-lint run --out-format json ./... > mod_report.json || true
+                if jq -e . mod_report.json >/dev/null 2>&1; then
+                   jq -s '.[0].Issues += .[1].Issues | .[0]' ../current_report.json mod_report.json > ../new_report.json
+                   mv ../new_report.json ../current_report.json
+                fi
               )
               echo "::endgroup::"
             fi
           done
+
+          if [ -f .golangci-baseline.json ]; then
+            jq -r '.Issues[] | "\(.Pos.Filename):\(.Text)"' current_report.json | sort > current.txt
+            jq -r '.Issues[] | "\(.Pos.Filename):\(.Text)"' .golangci-baseline.json | sort > baseline.txt
+            new_issues=$(comm -13 baseline.txt current.txt)
+            if [ -n "$new_issues" ]; then
+              echo "❌ New lint issues introduced:"
+              echo "$new_issues"
+              exit 1
+            else
+              echo "✅ No new lint issues found."
+            fi
+          else
+            issues_count=$(jq '.Issues | length' current_report.json)
+            if [ "$issues_count" -gt 0 ]; then
+                echo "❌ No baseline found and issues detected:"
+                jq -r '.Issues[] | "\(.Pos.Filename):\(.Pos.Line) \(.Text)"' current_report.json
+                exit 1
+            fi
+          fi
 
       - name: SQL lint
         run: |

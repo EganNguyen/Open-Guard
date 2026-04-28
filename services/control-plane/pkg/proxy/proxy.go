@@ -6,8 +6,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"github.com/sony/gobreaker"
 	"github.com/openguard/control-plane/pkg/middleware"
+	"github.com/sony/gobreaker"
 )
 
 type CircuitBreakerTransport struct {
@@ -34,7 +34,7 @@ func NewProxy(targetURL string, cb *gobreaker.CircuitBreaker) http.HandlerFunc {
 		panic(fmt.Sprintf("proxy target URL %q has empty host", targetURL))
 	}
 	proxy := httputil.NewSingleHostReverseProxy(parsedURL)
-	
+
 	// Default transport wrapped with circuit breaker
 	if cb != nil {
 		proxy.Transport = &CircuitBreakerTransport{

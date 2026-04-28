@@ -57,17 +57,17 @@ func TestFlush_Success(t *testing.T) {
 	mockReader := new(MockReader)
 	mockRepo := new(MockRepository)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	
+
 	consumer := &AuditConsumer{
 		reader: mockReader,
 		repo:   mockRepo,
 		logger: logger,
 	}
-	
+
 	ctx := context.Background()
 	orgID := "org-123"
 	eventID := "evt-456"
-	
+
 	eventData, _ := json.Marshal(map[string]interface{}{
 		"org_id":   orgID,
 		"event_id": eventID,
@@ -93,13 +93,13 @@ func TestFlush_MissingOrgID(t *testing.T) {
 	mockReader := new(MockReader)
 	mockRepo := new(MockRepository)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	
+
 	consumer := &AuditConsumer{
 		reader: mockReader,
 		repo:   mockRepo,
 		logger: logger,
 	}
-	
+
 	ctx := context.Background()
 	eventData, _ := json.Marshal(map[string]interface{}{
 		"event_id": "evt-456",
@@ -120,13 +120,13 @@ func TestFlush_BulkWriteFailure(t *testing.T) {
 	mockReader := new(MockReader)
 	mockRepo := new(MockRepository)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	
+
 	consumer := &AuditConsumer{
 		reader: mockReader,
 		repo:   mockRepo,
 		logger: logger,
 	}
-	
+
 	ctx := context.Background()
 	orgID := "org-123"
 	eventData, _ := json.Marshal(map[string]interface{}{

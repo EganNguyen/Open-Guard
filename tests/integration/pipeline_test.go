@@ -58,7 +58,7 @@ func Test_GlobalFunctionalFlow(t *testing.T) {
 
 		resp, err := mtlsClient.Do(req)
 		assert.NoError(t, err)
-		
+
 		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode != http.StatusCreated {
 			t.Fatalf("failed to create org, status %d: %s", resp.StatusCode, string(body))
@@ -89,7 +89,7 @@ func Test_GlobalFunctionalFlow(t *testing.T) {
 
 		resp, err := mtlsClient.Do(req)
 		assert.NoError(t, err)
-		
+
 		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 			t.Fatalf("failed to create user, status %d: %s", resp.StatusCode, string(body))
@@ -113,7 +113,7 @@ func Test_GlobalFunctionalFlow(t *testing.T) {
 		})
 		resp, err := mtlsClient.Post("https://localhost:8082/auth/login", "application/json", bytes.NewBuffer(loginBody))
 		assert.NoError(t, err)
-		
+
 		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("new admin login failed, status %d: %s", resp.StatusCode, string(body))
@@ -177,11 +177,11 @@ func Test_GlobalFunctionalFlow(t *testing.T) {
 
 	t.Run("Step 7: Deep Verification (Audit & Analytics)", func(t *testing.T) {
 		// Verify MongoDB Audit Trail
-		// Note: The SDK request used 'invalid-key', but since it's an integration test, 
+		// Note: The SDK request used 'invalid-key', but since it's an integration test,
 		// we verify if the audit capture is working.
 		// If 'invalid-key' results in a 401/403, we check if that's audited.
-		
-		// For a more complete test, we'd need a real API key. 
+
+		// For a more complete test, we'd need a real API key.
 		// But let's verify if the IAM login from Step 4 was captured.
 		AssertMongoEventCaptured(t, orgID, adminEmail)
 	})

@@ -43,7 +43,7 @@ func main() {
 	// 2. Create System Admin User
 	adminEmail := "admin@openguard.io"
 	adminPass := "admin123" // Change this in production!
-	
+
 	// Hash password with cost 12 as per spec
 	hash, err := bcrypt.GenerateFromPassword([]byte(adminPass), 12)
 	if err != nil {

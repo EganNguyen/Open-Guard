@@ -29,7 +29,7 @@ func TestNewSafeHTTPClient_BlocksMetadataIP(t *testing.T) {
 			"internal.local": {"10.0.0.1"},
 		},
 	}
-	
+
 	// Inject mock resolver locally
 	client := NewSafeHTTPClient(1*time.Second, mock)
 
@@ -83,7 +83,7 @@ func TestNewSafeHTTPClient_NoDNSRebind(t *testing.T) {
 
 	_ = NewSafeHTTPClient(1*time.Second, mock)
 
-	// We can't easily test the actual "rebind" without a real dial, 
+	// We can't easily test the actual "rebind" without a real dial,
 	// but we verified in code that DialContext uses the IP returned by LookupHost directly.
 	// The implementation:
 	// return dialer.DialContext(ctx, network, net.JoinHostPort(rawIP, port))

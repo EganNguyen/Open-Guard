@@ -32,7 +32,7 @@ func TestCompositeScore(t *testing.T) {
 			{Value: 0.5, Source: "new_threat", OccurredAt: now},
 		}
 		val, source := CompositeScore(scores)
-		
+
 		// 1.0 * exp(-0.05 * 60) = 1.0 * exp(-3) approx 0.049
 		// 0.5 * exp(-0.05 * 0) = 0.5
 		// 0.5 should be higher than 0.049

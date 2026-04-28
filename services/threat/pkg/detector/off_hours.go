@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
-	"github.com/segmentio/kafka-go"
 	"github.com/openguard/services/threat/pkg/alert"
 	sharedkafka "github.com/openguard/shared/kafka"
+	"github.com/redis/go-redis/v9"
+	"github.com/segmentio/kafka-go"
 )
 
 type OffHoursDetector struct {

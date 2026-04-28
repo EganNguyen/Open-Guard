@@ -82,7 +82,6 @@ func main() {
 		os.Exit(1)
 	}
 
-
 	// ── S3/MinIO Storage ─────────────────────────────────────────────────────
 	s3Endpoint := os.Getenv("S3_ENDPOINT")
 	if s3Endpoint == "" {
@@ -162,7 +161,6 @@ func main() {
 
 	// 5. Initialize Router & Start Server
 	r := router.NewRouter(h, keyring, rdb)
-
 
 	var tlsConfig *tls.Config
 	if _, err := os.Stat("/certs/ca.crt"); err == nil {

@@ -15,7 +15,6 @@ import (
 	"github.com/openguard/shared/rls"
 )
 
-
 // AuthJWTWithBlocklist is a middleware that validates the JWT and checks the Redis blocklist.
 // It uses a circuit breaker and is FAIL-OPEN on Redis failures per spec §1.3.
 func AuthJWTWithBlocklist(keyring []crypto.JWTKey, rdb *redis.Client, breaker *gobreaker.CircuitBreaker) func(http.Handler) http.Handler {

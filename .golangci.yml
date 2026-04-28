@@ -13,6 +13,8 @@ linters:
     - unused
     - gofmt
     - misspell
+    - bodyclose
+    - unconvert
 
 issues:
   exclude-use-default: false

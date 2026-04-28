@@ -23,13 +23,13 @@ const (
 // Format: pbkdf2$sha512$iterations$salt_hex$hash_hex
 func HashPBKDF2(password string) string {
 	salt := make([]byte, pbkdf2SaltLen)
-	rand.Read(salt)
+	_, _ = rand.Read(salt)
 
 	hash := pbkdf2.Key([]byte(password), salt, pbkdf2Iterations, pbkdf2KeyLen, sha512.New)
-	
-	return fmt.Sprintf("pbkdf2$sha512$%d$%s$%s", 
-		pbkdf2Iterations, 
-		hex.EncodeToString(salt), 
+
+	return fmt.Sprintf("pbkdf2$sha512$%d$%s$%s",
+		pbkdf2Iterations,
+		hex.EncodeToString(salt),
 		hex.EncodeToString(hash))
 }
 
@@ -42,8 +42,8 @@ func VerifyPBKDF2(password, encodedHash string) bool {
 	}
 
 	iterations := 0
-	fmt.Sscanf(parts[2], "%d", &iterations)
-	
+	_, _ = fmt.Sscanf(parts[2], "%d", &iterations)
+
 	salt, err := hex.DecodeString(parts[3])
 	if err != nil {
 		return false
@@ -55,14 +55,14 @@ func VerifyPBKDF2(password, encodedHash string) bool {
 	}
 
 	actualHash := pbkdf2.Key([]byte(password), salt, iterations, len(expectedHash), sha512.New)
-	
+
 	return subtle.ConstantTimeCompare(actualHash, expectedHash) == 1
 }
 
 // GenerateRandomString generates a random string of the given length.
 func GenerateRandomString(n int) string {
 	b := make([]byte, n)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return base64.URLEncoding.EncodeToString(b)[:n]
 }
 

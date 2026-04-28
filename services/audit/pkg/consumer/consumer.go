@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/segmentio/kafka-go"
 	"github.com/openguard/services/audit/pkg/telemetry"
+	"github.com/segmentio/kafka-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -41,12 +41,12 @@ type AuditConsumer struct {
 func NewAuditConsumer(brokers string, groupID string, topic string, repo AuditRepository, logger *slog.Logger) (*AuditConsumer, error) {
 	brokerList := strings.Split(brokers, ",")
 	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:  brokerList,
-		GroupID:  groupID,
-		Topic:    topic,
-		MinBytes: 10e3, // 10KB
-		MaxBytes: 10e6, // 10MB
-		CommitInterval: 0, // Manual commit (R-07)
+		Brokers:        brokerList,
+		GroupID:        groupID,
+		Topic:          topic,
+		MinBytes:       10e3, // 10KB
+		MaxBytes:       10e6, // 10MB
+		CommitInterval: 0,    // Manual commit (R-07)
 	})
 
 	return &AuditConsumer{
@@ -111,7 +111,7 @@ func (c *AuditConsumer) Start(ctx context.Context) error {
 func (c *AuditConsumer) flush(ctx context.Context, batch []kafka.Message) {
 	start := time.Now()
 	c.logger.Info("flushing audit batch to mongodb", "size", len(batch))
-	
+
 	secretKey := os.Getenv("AUDIT_SECRET_KEY")
 	if secretKey == "" {
 		c.logger.Warn("AUDIT_SECRET_KEY not set, skipping hash chain")
@@ -124,10 +124,10 @@ func (c *AuditConsumer) flush(ctx context.Context, batch []kafka.Message) {
 		for _, h := range m.Headers {
 			headerMap[h.Key] = string(h.Value)
 		}
-		
+
 		prop := otel.GetTextMapPropagator()
 		msgCtx := prop.Extract(ctx, propagation.MapCarrier(headerMap))
-		
+
 		msgCtx, span := otel.Tracer("audit-consumer").Start(msgCtx, "consume-audit-event", trace.WithSpanKind(trace.SpanKindConsumer))
 
 		var event map[string]interface{}

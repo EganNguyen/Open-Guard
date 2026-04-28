@@ -9,13 +9,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/openguard/services/iam/pkg/handlers"
 	iam_middleware "github.com/openguard/services/iam/pkg/middleware"
 	"github.com/openguard/services/iam/pkg/telemetry"
 	"github.com/openguard/shared/crypto"
 	shared_middleware "github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/resilience"
-	"github.com/go-webauthn/webauthn/webauthn"
 	"golang.org/x/time/rate"
 	"os"
 )
@@ -33,14 +33,13 @@ func NewRouter(ctx context.Context, h *handlers.Handler, keyring []crypto.JWTKey
 	if rpOrigin == "" {
 		rpOrigin = "http://localhost:4200"
 	}
-	
+
 	w, _ := webauthn.New(&webauthn.Config{
 		RPDisplayName: "OpenGuard",
 		RPID:          rpID,
 		RPOrigins:     []string{rpOrigin},
 	})
 	h.SetServiceWebAuthn(w) // Helper needed in handler or just svc.SetWebAuthn(w)
-
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)

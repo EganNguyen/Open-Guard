@@ -48,7 +48,7 @@ func TestCircuitBreakerTransport(t *testing.T) {
 			return nil, errors.New("network error")
 		}
 		req := httptest.NewRequest("GET", "http://test", nil)
-		
+
 		// First call: failure
 		_, err := transport.RoundTrip(req)
 		assert.Error(t, err)

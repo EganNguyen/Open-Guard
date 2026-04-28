@@ -128,7 +128,7 @@ func main() {
 			logger.Error("failed to create kafka consumer", "topic", topic, "error", err)
 			continue
 		}
-		
+
 		go func(topicName string, cons *consumer.AuditConsumer) {
 			logger.Info("starting kafka consumer", "topic", topicName)
 			if err := cons.Start(ctx); err != nil {

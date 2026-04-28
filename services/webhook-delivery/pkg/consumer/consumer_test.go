@@ -50,7 +50,7 @@ func TestWebhookConsumer_ProcessMessage_DLQ(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	mockDeliverer := new(MockDeliverer)
 	mockPublisher := new(MockPublisher)
-	
+
 	c := &WebhookConsumer{
 		deliverer:  mockDeliverer,
 		publisher:  mockPublisher,
@@ -72,7 +72,7 @@ func TestWebhookConsumer_ProcessMessage_DLQ(t *testing.T) {
 
 	// Mock 5 failed attempts
 	mockDeliverer.On("Deliver", mock.Anything, "msg-1", req.Target, req.Payload, req.Secret).Return(errors.New("connection reset")).Times(5)
-	
+
 	// Mock DLQ publish
 	mockPublisher.On("Publish", mock.Anything, "webhook.dlq", "msg-1", mock.Anything).Return(nil)
 

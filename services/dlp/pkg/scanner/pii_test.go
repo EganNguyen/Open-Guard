@@ -50,9 +50,9 @@ func TestMaskValue_PII_Integrity(t *testing.T) {
 func TestScanRegex_MaskingIntegration(t *testing.T) {
 	text := "My card is 4111111111111111 and my SSN is 123-45-6789"
 	findings := ScanRegex(text)
-	
+
 	assert.Len(t, findings, 2)
-	
+
 	// Findings should contain masked values only
 	for _, f := range findings {
 		if f.Kind == "credit_card" {

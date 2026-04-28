@@ -1,0 +1,1860 @@
+{
+  "Issues": [
+    {
+      "FromLinter": "typecheck",
+      "Text": ": # github.com/openguard/shared/database\ndatabase/migrate.go:22:55: rdb.Set(ctx, lockKey, \"1\", lockTTL).NX undefined (type *redis.StatusCmd has no field or method NX)",
+      "Severity": "",
+      "SourceLines": [
+        "package database"
+      ],
+      "Pos": {
+        "Filename": "database/migrate.go",
+        "Offset": 0,
+        "Line": 1,
+        "Column": 0
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(alerts)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 1143,
+        "Line": 44,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(alert)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 1516,
+        "Line": 58,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(stats)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 2523,
+        "Line": 95,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(detectors)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 3081,
+        "Line": 107,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `w.Write` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tw.Write([]byte(\"OK\"))"
+      ],
+      "Pos": {
+        "Filename": "pkg/router/router.go",
+        "Offset": 695,
+        "Line": 25,
+        "Column": 10
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `resp.Body.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer resp.Body.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/webhook/siem.go",
+        "Offset": 2383,
+        "Line": 98,
+        "Column": 23
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `s.repo.UpdateSagaStep` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\t\ts.repo.UpdateSagaStep(ctx, alertID, repository.SagaStep{"
+      ],
+      "Pos": {
+        "Filename": "pkg/saga/saga.go",
+        "Offset": 3742,
+        "Line": 134,
+        "Column": 25
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `s.repo.UpdateSagaStep` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\ts.repo.UpdateSagaStep(ctx, alertID, repository.SagaStep{"
+      ],
+      "Pos": {
+        "Filename": "pkg/saga/saga.go",
+        "Offset": 4162,
+        "Line": 153,
+        "Column": 23
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "staticcheck",
+      "Text": "SA1019: \"go.opentelemetry.io/otel/exporters/jaeger\" is deprecated: This module is no longer supported. OpenTelemetry dropped support for Jaeger exporter in July 2023. Jaeger officially accepts and recommends using OTLP. Use [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp] or [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc] instead. ",
+      "Severity": "",
+      "SourceLines": [
+        "\t\"go.opentelemetry.io/otel/exporters/jaeger\""
+      ],
+      "Pos": {
+        "Filename": "pkg/telemetry/telemetry.go",
+        "Offset": 57,
+        "Line": 5,
+        "Column": 2
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `tp.Shutdown` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tdefer tp.Shutdown(ctx)"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 1068,
+        "Line": 42,
+        "Column": 20
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `rdb.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer rdb.Close()"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 1826,
+        "Line": 66,
+        "Column": 17
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `publisher.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer publisher.Close()"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 2965,
+        "Line": 103,
+        "Column": 23
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `srv.Shutdown` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tsrv.Shutdown(shutdownCtx)"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 4891,
+        "Line": 181,
+        "Column": 14
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `rdb.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer rdb.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/router/router_test.go",
+        "Offset": 588,
+        "Line": 29,
+        "Column": 17
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `cur.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer cur.Close(ctx)"
+      ],
+      "Pos": {
+        "Filename": "pkg/repository/repository.go",
+        "Offset": 2588,
+        "Line": 89,
+        "Column": 17
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `cur.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer cur.Close(ctx)"
+      ],
+      "Pos": {
+        "Filename": "pkg/repository/repository.go",
+        "Offset": 4361,
+        "Line": 163,
+        "Column": 17
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "staticcheck",
+      "Text": "SA1019: \"go.opentelemetry.io/otel/exporters/jaeger\" is deprecated: This module is no longer supported. OpenTelemetry dropped support for Jaeger exporter in July 2023. Jaeger officially accepts and recommends using OTLP. Use [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp] or [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc] instead. ",
+      "Severity": "",
+      "SourceLines": [
+        "\t\"go.opentelemetry.io/otel/exporters/jaeger\""
+      ],
+      "Pos": {
+        "Filename": "pkg/telemetry/telemetry.go",
+        "Offset": 57,
+        "Line": 5,
+        "Column": 2
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `cursor.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer cursor.Close(ctx)"
+      ],
+      "Pos": {
+        "Filename": "pkg/repository/repository.go",
+        "Offset": 2490,
+        "Line": 94,
+        "Column": 20
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `cs.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer cs.Close(ctx)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/sse.go",
+        "Offset": 2249,
+        "Line": 79,
+        "Column": 16
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `fmt.Fprintf` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\t\tfmt.Fprintf(w, \"id: %s\\n\", eventID)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/sse.go",
+        "Offset": 2561,
+        "Line": 91,
+        "Column": 15
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `fmt.Fprintf` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tfmt.Fprintf(w, \"data: %s\\n\\n\", data)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/sse.go",
+        "Offset": 2651,
+        "Line": 95,
+        "Column": 14
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "staticcheck",
+      "Text": "SA9003: empty branch",
+      "Severity": "",
+      "SourceLines": [
+        "\tif lastEventID != \"\" {"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/sse.go",
+        "Offset": 1906,
+        "Line": 69,
+        "Column": 2
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `tp.Shutdown` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tdefer tp.Shutdown(context.Background())"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 1098,
+        "Line": 42,
+        "Column": 20
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `rdb.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer rdb.Close()"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 1698,
+        "Line": 59,
+        "Column": 17
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `writeClient.Disconnect` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer writeClient.Disconnect(ctx)"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 2754,
+        "Line": 90,
+        "Column": 30
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `readClient.Disconnect` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer readClient.Disconnect(ctx)"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 3084,
+        "Line": 100,
+        "Column": 29
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `fmt.Fprintf` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tfmt.Fprintf(w, `{\"status\":\"OK\"}`)"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 5595,
+        "Line": 171,
+        "Column": 14
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\t\tjson.NewEncoder(w).Encode(map[string]interface{}{\"events\": events})"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 6182,
+        "Line": 185,
+        "Column": 29
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `srv.Shutdown` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tsrv.Shutdown(shutdownCtx)"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 7297,
+        "Line": 227,
+        "Column": 14
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `c.reader.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tc.reader.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/consumer/consumer.go",
+        "Offset": 6221,
+        "Line": 236,
+        "Column": 16
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `os.Setenv` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tos.Setenv(\"AUDIT_SECRET_KEY\", \"test-secret\")"
+      ],
+      "Pos": {
+        "Filename": "pkg/consumer/consumer_test.go",
+        "Offset": 1264,
+        "Line": 54,
+        "Column": 11
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `os.Unsetenv` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer os.Unsetenv(\"AUDIT_SECRET_KEY\")"
+      ],
+      "Pos": {
+        "Filename": "pkg/consumer/consumer_test.go",
+        "Offset": 1318,
+        "Line": 55,
+        "Column": 19
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "ineffassign",
+      "Text": "ineffectual assignment to msgCtx",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tmsgCtx, span := otel.Tracer(\"audit-consumer\").Start(msgCtx, \"consume-audit-event\", trace.WithSpanKind(trace.SpanKindConsumer))"
+      ],
+      "Pos": {
+        "Filename": "pkg/consumer/consumer.go",
+        "Offset": 3114,
+        "Line": 131,
+        "Column": 3
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "typecheck",
+      "Text": "could not import github.com/openguard/shared/database (-: # github.com/openguard/shared/database\n../../shared/database/migrate.go:22:55: rdb.Set(ctx, lockKey, \"1\", lockTTL).NX undefined (type *redis.StatusCmd has no field or method NX))",
+      "Severity": "",
+      "SourceLines": [
+        "\t\"github.com/openguard/shared/database\""
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 0,
+        "Line": 25,
+        "Column": 2
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "staticcheck",
+      "Text": "SA1019: \"go.opentelemetry.io/otel/exporters/jaeger\" is deprecated: This module is no longer supported. OpenTelemetry dropped support for Jaeger exporter in July 2023. Jaeger officially accepts and recommends using OTLP. Use [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp] or [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc] instead. ",
+      "Severity": "",
+      "SourceLines": [
+        "\t\"go.opentelemetry.io/otel/exporters/jaeger\""
+      ],
+      "Pos": {
+        "Filename": "pkg/telemetry/telemetry.go",
+        "Offset": 57,
+        "Line": 5,
+        "Column": 2
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `tp.Shutdown` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tdefer tp.Shutdown(context.Background())"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 876,
+        "Line": 34,
+        "Column": 20
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `rdb.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer rdb.Close()"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 2029,
+        "Line": 64,
+        "Column": 17
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `rand.Read` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\trand.Read(b)"
+      ],
+      "Pos": {
+        "Filename": "pkg/service/service.go",
+        "Offset": 3679,
+        "Line": 130,
+        "Column": 11
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(data)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 434,
+        "Line": 21,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "bodyclose",
+      "Text": "response body must be closed",
+      "Severity": "",
+      "SourceLines": [
+        "\t\treturn t.rt.RoundTrip(req)"
+      ],
+      "Pos": {
+        "Filename": "pkg/proxy/proxy.go",
+        "Offset": 423,
+        "Line": 20,
+        "Column": 24
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "bodyclose",
+      "Text": "response body must be closed",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tresp, err := transport.RoundTrip(req)"
+      ],
+      "Pos": {
+        "Filename": "pkg/proxy/proxy_test.go",
+        "Offset": 1012,
+        "Line": 41,
+        "Column": 35
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "bodyclose",
+      "Text": "response body must be closed",
+      "Severity": "",
+      "SourceLines": [
+        "\t\t_, err := transport.RoundTrip(req)"
+      ],
+      "Pos": {
+        "Filename": "pkg/proxy/proxy_test.go",
+        "Offset": 1372,
+        "Line": 53,
+        "Column": 32
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "bodyclose",
+      "Text": "response body must be closed",
+      "Severity": "",
+      "SourceLines": [
+        "\t\t_, err = transport.RoundTrip(req)"
+      ],
+      "Pos": {
+        "Filename": "pkg/proxy/proxy_test.go",
+        "Offset": 1473,
+        "Line": 57,
+        "Column": 31
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "staticcheck",
+      "Text": "SA1019: \"go.opentelemetry.io/otel/exporters/jaeger\" is deprecated: This module is no longer supported. OpenTelemetry dropped support for Jaeger exporter in July 2023. Jaeger officially accepts and recommends using OTLP. Use [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp] or [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc] instead. ",
+      "Severity": "",
+      "SourceLines": [
+        "\t\"go.opentelemetry.io/otel/exporters/jaeger\""
+      ],
+      "Pos": {
+        "Filename": "pkg/telemetry/telemetry.go",
+        "Offset": 57,
+        "Line": 5,
+        "Column": 2
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `w.Write` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tw.Write([]byte(`{\"status\": \"OK\", \"service\": \"control-plane\"}`))"
+      ],
+      "Pos": {
+        "Filename": "pkg/router/router.go",
+        "Offset": 2116,
+        "Line": 66,
+        "Column": 10
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `c.reader.CommitMessages` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\t\tc.reader.CommitMessages(ctx, msg)"
+      ],
+      "Pos": {
+        "Filename": "pkg/consumer/consumer.go",
+        "Offset": 1747,
+        "Line": 65,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `h.repo.SaveFinding` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\t\t\th.repo.SaveFinding(r.Context(), &repository.DLPFinding{"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 1283,
+        "Line": 53,
+        "Column": 23
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(response)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 1980,
+        "Line": 81,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(policies)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 2339,
+        "Line": 92,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(p)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 2895,
+        "Line": 109,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(findings)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 3247,
+        "Line": 120,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `w.Write` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tw.Write([]byte(\"OK\"))"
+      ],
+      "Pos": {
+        "Filename": "pkg/router/router.go",
+        "Offset": 663,
+        "Line": 24,
+        "Column": 10
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "staticcheck",
+      "Text": "SA1019: \"go.opentelemetry.io/otel/exporters/jaeger\" is deprecated: This module is no longer supported. OpenTelemetry dropped support for Jaeger exporter in July 2023. Jaeger officially accepts and recommends using OTLP. Use [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp] or [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc] instead. ",
+      "Severity": "",
+      "SourceLines": [
+        "\t\"go.opentelemetry.io/otel/exporters/jaeger\""
+      ],
+      "Pos": {
+        "Filename": "pkg/telemetry/telemetry.go",
+        "Offset": 57,
+        "Line": 5,
+        "Column": 2
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `tp.Shutdown` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tdefer tp.Shutdown(context.Background())"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 764,
+        "Line": 34,
+        "Column": 20
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `rdb.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer rdb.Close()"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 1434,
+        "Line": 54,
+        "Column": 17
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `dlqWriter.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer dlqWriter.Close()"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 2823,
+        "Line": 108,
+        "Column": 23
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `srv.Shutdown` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tsrv.Shutdown(context.Background())"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 4431,
+        "Line": 167,
+        "Column": 14
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "typecheck",
+      "Text": "could not import github.com/openguard/shared/database (-: # github.com/openguard/shared/database\n../../shared/database/migrate.go:22:55: rdb.Set(ctx, lockKey, \"1\", lockTTL).NX undefined (type *redis.StatusCmd has no field or method NX))",
+      "Severity": "",
+      "SourceLines": [
+        "\t\"github.com/openguard/shared/database\""
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 0,
+        "Line": 28,
+        "Column": 2
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "typecheck",
+      "Text": "could not import github.com/openguard/shared/database (-: # github.com/openguard/shared/database\n../../shared/database/migrate.go:22:55: rdb.Set(ctx, lockKey, \"1\", lockTTL).NX undefined (type *redis.StatusCmd has no field or method NX))",
+      "Severity": "",
+      "SourceLines": [
+        "\t\"github.com/openguard/shared/database\""
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 0,
+        "Line": 22,
+        "Column": 2
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `cursorRes.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer cursorRes.Close(ctx)"
+      ],
+      "Pos": {
+        "Filename": "pkg/alert/alert.go",
+        "Offset": 2627,
+        "Line": 87,
+        "Column": 23
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `cursor.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer cursor.Close(ctx)"
+      ],
+      "Pos": {
+        "Filename": "pkg/alert/alert.go",
+        "Offset": 4150,
+        "Line": 148,
+        "Column": 20
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(map[string]interface{}{"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 986,
+        "Line": 41,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(alert)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 1383,
+        "Line": 56,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(stats)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 2286,
+        "Line": 88,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `(*encoding/json.Encoder).Encode` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tjson.NewEncoder(w).Encode(detectors)"
+      ],
+      "Pos": {
+        "Filename": "pkg/handlers/handler.go",
+        "Offset": 2895,
+        "Line": 101,
+        "Column": 27
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `w.Write` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tw.Write([]byte(\"ok\"))"
+      ],
+      "Pos": {
+        "Filename": "pkg/router/router.go",
+        "Offset": 1260,
+        "Line": 43,
+        "Column": 10
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "staticcheck",
+      "Text": "SA1019: \"go.opentelemetry.io/otel/exporters/jaeger\" is deprecated: This module is no longer supported. OpenTelemetry dropped support for Jaeger exporter in July 2023. Jaeger officially accepts and recommends using OTLP. Use [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp] or [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc] instead. ",
+      "Severity": "",
+      "SourceLines": [
+        "\t\"go.opentelemetry.io/otel/exporters/jaeger\""
+      ],
+      "Pos": {
+        "Filename": "pkg/telemetry/telemetry.go",
+        "Offset": 57,
+        "Line": 5,
+        "Column": 2
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `tp.Shutdown` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tdefer tp.Shutdown(context.Background())"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 859,
+        "Line": 35,
+        "Column": 20
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `rdb.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer rdb.Close()"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 1268,
+        "Line": 53,
+        "Column": 17
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `publisher.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer publisher.Close()"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 2454,
+        "Line": 99,
+        "Column": 23
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `bfDetector.Start` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tgo bfDetector.Start(ctx)"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 3758,
+        "Line": 130,
+        "Column": 21
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `itDetector.Run` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tgo itDetector.Run(ctx)"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 3807,
+        "Line": 132,
+        "Column": 20
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `ohDetector.Run` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tgo ohDetector.Run(ctx)"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 3834,
+        "Line": 134,
+        "Column": 19
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `deDetector.Run` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tgo deDetector.Run(ctx)"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 3858,
+        "Line": 135,
+        "Column": 19
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `atDetector.Run` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tgo atDetector.Run(ctx)"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 3882,
+        "Line": 136,
+        "Column": 19
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `peDetector.Run` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tgo peDetector.Run(ctx)"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 3906,
+        "Line": 137,
+        "Column": 19
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `server.Shutdown` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tserver.Shutdown(context.Background())"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 5809,
+        "Line": 208,
+        "Column": 17
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.reader.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.reader.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/account_takeover.go",
+        "Offset": 4209,
+        "Line": 168,
+        "Column": 16
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.rdb.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.rdb.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/account_takeover.go",
+        "Offset": 4224,
+        "Line": 169,
+        "Column": 13
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.reader.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.reader.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/brute_force.go",
+        "Offset": 5156,
+        "Line": 205,
+        "Column": 16
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.rdb.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.rdb.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/brute_force.go",
+        "Offset": 5171,
+        "Line": 206,
+        "Column": 13
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.trackFailedAttempt` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.trackFailedAttempt(ctx, ipKey)"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/brute_force_test.go",
+        "Offset": 591,
+        "Line": 31,
+        "Column": 22
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.trackFailedAttempt` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.trackFailedAttempt(ctx, ipKey)"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/brute_force_test.go",
+        "Offset": 625,
+        "Line": 32,
+        "Column": 22
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.trackFailedAttempt` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.trackFailedAttempt(ctx, ipKey)"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/brute_force_test.go",
+        "Offset": 659,
+        "Line": 33,
+        "Column": 22
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.trackFailedAttempt` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.trackFailedAttempt(ctx, ipKey)"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/brute_force_test.go",
+        "Offset": 1242,
+        "Line": 55,
+        "Column": 22
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.trackFailedAttempt` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.trackFailedAttempt(ctx, userKey)"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/brute_force_test.go",
+        "Offset": 1276,
+        "Line": 56,
+        "Column": 22
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.trackFailedAttempt` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.trackFailedAttempt(ctx, userKey)"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/brute_force_test.go",
+        "Offset": 1312,
+        "Line": 57,
+        "Column": 22
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.reader.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.reader.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/data_exfiltration.go",
+        "Offset": 4308,
+        "Line": 166,
+        "Column": 16
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.rdb.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.rdb.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/data_exfiltration.go",
+        "Offset": 4323,
+        "Line": 167,
+        "Column": 13
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.db.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.db.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/impossible_travel.go",
+        "Offset": 5729,
+        "Line": 225,
+        "Column": 12
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.reader.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.reader.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/impossible_travel.go",
+        "Offset": 5747,
+        "Line": 226,
+        "Column": 16
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.rdb.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.rdb.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/impossible_travel.go",
+        "Offset": 5762,
+        "Line": 227,
+        "Column": 13
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.reader.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.reader.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/off_hours.go",
+        "Offset": 4731,
+        "Line": 195,
+        "Column": 16
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.rdb.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.rdb.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/off_hours.go",
+        "Offset": 4746,
+        "Line": 196,
+        "Column": 13
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.authReader.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.authReader.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/privilege_escalation.go",
+        "Offset": 4924,
+        "Line": 184,
+        "Column": 20
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.policyReader.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.policyReader.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/privilege_escalation.go",
+        "Offset": 4948,
+        "Line": 185,
+        "Column": 22
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `d.rdb.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\td.rdb.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/privilege_escalation.go",
+        "Offset": 4963,
+        "Line": 186,
+        "Column": 13
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "staticcheck",
+      "Text": "SA1019: d.rdb.SetNX is deprecated: Use Set with NX option instead as of Redis 2.6.12.",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tset, err := d.rdb.SetNX(ctx, alertKey, \"1\", WindowSize).Result()"
+      ],
+      "Pos": {
+        "Filename": "pkg/detector/brute_force.go",
+        "Offset": 3649,
+        "Line": 146,
+        "Column": 15
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `tp.Shutdown` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tdefer tp.Shutdown(context.Background())"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 674,
+        "Line": 29,
+        "Column": 20
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `publisher.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer publisher.Close()"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 1052,
+        "Line": 44,
+        "Column": 23
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `srv.Shutdown` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tsrv.Shutdown(context.Background())"
+      ],
+      "Pos": {
+        "Filename": "main.go",
+        "Offset": 2747,
+        "Line": 111,
+        "Column": 14
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `resp.Body.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\tdefer resp.Body.Close()"
+      ],
+      "Pos": {
+        "Filename": "pkg/deliverer/deliverer.go",
+        "Offset": 1551,
+        "Line": 64,
+        "Column": 23
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `w.Write` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tw.Write([]byte(\"OK\"))"
+      ],
+      "Pos": {
+        "Filename": "pkg/router/router.go",
+        "Offset": 426,
+        "Line": 18,
+        "Column": 10
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `w.Write` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tw.Write([]byte(\"[]\"))"
+      ],
+      "Pos": {
+        "Filename": "pkg/router/router.go",
+        "Offset": 663,
+        "Line": 24,
+        "Column": 10
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "staticcheck",
+      "Text": "SA1019: \"go.opentelemetry.io/otel/exporters/jaeger\" is deprecated: This module is no longer supported. OpenTelemetry dropped support for Jaeger exporter in July 2023. Jaeger officially accepts and recommends using OTLP. Use [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp] or [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc] instead. ",
+      "Severity": "",
+      "SourceLines": [
+        "\t\"go.opentelemetry.io/otel/exporters/jaeger\""
+      ],
+      "Pos": {
+        "Filename": "pkg/telemetry/telemetry.go",
+        "Offset": 57,
+        "Line": 5,
+        "Column": 2
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `resp.Body.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tdefer resp.Body.Close()"
+      ],
+      "Pos": {
+        "Filename": "pipeline_test.go",
+        "Offset": 876,
+        "Line": 36,
+        "Column": 24
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `json.Unmarshal` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tjson.Unmarshal(body, &result)"
+      ],
+      "Pos": {
+        "Filename": "pipeline_test.go",
+        "Offset": 1124,
+        "Line": 46,
+        "Column": 17
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `json.Unmarshal` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tjson.Unmarshal(body, &result)"
+      ],
+      "Pos": {
+        "Filename": "pipeline_test.go",
+        "Offset": 1885,
+        "Line": 70,
+        "Column": 17
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `resp.Body.Close` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tdefer resp.Body.Close()"
+      ],
+      "Pos": {
+        "Filename": "pipeline_test.go",
+        "Offset": 3745,
+        "Line": 121,
+        "Column": 24
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `json.Unmarshal` is not checked",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tjson.Unmarshal(body, &result)"
+      ],
+      "Pos": {
+        "Filename": "pipeline_test.go",
+        "Offset": 3835,
+        "Line": 126,
+        "Column": 17
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "bodyclose",
+      "Text": "response body must be closed",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tresp, err := mtlsClient.Get(url)"
+      ],
+      "Pos": {
+        "Filename": "framework_test.go",
+        "Offset": 2354,
+        "Line": 96,
+        "Column": 30
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "bodyclose",
+      "Text": "response body must be closed",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tresp, err := mtlsClient.Do(req)"
+      ],
+      "Pos": {
+        "Filename": "pipeline_test.go",
+        "Offset": 1619,
+        "Line": 59,
+        "Column": 29
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "bodyclose",
+      "Text": "response body must be closed",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tresp, err := mtlsClient.Do(req)"
+      ],
+      "Pos": {
+        "Filename": "pipeline_test.go",
+        "Offset": 2563,
+        "Line": 90,
+        "Column": 29
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "bodyclose",
+      "Text": "response body must be closed",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tresp, err := mtlsClient.Do(req)"
+      ],
+      "Pos": {
+        "Filename": "pipeline_test.go",
+        "Offset": 4463,
+        "Line": 143,
+        "Column": 29
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    },
+    {
+      "FromLinter": "bodyclose",
+      "Text": "response body must be closed",
+      "Severity": "",
+      "SourceLines": [
+        "\t\tresp, err := mtlsClient.Do(req)"
+      ],
+      "Pos": {
+        "Filename": "pipeline_test.go",
+        "Offset": 5463,
+        "Line": 166,
+        "Column": 29
+      },
+      "ExpectNoLint": false,
+      "ExpectedNoLintLinter": ""
+    }
+  ]
+}

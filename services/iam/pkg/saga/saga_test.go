@@ -41,7 +41,7 @@ func (m *MockUpdater) OffboardOrg(ctx context.Context, orgID string) error {
 
 func TestConsumer_HandleProvisioningEvents(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	
+
 	t.Run("Handle Success Event", func(t *testing.T) {
 		mockReader := new(MockReader)
 		mockUpdater := new(MockUpdater)
@@ -52,7 +52,7 @@ func TestConsumer_HandleProvisioningEvents(t *testing.T) {
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
-		
+
 		eventData, _ := json.Marshal(map[string]string{
 			"event":   "user.scim.provisioned",
 			"user_id": "user-123",
@@ -81,7 +81,7 @@ func TestConsumer_HandleProvisioningEvents(t *testing.T) {
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
-		
+
 		eventData, _ := json.Marshal(map[string]string{
 			"event":   "user.provisioning.failed",
 			"user_id": "user-456",

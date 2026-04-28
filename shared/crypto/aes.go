@@ -116,6 +116,7 @@ func Decrypt(encodedCiphertext string, keyring []EncryptionKey) ([]byte, error) 
 
 	return plaintext, nil
 }
+
 // LoadAESKeyring parses a JSON-encoded AES keyring.
 func LoadAESKeyring(jsonStr string) ([]EncryptionKey, error) {
 	var keyring []EncryptionKey

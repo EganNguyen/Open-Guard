@@ -17,13 +17,13 @@ import (
 
 type MockRepository struct {
 	service.Repository
-	Users              map[string]map[string]interface{}
-	FailedLogins       map[string]int
-	LockedUntil        map[string]time.Time
-	Sessions           []map[string]interface{}
-	RefreshTokens      map[string]map[string]interface{}
-	RevokedFamilies    map[uuid.UUID]bool
-	MFAConfigs         map[string][]map[string]interface{}
+	Users           map[string]map[string]interface{}
+	FailedLogins    map[string]int
+	LockedUntil     map[string]time.Time
+	Sessions        []map[string]interface{}
+	RefreshTokens   map[string]map[string]interface{}
+	RevokedFamilies map[uuid.UUID]bool
+	MFAConfigs      map[string][]map[string]interface{}
 }
 
 func (m *MockRepository) GetUserByEmail(ctx context.Context, email string) (map[string]interface{}, error) {
@@ -221,7 +221,7 @@ func TestLogin_MFARequired_ReturnsChallengeToken(t *testing.T) {
 	if token != "" {
 		t.Error("access token should be empty when MFA is required")
 	}
-	
+
 	challengeToken := res["mfa_challenge"].(string)
 	if !mr.Exists("mfa_challenge:" + challengeToken) {
 		t.Error("challenge token should be in redis")
@@ -233,7 +233,7 @@ func TestRefreshToken_RevokesFamilyOnReuse(t *testing.T) {
 	familyID := uuid.New()
 	token := "token123"
 	rtHash := crypto.HashSHA256(token)
-	
+
 	repo.RefreshTokens[rtHash] = map[string]interface{}{
 		"org_id": "org1", "user_id": "user1", "family_id": familyID, "expires_at": time.Now().Add(1 * time.Hour), "revoked": true,
 	}

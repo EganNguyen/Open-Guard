@@ -21,7 +21,7 @@ func TestReportSigningIntegrity(t *testing.T) {
 	}
 
 	testData := []byte("compliance-report-content")
-	
+
 	// Simulate the signing logic in generateReport
 	hash := sha256.Sum256(testData)
 	sig, err := rsa.SignPSS(rand.Reader, h.signingKey, crypto.SHA256, hash[:], nil)
