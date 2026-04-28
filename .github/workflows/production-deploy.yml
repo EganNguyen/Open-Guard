@@ -95,6 +95,11 @@ jobs:
 
       - name: Wait for LocalStack
         timeout-minutes: 3          # ← job-level safety net
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: us-east-1
+          AWS_ENDPOINT_URL: http://localhost:4566
         run: |
           echo "Waiting for LocalStack gateway..."
 
