@@ -7,7 +7,7 @@ export class GlobalErrorHandler implements ErrorHandler {
 
   handleError(error: any): void {
     const message = error.message ? error.message : error.toString();
-    
+
     // Log to console as well
     console.error('Global Error Handler:', error);
 
@@ -16,7 +16,7 @@ export class GlobalErrorHandler implements ErrorHandler {
       stack: error.stack,
       url: window.location.href,
       userAgent: navigator.userAgent,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 }

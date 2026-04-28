@@ -5,7 +5,7 @@ import { Toast } from '../models/ui.model';
 @Injectable({ providedIn: 'root' })
 export class UiService {
   private platformId = inject(PLATFORM_ID);
-  
+
   readonly sidebarCollapsed = signal(false);
 
   readonly activeDrawer = signal<{
@@ -21,7 +21,7 @@ export class UiService {
       if (saved) {
         this.sidebarCollapsed.set(JSON.parse(saved));
       }
-      
+
       effect(() => {
         localStorage.setItem('og:ui:sidebar', JSON.stringify(this.sidebarCollapsed()));
       });
@@ -29,7 +29,7 @@ export class UiService {
   }
 
   toggleSidebar() {
-    this.sidebarCollapsed.update(v => !v);
+    this.sidebarCollapsed.update((v) => !v);
   }
 
   openDrawer(type: 'audit' | 'alert', id: string) {
@@ -42,11 +42,11 @@ export class UiService {
 
   addToast(toast: Toast) {
     const id = Date.now();
-    this.toasts.update(ts => [...ts, { ...toast, id }]);
+    this.toasts.update((ts) => [...ts, { ...toast, id }]);
     setTimeout(() => this.dismissToast(id), toast.duration ?? 4000);
   }
 
   dismissToast(id: number) {
-    this.toasts.update(ts => ts.filter(t => t.id !== id));
+    this.toasts.update((ts) => ts.filter((t) => t.id !== id));
   }
 }

@@ -1,6 +1,12 @@
 import { Component, OnInit, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule, ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
+import {
+  FormsModule,
+  ReactiveFormsModule,
+  FormBuilder,
+  FormGroup,
+  Validators,
+} from '@angular/forms';
 import { ConnectorService, ConnectorUI } from '../core/services/connector.service';
 import { Connector, ConnectorRegistrationResult } from '../core/models/connector.model';
 
@@ -12,18 +18,18 @@ import { Subject, switchMap, startWith, shareReplay } from 'rxjs';
   standalone: true,
   imports: [CommonModule, FormsModule, ReactiveFormsModule, ConfirmDialogComponent],
   templateUrl: './connectors.html',
-  styleUrl: './connectors.css'
+  styleUrl: './connectors.css',
 })
 export class ConnectorsComponent {
   private connectorService = inject(ConnectorService);
   private fb = inject(FormBuilder);
 
   private refresh$ = new Subject<void>();
-  
+
   connectors$ = this.refresh$.pipe(
     startWith(undefined),
     switchMap(() => this.connectorService.listConnectors()),
-    shareReplay(1)
+    shareReplay(1),
   );
 
   showModal = signal(false);
@@ -31,13 +37,13 @@ export class ConnectorsComponent {
   registrationResult = signal<Connector | null>(null);
   isEditing = signal(false);
   editingConnectorId = signal('');
-  
+
   showConfirm = signal(false);
   connectorToDelete = signal<Connector | null>(null);
 
   connectorForm: FormGroup = this.fb.group({
     name: ['', [Validators.required, Validators.minLength(3)]],
-    redirect_uri: ['http://localhost:3000/api/auth/callback', [Validators.required]]
+    redirect_uri: ['http://localhost:3000/api/auth/callback', [Validators.required]],
   });
 
   openModal() {
@@ -47,7 +53,7 @@ export class ConnectorsComponent {
     this.registrationResult.set(null);
     this.connectorForm.reset({
       name: '',
-      redirect_uri: 'http://localhost:3000/api/auth/callback'
+      redirect_uri: 'http://localhost:3000/api/auth/callback',
     });
   }
 
@@ -61,11 +67,11 @@ export class ConnectorsComponent {
 
     this.submitting.set(true);
     const formValue = this.connectorForm.value;
-    
+
     if (this.isEditing()) {
       const updatedConnector = {
         name: formValue.name,
-        redirect_uris: [formValue.redirect_uri]
+        redirect_uris: [formValue.redirect_uri],
       };
 
       this.connectorService.updateConnector(this.editingConnectorId(), updatedConnector).subscribe({
@@ -77,14 +83,15 @@ export class ConnectorsComponent {
         error: (err) => {
           this.submitting.set(false);
           console.error('Update failed', err);
-        }
+        },
       });
     } else {
       const newConnector = {
         id: `app-${Math.random().toString(36).substring(7)}`,
         name: formValue.name,
-        client_secret: 'sk_' + Math.random().toString(36).substring(7) + Math.random().toString(36).substring(7),
-        redirect_uris: [formValue.redirect_uri]
+        client_secret:
+          'sk_' + Math.random().toString(36).substring(7) + Math.random().toString(36).substring(7),
+        redirect_uris: [formValue.redirect_uri],
       };
 
       this.connectorService.createConnector(newConnector).subscribe({
@@ -92,14 +99,14 @@ export class ConnectorsComponent {
           this.submitting.set(false);
           this.registrationResult.set({
             ...newConnector,
-            org_id: res.org_id
+            org_id: res.org_id,
           });
           this.refresh$.next();
         },
         error: (err) => {
           this.submitting.set(false);
           console.error('Registration failed', err);
-        }
+        },
       });
     }
   }
@@ -111,7 +118,7 @@ export class ConnectorsComponent {
     this.registrationResult.set(null);
     this.connectorForm.reset({
       name: connector.name,
-      redirect_uri: connector.redirect_uris?.[0] || ''
+      redirect_uri: connector.redirect_uris?.[0] || '',
     });
   }
 
@@ -129,7 +136,7 @@ export class ConnectorsComponent {
         this.showConfirm.set(false);
         this.refresh$.next();
       },
-      error: (err) => console.error('Delete failed', err)
+      error: (err) => console.error('Delete failed', err),
     });
   }
 }

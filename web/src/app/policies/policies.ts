@@ -1,9 +1,21 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule, ReactiveFormsModule, FormBuilder, FormGroup, Validators, FormArray } from '@angular/forms';
+import {
+  FormsModule,
+  ReactiveFormsModule,
+  FormBuilder,
+  FormGroup,
+  Validators,
+  FormArray,
+} from '@angular/forms';
 import { PolicyService } from '../core/services/policy.service';
 import { AuthService } from '../core/services/auth.service';
-import { Policy, PolicyLogic, EvaluateRequest, EvaluateResponse } from '../core/models/policy.model';
+import {
+  Policy,
+  PolicyLogic,
+  EvaluateRequest,
+  EvaluateResponse,
+} from '../core/models/policy.model';
 import { ConfirmDialogComponent } from '../core/components/confirm-dialog';
 
 @Component({
@@ -11,7 +23,7 @@ import { ConfirmDialogComponent } from '../core/components/confirm-dialog';
   standalone: true,
   imports: [CommonModule, FormsModule, ReactiveFormsModule, ConfirmDialogComponent],
   templateUrl: './policies.html',
-  styleUrls: ['./policies.css']
+  styleUrls: ['./policies.css'],
 })
 export class PoliciesComponent implements OnInit {
   private policyService = inject(PolicyService);
@@ -23,13 +35,13 @@ export class PoliciesComponent implements OnInit {
   showModal = signal(false);
   isEditing = signal(false);
   editingId = signal<string | null>(null);
-  
+
   // Playground state
   playgroundRequest = signal<EvaluateRequest>({
     org_id: '',
     subject_id: 'user:admin',
     action: 'read',
-    resource: 'document:123'
+    resource: 'document:123',
   });
   playgroundResponse = signal<EvaluateResponse | null>(null);
   evaluating = signal(false);
@@ -46,15 +58,15 @@ export class PoliciesComponent implements OnInit {
       subjects: this.fb.array([]),
       actions: this.fb.array([]),
       resources: this.fb.array([]),
-      expression: ['']
-    })
+      expression: [''],
+    }),
   });
 
   ngOnInit() {
     this.loadPolicies();
-    
+
     // Subscribe to type changes to adjust validators
-    this.policyForm.get('logic.type')?.valueChanges.subscribe(type => {
+    this.policyForm.get('logic.type')?.valueChanges.subscribe((type) => {
       const expressionControl = this.policyForm.get('logic.expression');
       if (type === 'cel') {
         expressionControl?.setValidators([Validators.required]);
@@ -78,13 +90,19 @@ export class PoliciesComponent implements OnInit {
       error: (err) => {
         console.error('Failed to load policies', err);
         this.loading.set(false);
-      }
+      },
     });
   }
 
-  get subjects() { return this.policyForm.get('logic.subjects') as FormArray; }
-  get actions() { return this.policyForm.get('logic.actions') as FormArray; }
-  get resources() { return this.policyForm.get('logic.resources') as FormArray; }
+  get subjects() {
+    return this.policyForm.get('logic.subjects') as FormArray;
+  }
+  get actions() {
+    return this.policyForm.get('logic.actions') as FormArray;
+  }
+  get resources() {
+    return this.policyForm.get('logic.resources') as FormArray;
+  }
 
   addValue(array: FormArray, value: string = '') {
     array.push(this.fb.control(value, Validators.required));
@@ -98,7 +116,7 @@ export class PoliciesComponent implements OnInit {
     this.isEditing.set(false);
     this.editingId.set(null);
     this.policyForm.reset({
-      logic: { type: 'rbac' }
+      logic: { type: 'rbac' },
     });
     this.clearFormArrays();
     this.addValue(this.subjects, '*');
@@ -116,23 +134,23 @@ export class PoliciesComponent implements OnInit {
   openEditModal(policy: Policy) {
     this.isEditing.set(true);
     this.editingId.set(policy.id);
-    
+
     const logic = policy.logic as PolicyLogic;
     this.clearFormArrays();
-    
-    if (logic.subjects) logic.subjects.forEach(s => this.addValue(this.subjects, s));
-    if (logic.actions) logic.actions.forEach(a => this.addValue(this.actions, a));
-    if (logic.resources) logic.resources.forEach(r => this.addValue(this.resources, r));
+
+    if (logic.subjects) logic.subjects.forEach((s) => this.addValue(this.subjects, s));
+    if (logic.actions) logic.actions.forEach((a) => this.addValue(this.actions, a));
+    if (logic.resources) logic.resources.forEach((r) => this.addValue(this.resources, r));
 
     this.policyForm.patchValue({
       name: policy.name,
       description: policy.description,
-      logic: { 
+      logic: {
         type: logic.type,
-        expression: logic.expression || ''
-      }
+        expression: logic.expression || '',
+      },
     });
-    
+
     this.showModal.set(true);
   }
 
@@ -147,7 +165,7 @@ export class PoliciesComponent implements OnInit {
       org_id: user.org_id,
       name: formValue.name,
       description: formValue.description,
-      logic: formValue.logic
+      logic: formValue.logic,
     };
 
     if (this.isEditing()) {
@@ -156,7 +174,7 @@ export class PoliciesComponent implements OnInit {
           this.showModal.set(false);
           this.loadPolicies();
         },
-        error: (err) => console.error('Update failed', err)
+        error: (err) => console.error('Update failed', err),
       });
     } else {
       this.policyService.createPolicy(policyData).subscribe({
@@ -164,7 +182,7 @@ export class PoliciesComponent implements OnInit {
           this.showModal.set(false);
           this.loadPolicies();
         },
-        error: (err) => console.error('Create failed', err)
+        error: (err) => console.error('Create failed', err),
       });
     }
   }
@@ -183,7 +201,7 @@ export class PoliciesComponent implements OnInit {
         this.showConfirm.set(false);
         this.loadPolicies();
       },
-      error: (err) => console.error('Delete failed', err)
+      error: (err) => console.error('Delete failed', err),
     });
   }
 
@@ -201,7 +219,7 @@ export class PoliciesComponent implements OnInit {
       error: (err) => {
         console.error('Evaluation failed', err);
         this.evaluating.set(false);
-      }
+      },
     });
   }
 }

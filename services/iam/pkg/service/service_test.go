@@ -239,8 +239,8 @@ func TestRefreshToken_RevokesFamilyOnReuse(t *testing.T) {
 	}
 
 	_, err := s.RefreshToken(context.Background(), token, "ua", "127.0.0.1")
-	if err == nil || !strings.Contains(err.Error(), "revoked") {
-		t.Errorf("expected revoked error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "SESSION_COMPROMISED") {
+		t.Errorf("expected SESSION_COMPROMISED error, got %v", err)
 	}
 	if !repo.RevokedFamilies[familyID] {
 		t.Error("family should be revoked")

@@ -34,6 +34,11 @@ func (m *MockUpdater) UpdateUserStatus(ctx context.Context, userID, status strin
 	return args.Error(0)
 }
 
+func (m *MockUpdater) OffboardOrg(ctx context.Context, orgID string) error {
+	args := m.Called(ctx, orgID)
+	return args.Error(0)
+}
+
 func TestConsumer_HandleProvisioningEvents(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	

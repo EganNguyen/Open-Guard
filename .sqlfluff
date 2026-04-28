@@ -1,18 +1,6 @@
 [sqlfluff]
 dialect = postgres
-templater = raw
-# Ignore migrations directory for some rules if needed
-exclude_rules = L009, L031, L034
+exclude_rules = RF04, LT05
 
 [sqlfluff:indentation]
 tab_width = 4
-indent_unit = space
-
-[sqlfluff:rules:capitalisation.keywords]
-capitalisation_policy = upper
-
-[sqlfluff:rules:capitalisation.identifiers]
-capitalisation_policy = lower
-
-[sqlfluff:rules:capitalisation.functions]
-capitalisation_policy = upper

@@ -4,7 +4,7 @@ import { environment } from '../../../environments/environment';
 import { AuthService } from './auth.service';
 
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class SseService {
   private zone = inject(NgZone);
@@ -28,12 +28,12 @@ export class SseService {
       this.eventSource.close();
     }
 
-    // Pass org_id via header or query param if needed. 
+    // Pass org_id via header or query param if needed.
     // Our backend expects it in context (from JWT) or X-Org-ID header.
     // EventSource doesn't support custom headers natively without a polyfill.
     // We'll use a query param or rely on the HttpOnly cookie for auth.
     const url = `${this.apiUrl}/audit/v1/events/stream?org_id=${orgId}`;
-    
+
     this.eventSource = new EventSource(url, { withCredentials: true });
 
     this.eventSource.onmessage = (event) => {

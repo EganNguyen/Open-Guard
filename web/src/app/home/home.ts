@@ -7,12 +7,10 @@ import { OverviewService } from '../core/services/overview.service';
   standalone: true,
   imports: [CommonModule],
   templateUrl: './home.html',
-  styleUrls: ['./home.css']
+  styleUrls: ['./home.css'],
 })
 export class HomeComponent {
   private overviewService = inject(OverviewService);
-  
+
   dashboardData$ = this.overviewService.getDashboardData();
-
-
 }

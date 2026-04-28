@@ -3,18 +3,29 @@
 @tailwind utilities;
 
 :root {
-  --atlassian-blue: #0052CC;
-  --atlassian-dark-blue: #0747A6;
-  --atlassian-light-gray: #F4F5F7;
-  --atlassian-text: #172B4D;
-  --atlassian-subtle-text: #6B778C;
-  --atlassian-border: #DFE1E6;
+  --atlassian-blue: #0052cc;
+  --atlassian-dark-blue: #0747a6;
+  --atlassian-light-gray: #f4f5f7;
+  --atlassian-text: #172b4d;
+  --atlassian-subtle-text: #6b778c;
+  --atlassian-border: #dfe1e6;
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
-  background-color: #F4F5F7;
-  color: #172B4D;
+  font-family:
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    'Fira Sans',
+    'Droid Sans',
+    'Helvetica Neue',
+    sans-serif;
+  background-color: #f4f5f7;
+  color: #172b4d;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

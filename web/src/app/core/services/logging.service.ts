@@ -9,7 +9,7 @@ export interface LogPayload {
 }
 
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class LoggingService {
   private http = inject(HttpClient);
@@ -21,11 +21,13 @@ export class LoggingService {
       return;
     }
 
-    this.http.post(`${this.apiUrl}/v1/logs`, payload, {
-      headers: { 'X-Skip-Logging': 'true' }
-    }).subscribe({
-      error: (err) => console.error('Failed to send log to server', err)
-    });
+    this.http
+      .post(`${this.apiUrl}/v1/logs`, payload, {
+        headers: { 'X-Skip-Logging': 'true' },
+      })
+      .subscribe({
+        error: (err) => console.error('Failed to send log to server', err),
+      });
   }
 
   info(message: string, context?: Record<string, any>) {

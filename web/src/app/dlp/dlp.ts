@@ -8,7 +8,7 @@ import { LucideAngularModule } from 'lucide-angular';
   standalone: true,
   imports: [CommonModule, LucideAngularModule],
   templateUrl: './dlp.html',
-  styleUrls: ['./dlp.css']
+  styleUrls: ['./dlp.css'],
 })
 export class DlpComponent implements OnInit {
   private dlpService = inject(DlpService);
@@ -32,7 +32,7 @@ export class DlpComponent implements OnInit {
       error: (err) => {
         this.error.set('Failed to load DLP policies');
         this.loading.set(false);
-      }
+      },
     });
   }
 
@@ -45,26 +45,28 @@ export class DlpComponent implements OnInit {
       error: (err) => {
         this.error.set('Failed to load DLP findings');
         this.loading.set(false);
-      }
+      },
     });
   }
 
   togglePolicyMode(policy: DlpPolicy) {
     const newMode = policy.mode === 'monitor' ? 'block' : 'monitor';
-    
+
     if (newMode === 'block') {
-      if (!confirm('Warning: Enabling BLOCK mode will reject all matching traffic. Are you sure?')) {
+      if (
+        !confirm('Warning: Enabling BLOCK mode will reject all matching traffic. Are you sure?')
+      ) {
         return;
       }
     }
 
     this.dlpService.updatePolicy(policy.id, newMode).subscribe({
       next: (updated) => {
-        this.policies.update(pols => pols.map(p => p.id === updated.id ? updated : p));
+        this.policies.update((pols) => pols.map((p) => (p.id === updated.id ? updated : p)));
       },
       error: (err) => {
         alert('Failed to update policy mode');
-      }
+      },
     });
   }
 }

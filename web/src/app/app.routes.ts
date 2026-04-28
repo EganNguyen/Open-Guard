@@ -28,7 +28,7 @@ export const routes: Routes = [
       { path: 'compliance', component: ComplianceComponent },
       { path: 'dlp', component: DlpComponent },
       { path: 'admin', component: AdminComponent },
-    ]
+    ],
   },
-  { path: '**', redirectTo: '' }
+  { path: '**', redirectTo: '' },
 ];

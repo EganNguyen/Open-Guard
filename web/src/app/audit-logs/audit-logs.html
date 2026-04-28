@@ -3,10 +3,14 @@
   <div class="flex items-center justify-between">
     <div>
       <h2 class="text-2xl font-bold text-[#172B4D]">Audit Logs</h2>
-      <p class="text-[#6B778C]">Track all policy evaluation requests and decisions across your organization.</p>
+      <p class="text-[#6B778C]">
+        Track all policy evaluation requests and decisions across your organization.
+      </p>
     </div>
-    <button (click)="loadLogs()" 
-            class="text-[#0052CC] hover:bg-[#EBECF0] px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center">
+    <button
+      (click)="loadLogs()"
+      class="text-[#0052CC] hover:bg-[#EBECF0] px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center"
+    >
       <span class="material-symbols-outlined mr-2 text-lg">refresh</span>
       Refresh
     </button>
@@ -20,29 +24,49 @@
       </div>
     } @else if (!logs() || logs().length === 0) {
       <div class="p-16 text-center">
-        <span class="material-symbols-outlined text-5xl text-[#DFE1E6] mb-4">history_toggle_off</span>
+        <span class="material-symbols-outlined text-5xl text-[#DFE1E6] mb-4"
+          >history_toggle_off</span
+        >
         <h3 class="text-lg font-bold text-[#172B4D]">No audit logs found</h3>
-        <p class="text-[#6B778C] mt-2">Security events will appear here once evaluation requests are made.</p>
+        <p class="text-[#6B778C] mt-2">
+          Security events will appear here once evaluation requests are made.
+        </p>
       </div>
     } @else {
       <div class="overflow-x-auto">
         <table class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-[#FAFBFC] border-b border-[#DFE1E6]">
-              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Timestamp</th>
-              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Subject</th>
-              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Action</th>
-              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Resource</th>
-              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Effect</th>
-              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">Latency</th>
-              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider text-right">Cache</th>
+              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">
+                Timestamp
+              </th>
+              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">
+                Subject
+              </th>
+              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">
+                Action
+              </th>
+              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">
+                Resource
+              </th>
+              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">
+                Effect
+              </th>
+              <th class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider">
+                Latency
+              </th>
+              <th
+                class="px-6 py-4 text-[11px] font-bold text-[#6B778C] uppercase tracking-wider text-right"
+              >
+                Cache
+              </th>
             </tr>
           </thead>
           <tbody class="divide-y divide-[#F4F5F7]">
             @for (log of logs(); track log.id) {
               <tr class="hover:bg-[#FAFBFC] transition-colors group">
                 <td class="px-6 py-4 text-xs text-[#172B4D] whitespace-nowrap">
-                  {{ log.created_at | date:'MMM d, HH:mm:ss' }}
+                  {{ log.created_at | date: 'MMM d, HH:mm:ss' }}
                 </td>
                 <td class="px-6 py-4">
                   <div class="flex items-center">
@@ -59,17 +83,19 @@
                   {{ log.resource }}
                 </td>
                 <td class="px-6 py-4">
-                  <span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest" 
-                        [ngClass]="getStatusClass(log.effect)">
+                  <span
+                    class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest"
+                    [ngClass]="getStatusClass(log.effect)"
+                  >
                     {{ log.effect }}
                   </span>
                 </td>
-                <td class="px-6 py-4 text-xs text-[#6B778C]">
-                  {{ log.latency_ms }}ms
-                </td>
+                <td class="px-6 py-4 text-xs text-[#6B778C]">{{ log.latency_ms }}ms</td>
                 <td class="px-6 py-4 text-right">
-                  <span class="px-2 py-1 rounded text-[10px] font-bold"
-                        [ngClass]="getCacheClass(log.cache_hit)">
+                  <span
+                    class="px-2 py-1 rounded text-[10px] font-bold"
+                    [ngClass]="getCacheClass(log.cache_hit)"
+                  >
                     {{ log.cache_hit ? 'HIT' : 'MISS' }}
                   </span>
                 </td>
@@ -78,7 +104,9 @@
           </tbody>
         </table>
       </div>
-      <div class="p-4 bg-[#FAFBFC] border-t border-[#DFE1E6] flex justify-between items-center text-xs text-[#6B778C]">
+      <div
+        class="p-4 bg-[#FAFBFC] border-t border-[#DFE1E6] flex justify-between items-center text-xs text-[#6B778C]"
+      >
         <span>Showing latest {{ logs()?.length || 0 }} events</span>
         <button class="text-[#0052CC] font-bold hover:underline">View Older Logs</button>
       </div>

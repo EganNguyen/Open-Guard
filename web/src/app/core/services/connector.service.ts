@@ -11,22 +11,25 @@ export interface ConnectorUI extends Connector {
   eventVolume?: string;
 }
 
-
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class ConnectorService {
   private api = inject(ApiService);
 
   listConnectors(): Observable<ConnectorUI[]> {
     return this.api.get<Connector[]>('/mgmt/connectors').pipe(
-      map(data => Array.isArray(data) ? data.map(c => ({
-        ...c,
-        status: 'Active',
-        scopes: ['openid', 'profile', 'email'],
-        createdDate: 'Apr 17, 2026',
-        eventVolume: '0'
-      })) : [])
+      map((data) =>
+        Array.isArray(data)
+          ? data.map((c) => ({
+              ...c,
+              status: 'Active',
+              scopes: ['openid', 'profile', 'email'],
+              createdDate: 'Apr 17, 2026',
+              eventVolume: '0',
+            }))
+          : [],
+      ),
     );
   }
 

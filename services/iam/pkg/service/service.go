@@ -936,3 +936,59 @@ func (s *Service) GetAuthCode(ctx context.Context, code string) (string, string,
 	}
 	return parts[0], parts[1], nil
 }
+
+// OffboardOrg revokes all sessions and deprovisions all users for an organization.
+func (s *Service) OffboardOrg(ctx context.Context, orgID string) error {
+	slog.Info("offboarding organization", "org_id", orgID)
+
+	// 1. List all users in the org
+	users, err := s.repo.ListUsers(ctx, orgID, "")
+	if err != nil {
+		return fmt.Errorf("list users: %w", err)
+	}
+
+	// 2. Revoke sessions for each user
+	for _, u := range users {
+		userID := u["id"].(string)
+		
+		// Revoke in Redis
+		jtis, err := s.repo.GetActiveJTIs(ctx, userID)
+		if err == nil && s.rdb != nil {
+			pipe := s.rdb.Pipeline()
+			for _, jti := range jtis {
+				ttl := s.repo.GetSessionTTL(ctx, jti)
+				if ttl > 0 {
+					pipe.SetEx(ctx, "blocklist:"+jti, "revoked", ttl)
+				}
+			}
+			_, _ = pipe.Exec(ctx)
+		}
+
+		// Revoke in DB
+		_ = s.repo.RevokeSessions(ctx, userID)
+	}
+
+	// 3. Set all users to deprovisioned
+	if err := s.repo.DeprovisionAllUsers(ctx, orgID); err != nil {
+		return fmt.Errorf("deprovision all users: %w", err)
+	}
+
+	// 4. Publish completion event to outbox
+	event := map[string]interface{}{
+		"event":   "org.iam.offboarded",
+		"org_id":  orgID,
+		"status":  "completed",
+		"ts":      time.Now().Unix(),
+	}
+	payload, _ := json.Marshal(event)
+	
+	tx, err := s.repo.BeginTx(ctx)
+	if err == nil {
+		defer tx.Rollback(ctx)
+		if err := s.repo.CreateOutboxEvent(ctx, tx, orgID, "saga.orchestration", orgID, payload); err == nil {
+			_ = tx.Commit(ctx)
+		}
+	}
+
+	return nil
+}

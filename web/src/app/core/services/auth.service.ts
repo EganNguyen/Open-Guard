@@ -6,9 +6,8 @@ import { Observable, tap } from 'rxjs';
 
 import { User, AuthResponse, LoginCredentials } from '../models/user.model';
 
-
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class AuthService {
   private api = inject(ApiService);
@@ -37,18 +36,21 @@ export class AuthService {
         },
         error: () => {
           this.currentUser.set(null);
-        }
+        },
       });
     }
   }
 
-  login(credentials: LoginCredentials, oauthParams?: Record<string, string>): Observable<AuthResponse> {
+  login(
+    credentials: LoginCredentials,
+    oauthParams?: Record<string, string>,
+  ): Observable<AuthResponse> {
     const { email, password } = credentials;
     const url = oauthParams ? '/auth/oauth/login' : '/auth/login';
     const body = oauthParams ? { email, password, ...oauthParams } : { email, password };
 
     return this.api.post<AuthResponse>(url, body).pipe(
-      tap(res => {
+      tap((res) => {
         if (res.mfa_required) {
           return;
         }
@@ -60,22 +62,28 @@ export class AuthService {
 
         this.currentUser.set(res.user);
         this.router.navigate(['/']); // R-06: /overview does not exist
-      })
+      }),
     );
   }
 
-  verifyMfa(mfaChallenge: string, code: string, oauthParams?: Record<string, string>): Observable<AuthResponse> {
-    return this.api.post<AuthResponse>('/auth/mfa/verify', { mfa_challenge: mfaChallenge, code }).pipe(
-      tap(res => {
-        if (oauthParams && res.code) {
-          window.location.href = `${oauthParams['redirect_uri']}?code=${res.code}&state=${res.state || ''}`;
-          return;
-        }
+  verifyMfa(
+    mfaChallenge: string,
+    code: string,
+    oauthParams?: Record<string, string>,
+  ): Observable<AuthResponse> {
+    return this.api
+      .post<AuthResponse>('/auth/mfa/verify', { mfa_challenge: mfaChallenge, code })
+      .pipe(
+        tap((res) => {
+          if (oauthParams && res.code) {
+            window.location.href = `${oauthParams['redirect_uri']}?code=${res.code}&state=${res.state || ''}`;
+            return;
+          }
 
-        this.currentUser.set(res.user);
-        this.router.navigate(['/']);
-      })
-    );
+          this.currentUser.set(res.user);
+          this.router.navigate(['/']);
+        }),
+      );
   }
 
   logout(): void {
@@ -87,7 +95,7 @@ export class AuthService {
     // Best effort logout: call API but clear local state anyway
     this.api.post('/auth/logout', {}).subscribe({
       next: () => this.clearLocalSession(),
-      error: () => this.clearLocalSession()
+      error: () => this.clearLocalSession(),
     });
   }
 

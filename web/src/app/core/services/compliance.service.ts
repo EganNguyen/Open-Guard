@@ -39,8 +39,8 @@ export class ComplianceService {
   pollReport(id: string): Observable<ComplianceReport> {
     return interval(3000).pipe(
       switchMap(() => this.getReport(id)),
-      takeWhile(r => r.status === 'pending' || r.status === 'processing', true),
-      filter(r => r.status === 'ready' || r.status === 'failed')
+      takeWhile((r) => r.status === 'pending' || r.status === 'processing', true),
+      filter((r) => r.status === 'ready' || r.status === 'failed'),
     );
   }
 }

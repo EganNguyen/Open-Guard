@@ -1,29 +1,52 @@
 <div class="min-h-screen flex items-center justify-center bg-[#F4F5F7] px-4">
   <div class="max-w-md w-full space-y-8 bg-white p-10 rounded-lg shadow-xl border border-[#DFE1E6]">
     <div class="text-center">
-      <div class="inline-flex items-center justify-center w-12 h-12 bg-[#0052CC] rounded-lg mb-4 shadow-lg">
+      <div
+        class="inline-flex items-center justify-center w-12 h-12 bg-[#0052CC] rounded-lg mb-4 shadow-lg"
+      >
         <span class="text-white font-bold text-2xl">O</span>
       </div>
       <h2 class="text-2xl font-bold text-[#172B4D]">Log in to your account</h2>
       <p class="mt-2 text-sm text-[#6B778C]">Securely access your OpenGuard dashboard</p>
     </div>
-    
+
     @if (!mfaRequired()) {
       <form class="mt-8 space-y-6" [formGroup]="loginForm" (ngSubmit)="onSubmit()">
         <div class="space-y-4">
           <div>
-            <label for="email-address" class="block text-xs font-bold uppercase tracking-wider text-[#6B778C] mb-1">Email address</label>
-            <input id="email-address" formControlName="email" type="email" required 
-                   class="appearance-none rounded-md relative block w-full px-3 py-2.5 border border-[#DFE1E6] bg-[#FAFBFC] text-[#172B4D] placeholder-[#A5ADBA] focus:outline-none focus:ring-2 focus:ring-[#4C9AFF] focus:border-[#4C9AFF] sm:text-sm transition-all" 
-                   placeholder="e.g. admin@acme.com">
+            <label
+              for="email-address"
+              class="block text-xs font-bold uppercase tracking-wider text-[#6B778C] mb-1"
+              >Email address</label
+            >
+            <input
+              id="email-address"
+              formControlName="email"
+              type="email"
+              required
+              class="appearance-none rounded-md relative block w-full px-3 py-2.5 border border-[#DFE1E6] bg-[#FAFBFC] text-[#172B4D] placeholder-[#A5ADBA] focus:outline-none focus:ring-2 focus:ring-[#4C9AFF] focus:border-[#4C9AFF] sm:text-sm transition-all"
+              placeholder="e.g. admin@acme.com"
+            />
           </div>
           <div class="relative">
-            <label for="password" class="block text-xs font-bold uppercase tracking-wider text-[#6B778C] mb-1">Password</label>
-            <input id="password" formControlName="password" [type]="showPassword() ? 'text' : 'password'" required 
-                   class="appearance-none rounded-md relative block w-full px-3 py-2.5 border border-[#DFE1E6] bg-[#FAFBFC] text-[#172B4D] placeholder-[#A5ADBA] focus:outline-none focus:ring-2 focus:ring-[#4C9AFF] focus:border-[#4C9AFF] sm:text-sm transition-all" 
-                   placeholder="••••••••">
-            <button type="button" (click)="togglePassword()" 
-                    class="absolute right-3 bottom-2 text-[#6B778C] hover:text-[#172B4D] focus:outline-none">
+            <label
+              for="password"
+              class="block text-xs font-bold uppercase tracking-wider text-[#6B778C] mb-1"
+              >Password</label
+            >
+            <input
+              id="password"
+              formControlName="password"
+              [type]="showPassword() ? 'text' : 'password'"
+              required
+              class="appearance-none rounded-md relative block w-full px-3 py-2.5 border border-[#DFE1E6] bg-[#FAFBFC] text-[#172B4D] placeholder-[#A5ADBA] focus:outline-none focus:ring-2 focus:ring-[#4C9AFF] focus:border-[#4C9AFF] sm:text-sm transition-all"
+              placeholder="••••••••"
+            />
+            <button
+              type="button"
+              (click)="togglePassword()"
+              class="absolute right-3 bottom-2 text-[#6B778C] hover:text-[#172B4D] focus:outline-none"
+            >
               <span class="material-symbols-outlined text-xl">
                 {{ showPassword() ? 'visibility_off' : 'visibility' }}
               </span>
@@ -33,27 +56,53 @@
 
         <div class="flex items-center justify-between text-sm">
           <div class="flex items-center">
-            <input id="remember-me" formControlName="rememberMe" type="checkbox" class="h-4 w-4 text-[#0052CC] focus:ring-[#4C9AFF] border-[#DFE1E6] rounded">
+            <input
+              id="remember-me"
+              formControlName="rememberMe"
+              type="checkbox"
+              class="h-4 w-4 text-[#0052CC] focus:ring-[#4C9AFF] border-[#DFE1E6] rounded"
+            />
             <label for="remember-me" class="ml-2 block text-[#42526E]">Remember me</label>
           </div>
           <a href="#" class="font-medium text-[#0052CC] hover:underline">Forgot password?</a>
         </div>
 
         @if (errorMessage()) {
-          <div class="p-3 rounded bg-red-50 border border-red-200 text-red-700 text-xs flex items-center">
+          <div
+            class="p-3 rounded bg-red-50 border border-red-200 text-red-700 text-xs flex items-center"
+          >
             <span class="material-symbols-outlined text-sm mr-2">error</span>
             {{ errorMessage() }}
           </div>
         }
 
         <div>
-          <button type="submit" [disabled]="loginForm.invalid || isLoading()"
-                  class="group relative w-full flex justify-center py-2.5 px-4 border border-transparent text-sm font-bold rounded-md text-white bg-[#0052CC] hover:bg-[#0747A6] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#4C9AFF] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md">
+          <button
+            type="submit"
+            [disabled]="loginForm.invalid || isLoading()"
+            class="group relative w-full flex justify-center py-2.5 px-4 border border-transparent text-sm font-bold rounded-md text-white bg-[#0052CC] hover:bg-[#0747A6] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#4C9AFF] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
+          >
             @if (isLoading()) {
               <span class="animate-spin mr-2">
-                <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                <svg
+                  class="h-4 w-4 text-white"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    class="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="4"
+                  ></circle>
+                  <path
+                    class="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
                 </svg>
               </span>
             }
@@ -73,29 +122,43 @@
         </div>
 
         <div>
-          <input type="text" maxlength="6" [(ngModel)]="mfaCode" name="mfaCode"
-                 class="appearance-none rounded-md relative block w-full px-3 py-3 border border-[#DFE1E6] bg-[#FAFBFC] text-center text-2xl tracking-[0.5em] font-bold text-[#172B4D] focus:outline-none focus:ring-2 focus:ring-[#4C9AFF] focus:border-[#4C9AFF] transition-all" 
-                 placeholder="000000">
+          <input
+            type="text"
+            maxlength="6"
+            [(ngModel)]="mfaCode"
+            name="mfaCode"
+            class="appearance-none rounded-md relative block w-full px-3 py-3 border border-[#DFE1E6] bg-[#FAFBFC] text-center text-2xl tracking-[0.5em] font-bold text-[#172B4D] focus:outline-none focus:ring-2 focus:ring-[#4C9AFF] focus:border-[#4C9AFF] transition-all"
+            placeholder="000000"
+          />
         </div>
 
         @if (errorMessage()) {
-          <div class="p-3 rounded bg-red-50 border border-red-200 text-red-700 text-xs flex items-center">
+          <div
+            class="p-3 rounded bg-red-50 border border-red-200 text-red-700 text-xs flex items-center"
+          >
             <span class="material-symbols-outlined text-sm mr-2">error</span>
             {{ errorMessage() }}
           </div>
         }
 
-        <button type="submit" [disabled]="mfaCode().length !== 6 || isLoading()"
-                class="group relative w-full flex justify-center py-2.5 px-4 border border-transparent text-sm font-bold rounded-md text-white bg-[#0052CC] hover:bg-[#0747A6] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#4C9AFF] disabled:opacity-50 transition-all shadow-md">
+        <button
+          type="submit"
+          [disabled]="mfaCode().length !== 6 || isLoading()"
+          class="group relative w-full flex justify-center py-2.5 px-4 border border-transparent text-sm font-bold rounded-md text-white bg-[#0052CC] hover:bg-[#0747A6] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#4C9AFF] disabled:opacity-50 transition-all shadow-md"
+        >
           Verify & Log in
         </button>
 
-        <button type="button" (click)="mfaRequired.set(false)" class="w-full text-sm text-[#0052CC] hover:underline">
+        <button
+          type="button"
+          (click)="mfaRequired.set(false)"
+          class="w-full text-sm text-[#0052CC] hover:underline"
+        >
           Back to login
         </button>
       </form>
     }
-    
+
     <div class="text-center pt-4 border-t border-[#DFE1E6]">
       <p class="text-xs text-[#6B778C] flex items-center justify-center">
         <span class="material-symbols-outlined text-sm mr-1">lock</span>

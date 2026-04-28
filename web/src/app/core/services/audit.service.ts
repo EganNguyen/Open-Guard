@@ -19,7 +19,7 @@ export interface AuditEvent {
 import { SseService } from './sse.service';
 
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class AuditService {
   private http = inject(HttpClient);

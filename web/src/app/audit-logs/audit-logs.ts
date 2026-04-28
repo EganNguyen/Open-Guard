@@ -9,7 +9,7 @@ import { Subscription } from 'rxjs';
   standalone: true,
   imports: [CommonModule],
   templateUrl: './audit-logs.html',
-  styleUrls: ['./audit-logs.css']
+  styleUrls: ['./audit-logs.css'],
 })
 export class AuditLogComponent implements OnInit, OnDestroy {
   private auditService = inject(AuditService);
@@ -41,27 +41,23 @@ export class AuditLogComponent implements OnInit, OnDestroy {
       error: (err) => {
         console.error('Failed to load audit logs', err);
         this.loading.set(false);
-      }
+      },
     });
   }
 
   startStreaming() {
     this.streamSubscription = this.auditService.streamEvents().subscribe({
       next: (event) => {
-        this.logs.update(prev => [event, ...(prev || []).slice(0, 49)]);
-      }
+        this.logs.update((prev) => [event, ...(prev || []).slice(0, 49)]);
+      },
     });
   }
 
   getStatusClass(effect: string): string {
-    return effect === 'allow' 
-      ? 'bg-green-100 text-green-700' 
-      : 'bg-red-100 text-red-700';
+    return effect === 'allow' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
   }
 
   getCacheClass(cacheHit: boolean): string {
-    return cacheHit 
-      ? 'bg-blue-50 text-blue-600' 
-      : 'bg-gray-100 text-gray-600';
+    return cacheHit ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-600';
   }
 }

@@ -9,7 +9,7 @@ import { ActivatedRoute } from '@angular/router';
   standalone: true,
   imports: [CommonModule, FormsModule, ReactiveFormsModule],
   templateUrl: './login.html',
-  styleUrls: ['./login.css']
+  styleUrls: ['./login.css'],
 })
 export class LoginComponent implements OnInit {
   private fb = inject(FormBuilder);
@@ -19,13 +19,13 @@ export class LoginComponent implements OnInit {
   loginForm = this.fb.group({
     email: ['', [Validators.required, Validators.email]],
     password: ['', [Validators.required]],
-    rememberMe: [false]
+    rememberMe: [false],
   });
 
   isLoading = signal(false);
   showPassword = signal(false);
   errorMessage = signal<string | null>(null);
-  
+
   mfaRequired = signal(false);
   mfaChallenge = signal<string | null>(null);
   mfaCode = signal('');
@@ -33,26 +33,26 @@ export class LoginComponent implements OnInit {
   oauthParams: any = null;
 
   ngOnInit() {
-    this.route.queryParams.subscribe(params => {
+    this.route.queryParams.subscribe((params) => {
       if (params['client_id'] && params['redirect_uri']) {
         this.oauthParams = {
           client_id: params['client_id'],
           redirect_uri: params['redirect_uri'],
-          state: params['state']
+          state: params['state'],
         };
       }
     });
   }
 
   togglePassword(): void {
-    this.showPassword.update(v => !v);
+    this.showPassword.update((v) => !v);
   }
 
   onSubmit(): void {
     if (this.loginForm.valid) {
       this.isLoading.set(true);
       this.errorMessage.set(null);
-      
+
       this.authService.login(this.loginForm.value as any, this.oauthParams).subscribe({
         next: (res) => {
           if (res.mfa_required) {
@@ -64,7 +64,7 @@ export class LoginComponent implements OnInit {
         error: (err) => {
           this.errorMessage.set(err.message || 'Login failed');
           this.isLoading.set(false);
-        }
+        },
       });
     }
   }
@@ -76,7 +76,7 @@ export class LoginComponent implements OnInit {
         error: (err) => {
           this.errorMessage.set(err.message || 'MFA verification failed');
           this.isLoading.set(false);
-        }
+        },
       });
     }
   }

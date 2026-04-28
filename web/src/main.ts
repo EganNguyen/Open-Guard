@@ -7,13 +7,15 @@ bootstrapApplication(App, appConfig)
   .then((appRef) => {
     // Log page load time after a short delay to ensure navigation entry is complete
     setTimeout(() => {
-      const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+      const navigation = performance.getEntriesByType(
+        'navigation',
+      )[0] as PerformanceNavigationTiming;
       if (navigation) {
         const loadTime = navigation.duration / 1000; // seconds
         const loggingService = appRef.injector.get(LoggingService);
-        loggingService.info(`Page loaded: ${window.location.pathname}`, { 
+        loggingService.info(`Page loaded: ${window.location.pathname}`, {
           load_time: loadTime,
-          page: window.location.pathname 
+          page: window.location.pathname,
         });
       }
     }, 100);

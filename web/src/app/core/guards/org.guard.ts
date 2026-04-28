@@ -19,6 +19,6 @@ export const orgGuard: CanActivateFn = (route, state) => {
   // If no orgId is found in the current session state, redirect to org selection or login
   console.warn('OrgGuard: No organization context found, redirecting to login');
   return router.createUrlTree(['/auth/login'], {
-    queryParams: { returnUrl: state.url, error: 'no_org_context' }
+    queryParams: { returnUrl: state.url, error: 'no_org_context' },
   });
 };

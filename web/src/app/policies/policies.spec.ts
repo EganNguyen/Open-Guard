@@ -19,15 +19,15 @@ describe('PoliciesComponent', () => {
     };
 
     mockAuthService = {
-      user: signal({ org_id: 'org-123' })
+      user: signal({ org_id: 'org-123' }),
     };
 
     await TestBed.configureTestingModule({
       imports: [PoliciesComponent, ReactiveFormsModule],
       providers: [
         { provide: PolicyService, useValue: mockPolicyService },
-        { provide: AuthService, useValue: mockAuthService }
-      ]
+        { provide: AuthService, useValue: mockAuthService },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(PoliciesComponent);
@@ -41,7 +41,7 @@ describe('PoliciesComponent', () => {
 
   it('should initialize with default RBAC values when opening create modal', () => {
     component.openCreateModal();
-    
+
     expect(component.showModal()).toBeTrue();
     expect(component.policyForm.get('logic.type')?.value).toBe('rbac');
     expect(component.subjects.length).toBe(1);
@@ -50,7 +50,7 @@ describe('PoliciesComponent', () => {
 
   it('should toggle expression validator when switching to CEL', () => {
     const logicGroup = component.policyForm.get('logic');
-    
+
     logicGroup?.get('type')?.setValue('cel');
     expect(logicGroup?.get('expression')?.validator).toBeTruthy();
 
@@ -62,14 +62,16 @@ describe('PoliciesComponent', () => {
     component.openCreateModal();
     component.policyForm.patchValue({
       name: 'Test Policy',
-      description: 'Test Desc'
+      description: 'Test Desc',
     });
-    
+
     component.savePolicy();
-    
-    expect(mockPolicyService.createPolicy).toHaveBeenCalledWith(jasmine.objectContaining({
-      name: 'Test Policy',
-      org_id: 'org-123'
-    }));
+
+    expect(mockPolicyService.createPolicy).toHaveBeenCalledWith(
+      jasmine.objectContaining({
+        name: 'Test Policy',
+        org_id: 'org-123',
+      }),
+    );
   });
 });

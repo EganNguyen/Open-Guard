@@ -10,16 +10,16 @@ import { UiService } from '../state/ui.service';
   standalone: true,
   imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
   templateUrl: './layout.html',
-  styleUrls: ['./layout.css']
+  styleUrls: ['./layout.css'],
 })
 export class LayoutComponent {
   authService = inject(AuthService);
   uiService = inject(UiService);
-  
+
   user = this.authService.user;
   sidebarCollapsed = this.uiService.sidebarCollapsed;
   toasts = this.uiService.toasts;
-  
+
   navItems = [
     { label: 'Overview', icon: 'dashboard', path: '/' },
     { label: 'Connectors', icon: 'hub', path: '/connectors' },
@@ -29,7 +29,7 @@ export class LayoutComponent {
     { label: 'Threats', icon: 'security', path: '/threats' },
     { label: 'Compliance', icon: 'assignment_turned_in', path: '/compliance' },
     { label: 'DLP', icon: 'search', path: '/dlp' },
-    { label: 'Admin', icon: 'settings', path: '/admin' }
+    { label: 'Admin', icon: 'settings', path: '/admin' },
   ];
 
   onLogout(): void {

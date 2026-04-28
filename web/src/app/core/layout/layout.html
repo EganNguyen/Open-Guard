@@ -1,7 +1,9 @@
 <div class="flex h-screen bg-[#F4F5F7] text-[#172B4D]">
   <!-- Sidebar -->
-  <aside [class]="sidebarCollapsed() ? 'w-20' : 'w-64'" 
-         class="bg-[#0747A6] text-white flex flex-col shadow-xl transition-all duration-300 ease-in-out overflow-hidden">
+  <aside
+    [class]="sidebarCollapsed() ? 'w-20' : 'w-64'"
+    class="bg-[#0747A6] text-white flex flex-col shadow-xl transition-all duration-300 ease-in-out overflow-hidden"
+  >
     <div class="p-6 flex items-center space-x-3 h-20">
       <div class="w-8 h-8 bg-white rounded flex items-center justify-center flex-shrink-0">
         <span class="text-[#0747A6] font-bold text-xl">O</span>
@@ -13,13 +15,18 @@
 
     <nav class="flex-1 mt-4 px-3 space-y-1">
       @for (item of navItems; track item.path) {
-        <a [routerLink]="item.path" 
-           routerLinkActive="bg-[#0052CC] text-white"
-           [routerLinkActiveOptions]="{exact: true}"
-           class="flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-[#0052CC] hover:text-white group"
-           [title]="sidebarCollapsed() ? item.label : ''">
-          <span class="material-symbols-outlined text-lg opacity-80 group-hover:opacity-100 flex-shrink-0"
-                [class.mr-3]="!sidebarCollapsed()">{{ item.icon }}</span>
+        <a
+          [routerLink]="item.path"
+          routerLinkActive="bg-[#0052CC] text-white"
+          [routerLinkActiveOptions]="{ exact: true }"
+          class="flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-[#0052CC] hover:text-white group"
+          [title]="sidebarCollapsed() ? item.label : ''"
+        >
+          <span
+            class="material-symbols-outlined text-lg opacity-80 group-hover:opacity-100 flex-shrink-0"
+            [class.mr-3]="!sidebarCollapsed()"
+            >{{ item.icon }}</span
+          >
           @if (!sidebarCollapsed()) {
             <span class="whitespace-nowrap">{{ item.label }}</span>
           }
@@ -28,24 +35,35 @@
     </nav>
 
     <div class="p-4 border-t border-[#0052CC]">
-      <div [class]="sidebarCollapsed() ? 'justify-center' : 'p-2 bg-[#0052CC]'"
-           class="flex items-center rounded-md mb-4">
-        <div class="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-xs font-bold flex-shrink-0"
-             [class.mr-3]="!sidebarCollapsed()">
+      <div
+        [class]="sidebarCollapsed() ? 'justify-center' : 'p-2 bg-[#0052CC]'"
+        class="flex items-center rounded-md mb-4"
+      >
+        <div
+          class="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-xs font-bold flex-shrink-0"
+          [class.mr-3]="!sidebarCollapsed()"
+        >
           {{ user()?.display_name?.charAt(0) || 'U' }}
         </div>
         @if (!sidebarCollapsed()) {
           <div class="flex-1 min-w-0">
             <p class="text-xs font-semibold truncate">{{ user()?.display_name || 'Admin' }}</p>
-            <p class="text-[10px] text-blue-200 truncate">{{ user()?.email || 'admin@openguard.io' }}</p>
+            <p class="text-[10px] text-blue-200 truncate">
+              {{ user()?.email || 'admin@openguard.io' }}
+            </p>
           </div>
         }
       </div>
-      <button (click)="onLogout()" 
-              class="w-full flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-red-600 hover:text-white"
-              [title]="sidebarCollapsed() ? 'Sign out' : ''">
-        <span class="material-symbols-outlined text-lg flex-shrink-0"
-              [class.mr-3]="!sidebarCollapsed()">logout</span>
+      <button
+        (click)="onLogout()"
+        class="w-full flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-red-600 hover:text-white"
+        [title]="sidebarCollapsed() ? 'Sign out' : ''"
+      >
+        <span
+          class="material-symbols-outlined text-lg flex-shrink-0"
+          [class.mr-3]="!sidebarCollapsed()"
+          >logout</span
+        >
         @if (!sidebarCollapsed()) {
           <span class="whitespace-nowrap">Sign out</span>
         }
@@ -56,10 +74,14 @@
   <!-- Main Content -->
   <main class="flex-1 flex flex-col overflow-hidden">
     <!-- Header -->
-    <header class="h-14 bg-white border-b border-[#DFE1E6] flex items-center justify-between px-6 shadow-sm">
+    <header
+      class="h-14 bg-white border-b border-[#DFE1E6] flex items-center justify-between px-6 shadow-sm"
+    >
       <div class="flex items-center space-x-4">
-        <button (click)="toggleSidebar()" 
-                class="p-1 rounded-md hover:bg-[#F4F5F7] text-[#6B778C] transition-colors">
+        <button
+          (click)="toggleSidebar()"
+          class="p-1 rounded-md hover:bg-[#F4F5F7] text-[#6B778C] transition-colors"
+        >
           <span class="material-symbols-outlined">menu</span>
         </button>
         <div class="flex items-center space-x-4 text-sm">
@@ -69,18 +91,24 @@
           <span class="material-symbols-outlined text-sm text-[#6B778C]">expand_more</span>
         </div>
       </div>
-      
+
       <div class="flex items-center space-x-6">
         <div class="relative hidden md:block">
           <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-[#6B778C]">
             <span class="material-symbols-outlined text-lg">search</span>
           </span>
-          <input type="text" 
-                 class="block w-64 pl-10 pr-3 py-1.5 border border-[#DFE1E6] rounded-md leading-5 bg-[#FAFBFC] text-sm placeholder-[#6B778C] focus:outline-none focus:ring-2 focus:ring-[#4C9AFF] focus:border-[#4C9AFF]" 
-                 placeholder="Search policies, users...">
+          <input
+            type="text"
+            class="block w-64 pl-10 pr-3 py-1.5 border border-[#DFE1E6] rounded-md leading-5 bg-[#FAFBFC] text-sm placeholder-[#6B778C] focus:outline-none focus:ring-2 focus:ring-[#4C9AFF] focus:border-[#4C9AFF]"
+            placeholder="Search policies, users..."
+          />
         </div>
-        <span class="material-symbols-outlined text-[#6B778C] cursor-pointer hover:text-[#0747A6]">help_outline</span>
-        <span class="material-symbols-outlined text-[#6B778C] cursor-pointer hover:text-[#0747A6]">notifications</span>
+        <span class="material-symbols-outlined text-[#6B778C] cursor-pointer hover:text-[#0747A6]"
+          >help_outline</span
+        >
+        <span class="material-symbols-outlined text-[#6B778C] cursor-pointer hover:text-[#0747A6]"
+          >notifications</span
+        >
       </div>
     </header>
 
@@ -91,23 +119,33 @@
       <!-- Toast Notifications -->
       <div class="fixed bottom-6 right-6 z-50 flex flex-col space-y-3 pointer-events-none">
         @for (toast of toasts(); track toast.id) {
-          <div class="flex items-center p-4 rounded-lg shadow-lg border-l-4 pointer-events-auto animate-slide-in"
-               [ngClass]="{
-                 'bg-white border-[#36B37E] text-[#172B4D]': toast.type === 'success',
-                 'bg-white border-[#FF5630] text-[#172B4D]': toast.type === 'error',
-                 'bg-white border-[#FF991F] text-[#172B4D]': toast.type === 'warning',
-                 'bg-white border-[#0052CC] text-[#172B4D]': toast.type === 'info'
-               }">
-            <span class="material-symbols-outlined mr-3"
-                  [ngClass]="{
-                    'text-[#36B37E]': toast.type === 'success',
-                    'text-[#FF5630]': toast.type === 'error',
-                    'text-[#FF991F]': toast.type === 'warning',
-                    'text-[#0052CC]': toast.type === 'info'
-                  }">
-              {{ toast.type === 'success' ? 'check_circle' : 
-                 toast.type === 'error' ? 'error' :
-                 toast.type === 'warning' ? 'warning' : 'info' }}
+          <div
+            class="flex items-center p-4 rounded-lg shadow-lg border-l-4 pointer-events-auto animate-slide-in"
+            [ngClass]="{
+              'bg-white border-[#36B37E] text-[#172B4D]': toast.type === 'success',
+              'bg-white border-[#FF5630] text-[#172B4D]': toast.type === 'error',
+              'bg-white border-[#FF991F] text-[#172B4D]': toast.type === 'warning',
+              'bg-white border-[#0052CC] text-[#172B4D]': toast.type === 'info',
+            }"
+          >
+            <span
+              class="material-symbols-outlined mr-3"
+              [ngClass]="{
+                'text-[#36B37E]': toast.type === 'success',
+                'text-[#FF5630]': toast.type === 'error',
+                'text-[#FF991F]': toast.type === 'warning',
+                'text-[#0052CC]': toast.type === 'info',
+              }"
+            >
+              {{
+                toast.type === 'success'
+                  ? 'check_circle'
+                  : toast.type === 'error'
+                    ? 'error'
+                    : toast.type === 'warning'
+                      ? 'warning'
+                      : 'info'
+              }}
             </span>
             <p class="text-sm font-medium mr-8">{{ toast.message }}</p>
             <button (click)="dismissToast(toast.id!)" class="text-[#6B778C] hover:text-[#172B4D]">

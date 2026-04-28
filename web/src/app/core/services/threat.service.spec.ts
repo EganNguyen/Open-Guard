@@ -10,12 +10,7 @@ describe('ThreatService', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [
-        ThreatService,
-        ApiService,
-        provideHttpClient(),
-        provideHttpClientTesting(),
-      ]
+      providers: [ThreatService, ApiService, provideHttpClient(), provideHttpClientTesting()],
     });
     service = TestBed.inject(ThreatService);
     httpMock = TestBed.inject(HttpTestingController);
@@ -32,11 +27,13 @@ describe('ThreatService', () => {
   it('should fetch alerts with correct params', () => {
     const mockAlerts = [{ id: '1', title: 'Test Alert', severity: 'HIGH' }];
 
-    service.listAlerts({ status: 'OPEN' }).subscribe(alerts => {
+    service.listAlerts({ status: 'OPEN' }).subscribe((alerts) => {
       expect(alerts).toEqual(mockAlerts as any);
     });
 
-    const req = httpMock.expectOne(req => req.url.includes('/v1/threats/alerts') && req.params.has('status'));
+    const req = httpMock.expectOne(
+      (req) => req.url.includes('/v1/threats/alerts') && req.params.has('status'),
+    );
     expect(req.request.method).toBe('GET');
     expect(req.request.params.get('status')).toBe('OPEN');
     req.flush(mockAlerts);
