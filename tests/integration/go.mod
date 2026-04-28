@@ -1,6 +1,6 @@
 module github.com/openguard/tests/integration
 
-go 1.25.0
+go 1.24.0
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.45.0
