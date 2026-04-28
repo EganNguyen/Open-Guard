@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
+
 	"net/http"
 	"os"
 	"time"
