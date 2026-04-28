@@ -1,0 +1,30 @@
+{
+  "project": "OpenGuard",
+  "last_updated": "2026-04-28",
+  "entries": [
+    {
+      "id": "LTM-001",
+      "ref_job": "JOB-001",
+      "category": "Security / SDK",
+      "insight": "WithMTLS ClientOption must explicitly set InsecureSkipVerify: false to prevent MITM. httptest.NewTLSServer requires injecting ts.Client().Transport's TLS configuration into the SDK client for valid unit test handshakes.",
+      "traps": [
+        "Avoid hardcoded dev shortcuts in exported SDK functions.",
+        "Modifying tls.Config on an http.Client after the Transport has performed a dial may have no effect."
+      ],
+      "impacted_files": ["sdk/client.go", "sdk/client_test.go"],
+      "status": "Verified"
+    },
+    {
+      "id": "LTM-002",
+      "ref_job": "JOB-002",
+      "category": "Security / SSRF",
+      "insight": "Standard URL pre-validation is vulnerable to DNS Rebinding (TOCTOU). SSRF protection must be enforced at the Dial layer by pinning the connection to a validated IP.",
+      "traps": [
+        "Global state for mockable dependencies (like net.Resolver) causes data races in tests.",
+        "httptest.NewServer defaults to 127.0.0.1 which is typically blocked by SSRF guards; use dependency injection to allow test-only bypass."
+      ],
+      "impacted_files": ["shared/middleware/security.go", "shared/middleware/security_test.go"],
+      "status": "Verified"
+    }
+  ]
+}

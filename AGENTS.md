@@ -4,8 +4,10 @@
 Before starting any task, read the **Index Layer** to understand the system map and architectural intent:
 - [**ARCHITECTURE.md**](docs/index/ARCHITECTURE.md): Core design patterns (Outbox, mTLS, RLS).
 - [**INDEX.md**](docs/index/INDEX.md): Service registry, ports, and dependencies.
+- [**SYSTEM_MAP.md**](docs/index/SYSTEM_MAP.md): Visual topology of event flows and shared logic.
 - [**INTENT_MAP.md**](docs/index/INTENT_MAP.md): Architectural decision log (The "Why").
 - [**HOTSPOTS.md**](docs/index/HOTSPOTS.md): High-risk areas and brittle logic.
+- [**LEARNING.md**](docs/index/LEARNING.md): Long-term memory and cross-job discoveries.
 
 ## High-Signal Context
 Open-Guard is a high-performance security control plane using a "beside, not in front" architecture.
@@ -35,9 +37,11 @@ Open-Guard is a high-performance security control plane using a "beside, not in 
 
 ## Verification Steps
 1. **Lint:** `golangci-lint run ./...` (Go) and `npx prettier --check .`
-2. **Build:** `go build ./...`
-3. **Test:** `go test -race ./...` (Unit) and `make test-acceptance` (System).
-4. **SLO:** Verify p99 latency hasn't regressed using `make load-test`.
+2. **AI-Audit:** `make ai-check` (Ensures architectural discipline).
+3. **Build:** `go build ./...`
+4. **Test:** `go test -race ./...` (Unit) and `make test-acceptance` (System).
+5. **Visualize:** `make visualize` (Update the system map if topology changed).
+6. **Closing the Loop:** After every job, use `make remember` to ingest learnings into the Experience Ledger.
 
 ## Gotchas
 - **mTLS:** Services will fail to start or connect if certificates in `certs/` are missing or expired.

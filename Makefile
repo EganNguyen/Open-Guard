@@ -69,6 +69,12 @@ test-integration:
 ai-check:
 	./scripts/ai-check.sh
 
+remember:
+	@./scripts/remember.sh
+
+visualize:
+	@python3 scripts/visualize_topology.py
+
 certs:
 	@echo "Generating certificates..."
 	./scripts/gen-mtls-certs.sh
