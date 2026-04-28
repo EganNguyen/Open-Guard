@@ -15,20 +15,13 @@ env:
 
 jobs:
   # ─────────────────────────────────────────
-  # 1. LINT  (hard gate)
+  # 1. LINT
   # ─────────────────────────────────────────
-  lint:
-    name: "Lint"
+  lint-others:
+    name: "Lint (Others)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-          cache-dependency-path: "**/*.sum"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -36,12 +29,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: web/package-lock.json
-
-      - name: Go lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=10m ./sdk/... ./shared/... ./services/iam/... ./services/policy/... ./services/audit/... ./services/dlp/... ./services/compliance/... ./services/control-plane/... ./services/connector-registry/... ./services/alerting/... ./services/threat/... ./services/webhook-delivery/... ./tests/integration/...
 
       - name: SQL lint
         run: |
@@ -54,13 +41,49 @@ jobs:
           npm install --prefer-offline
           npm run lint
 
+  lint-go:
+    name: "Lint Go / ${{ matrix.module }}"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module:
+          - sdk
+          - shared
+          - services/iam
+          - services/policy
+          - services/alerting
+          - services/threat
+          - services/audit
+          - services/compliance
+          - services/connector-registry
+          - services/control-plane
+          - services/dlp
+          - services/webhook-delivery
+          - tests/integration
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: "**/*.sum"
+
+      - name: Go lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=10m
+          working-directory: ${{ matrix.module }}
+
   # ─────────────────────────────────────────
   # 2. UNIT TESTS  (matrix, parallel, -short)
   # ─────────────────────────────────────────
   test:
     name: "Test / ${{ matrix.module }}"
     runs-on: ubuntu-latest
-    needs: lint
+    needs: [lint-others, lint-go]
     # lint is continue-on-error, so we check its result explicitly
     if: always()
     strategy:
@@ -128,7 +151,7 @@ jobs:
   web-build:
     name: "Build (frontend)"
     runs-on: ubuntu-latest
-    needs: lint
+    needs: lint-others
     if: always()              # runs alongside tests, not blocked by them
     steps:
       - uses: actions/checkout@v4
