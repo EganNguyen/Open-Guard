@@ -1,6 +1,9 @@
 variable "environment" { type = string }
 variable "domain_name" { type = string }
-variable "is_localstack" { type = bool; default = false }
+variable "is_localstack" {
+  type    = bool
+  default = false
+}
 
 # 1. IAM Execution Role for ECS (Pull images, write logs)
 resource "aws_iam_role" "ecs_execution_role" {

@@ -1,7 +1,10 @@
 variable "environment" { type = string }
 variable "vpc_id" { type = string }
 variable "private_subnets" { type = list(string) }
-variable "is_localstack" { type = bool; default = false }
+variable "is_localstack" {
+  type    = bool
+  default = false
+}
 
 # 1. Aurora PostgreSQL Serverless v2 (Main State Store)
 resource "aws_rds_cluster" "postgresql" {

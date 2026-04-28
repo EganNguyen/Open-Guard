@@ -1,7 +1,10 @@
 variable "vpc_cidr" { type = string }
 variable "environment" { type = string }
 variable "domain_name" { type = string }
-variable "is_localstack" { type = bool; default = false }
+variable "is_localstack" {
+  type    = bool
+  default = false
+}
 
 data "aws_availability_zones" "available" {
   state = "available"

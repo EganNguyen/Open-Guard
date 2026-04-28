@@ -2,7 +2,10 @@ variable "environment" { type = string }
 variable "vpc_id" { type = string }
 variable "public_subnets" { type = list(string) }
 variable "acm_certificate_arn" { type = string }
-variable "is_localstack" { type = bool; default = false }
+variable "is_localstack" {
+  type    = bool
+  default = false
+}
 
 # 1. Application Load Balancer
 resource "aws_lb" "main" {

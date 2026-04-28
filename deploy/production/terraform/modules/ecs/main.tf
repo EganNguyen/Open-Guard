@@ -5,7 +5,10 @@ variable "public_subnets" { type = list(string) }
 variable "execution_role_arn" { type = string }
 variable "discovery_namespace_id" { type = string }
 variable "image_tag" { type = string }
-variable "is_localstack" { type = bool; default = false }
+variable "is_localstack" {
+  type    = bool
+  default = false
+}
 
 # 1. ECS Cluster
 resource "aws_ecs_cluster" "main" {
