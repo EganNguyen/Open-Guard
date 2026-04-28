@@ -1,9 +1,0 @@
-# ngrok configuration for OpenGuard
-# Exposes the Dashboard (and path-based API) to the public internet
-version: "2"
-authtoken: YOUR_AUTHTOKEN_HERE # This will be overridden by CLI or environment
-tunnels:
-  openguard:
-    proto: http
-    addr: localhost:4200 # Dashboard local port
-    schemes: [https]

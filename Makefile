@@ -94,8 +94,8 @@ localstack-up: certs
 	-docker network create openguard-net
 	LOCALSTACK_AUTH_TOKEN=$(LOCALSTACK_AUTH_TOKEN) localstack start -d
 	@echo "Waiting for Data Tier Readiness..."
-	chmod +x deploy/localstack/scripts/wait-for-infra.sh
-	./deploy/localstack/scripts/wait-for-infra.sh
+	chmod +x infra/scripts/wait-for-infra.sh
+	./infra/scripts/wait-for-infra.sh
 	@echo "Waiting for LocalStack API..."
 	localstack wait -t 30
 	@echo "Connecting LocalStack to openguard-net..."
@@ -108,24 +108,24 @@ localstack-up: certs
 	-docker network connect openguard-net docker-clickhouse-1
 	@echo "Provisioning AWS Resources & Syncing Certs..."
 	export AWS_ACCESS_KEY_ID=test && export AWS_SECRET_ACCESS_KEY=test && export AWS_DEFAULT_REGION=us-east-1 && \
-	INFRA_MODE=localstack ./deploy/production/bootstrap.sh us-east-1 localstack
+	INFRA_MODE=localstack ./infra/environments/prod/bootstrap.sh us-east-1 localstack
 	export PATH=$$PATH:/Users/nguyenhoangtuan/Library/Python/3.9/bin && \
-	cd deploy/localstack/terraform && tflocal init && tflocal apply -auto-approve
+	cd infra/environments/prod && tflocal init && tflocal apply -auto-approve -var="is_localstack=true"
 	@echo "Deploying Full Stack via ECS Shim..."
-	chmod +x deploy/localstack/scripts/run-ecs-shim.sh
+	chmod +x infra/scripts/run-ecs-shim.sh
 	-docker rm -f $$(docker ps -aqf "name=openguard-")
-	./deploy/localstack/scripts/run-ecs-shim.sh iam openguard/iam:latest 8081
-	./deploy/localstack/scripts/run-ecs-shim.sh policy openguard/policy:latest 8082
-	./deploy/localstack/scripts/run-ecs-shim.sh audit openguard/audit:latest 8083
-	./deploy/localstack/scripts/run-ecs-shim.sh threat openguard/threat:latest 8084
-	./deploy/localstack/scripts/run-ecs-shim.sh alerting openguard/alerting:latest 8085
-	./deploy/localstack/scripts/run-ecs-shim.sh webhook openguard/webhook-delivery:latest 8086
-	./deploy/localstack/scripts/run-ecs-shim.sh compliance openguard/compliance:latest 8087
-	./deploy/localstack/scripts/run-ecs-shim.sh dlp openguard/dlp:latest 8088
-	./deploy/localstack/scripts/run-ecs-shim.sh registry openguard/connector-registry:latest 8089
-	./deploy/localstack/scripts/run-ecs-shim.sh control-plane openguard/control-plane:latest 8080
-	./deploy/localstack/scripts/run-ecs-shim.sh example-app openguard/example-app:latest 3005
-	./deploy/localstack/scripts/run-ecs-shim.sh dashboard openguard/dashboard:latest 4200
+	./infra/scripts/run-ecs-shim.sh iam openguard/iam:latest 8081
+	./infra/scripts/run-ecs-shim.sh policy openguard/policy:latest 8082
+	./infra/scripts/run-ecs-shim.sh audit openguard/audit:latest 8083
+	./infra/scripts/run-ecs-shim.sh threat openguard/threat:latest 8084
+	./infra/scripts/run-ecs-shim.sh alerting openguard/alerting:latest 8085
+	./infra/scripts/run-ecs-shim.sh webhook openguard/webhook-delivery:latest 8086
+	./infra/scripts/run-ecs-shim.sh compliance openguard/compliance:latest 8087
+	./infra/scripts/run-ecs-shim.sh dlp openguard/dlp:latest 8088
+	./infra/scripts/run-ecs-shim.sh registry openguard/connector-registry:latest 8089
+	./infra/scripts/run-ecs-shim.sh control-plane openguard/control-plane:latest 8080
+	./infra/scripts/run-ecs-shim.sh example-app openguard/example-app:latest 3005
+	./infra/scripts/run-ecs-shim.sh dashboard openguard/dashboard:latest 4200
 	@echo "Waiting for IAM service health..."
 	until [ "$$(docker inspect -f '{{.State.Health.Status}}' openguard-iam 2>/dev/null)" == "healthy" ] || [ "$$(docker inspect -f '{{.State.Running}}' openguard-iam 2>/dev/null)" == "true" ]; do \
 		echo "Waiting for openguard-iam to be running..."; \

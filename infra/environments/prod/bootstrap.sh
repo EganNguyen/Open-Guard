@@ -38,7 +38,7 @@ else
 fi
 
 # Ensure directory exists for localstack environment if it's dynamic
-mkdir -p "deploy/production/terraform/environments/$ENV"
+mkdir -p "infra/environments/$ENV"
 
 # 1. Create S3 Bucket for State
 aws $ENDPOINT_OPT s3api create-bucket --bucket "$BUCKET_NAME" --region "$REGION" $CREATE_BUCKET_CFG || true
@@ -53,7 +53,7 @@ aws $ENDPOINT_OPT dynamodb create-table \
     --region "$REGION" || true
 
 # 3. Create backend.tf
-cat <<EOF > "deploy/production/terraform/environments/$ENV/backend.tf"
+cat <<EOF > "infra/environments/$ENV/backend.tf"
 terraform {
   backend "s3" {
     bucket         = "$BUCKET_NAME"
@@ -69,7 +69,7 @@ terraform {
 }
 EOF
 
-echo "✅ Bootstrap complete. Backend configured in deploy/production/terraform/environments/$ENV/backend.tf"
+echo "✅ Bootstrap complete. Backend configured in infra/environments/$ENV/backend.tf"
 
 # 4. LocalStack Specific: Sync Certs to Secrets Manager if in LocalStack mode
 if [ "$INFRA_MODE" == "localstack" ]; then
