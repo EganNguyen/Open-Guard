@@ -12,6 +12,19 @@ resource "aws_ecs_cluster" "main" {
 }
 
 # 2. Microservice Task Definitions (Example: IAM)
+resource "aws_iam_role" "ecs_task_role" {
+  name = "openguard-${var.environment}-ecs-task-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+    }]
+  })
+}
+
 resource "aws_ecs_task_definition" "iam" {
   family                   = "iam"
   requires_compatibilities = ["FARGATE"]

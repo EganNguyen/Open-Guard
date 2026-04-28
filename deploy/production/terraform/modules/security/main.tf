@@ -87,3 +87,15 @@ output "ecr_repository_urls" {
   value = { for k, v in aws_ecr_repository.services : k => v.repository_url }
 }
 
+output "acm_certificate_arn" {
+  value = aws_acm_certificate.main.arn
+}
+
+output "ecs_execution_role_arn" {
+  value = aws_iam_role.ecs_execution_role.arn
+}
+
+output "kms_key_arn" {
+  value = aws_kms_key.main.arn
+}
+
