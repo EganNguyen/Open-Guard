@@ -5,13 +5,22 @@
       <h2 class="text-2xl font-bold text-[#172B4D]">Users</h2>
       <p class="text-[#6B778C]">Users grouped by their associated connector organization.</p>
     </div>
-    <button
-      (click)="openModal()"
-      class="bg-[#0052CC] hover:bg-[#0747A6] text-white px-4 py-2 rounded-md text-sm font-medium shadow-sm flex items-center transition-all"
-    >
-      <span class="material-symbols-outlined mr-2 text-lg">person_add</span>
-      Create User
-    </button>
+    <div class="flex items-center space-x-3">
+      <button
+        (click)="beginWebAuthnRegistration()"
+        class="bg-white border border-[#DFE1E6] hover:bg-[#F4F5F7] text-[#172B4D] px-4 py-2 rounded-md text-sm font-medium shadow-sm flex items-center transition-all"
+      >
+        <span class="material-symbols-outlined mr-2 text-lg">fingerprint</span>
+        Register Passkey
+      </button>
+      <button
+        (click)="openModal()"
+        class="bg-[#0052CC] hover:bg-[#0747A6] text-white px-4 py-2 rounded-md text-sm font-medium shadow-sm flex items-center transition-all"
+      >
+        <span class="material-symbols-outlined mr-2 text-lg">person_add</span>
+        Create User
+      </button>
+    </div>
   </div>
 
   @if (loading()) {

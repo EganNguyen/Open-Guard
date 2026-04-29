@@ -177,18 +177,22 @@ func main() {
 	})
 
 	mux.HandleFunc("/v1/events/stream", func(w http.ResponseWriter, r *http.Request) {
-		rateLimiter.Limit(authMiddleware(http.HandlerFunc(sseH.StreamEvents))).ServeHTTP(w, r)
+		middleware.DeprecationHeaders("Fri, 01 Jan 2027 00:00:00 GMT")(
+			rateLimiter.Limit(authMiddleware(http.HandlerFunc(sseH.StreamEvents))),
+		).ServeHTTP(w, r)
 	})
 	mux.HandleFunc("/v1/events", func(w http.ResponseWriter, r *http.Request) {
-		rateLimiter.Limit(authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			events, err := readRepo.FindEvents(r.Context(), nil, 50, 0)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{"events": events})
-		}))).ServeHTTP(w, r)
+		middleware.DeprecationHeaders("Fri, 01 Jan 2027 00:00:00 GMT")(
+			rateLimiter.Limit(authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				events, err := readRepo.FindEvents(r.Context(), nil, 50, 0)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"events": events})
+			}))),
+		).ServeHTTP(w, r)
 	})
 
 	var tlsConfig *tls.Config

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -251,4 +252,11 @@ func (r *Repository) GetPendingReports(ctx context.Context) ([]ComplianceReport,
 		reports = append(reports, report)
 	}
 	return reports, nil
+}
+
+func getEnvOrDefault(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
 }

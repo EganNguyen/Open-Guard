@@ -1,0 +1,5 @@
+phase: 9
+name: Documentation & Handover
+spec_files:
+  - ai-spec/be_open_guard/16-phase9-documentation-and-handover.md
+acceptance_criteria_file: ai-spec/be_open_guard/16-phase9-documentation-and-handover.md#acceptance-criteria

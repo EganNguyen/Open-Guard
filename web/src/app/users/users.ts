@@ -11,6 +11,7 @@ import { forkJoin, of, catchError, map } from 'rxjs';
 import { UserService, User } from '../core/services/user.service';
 import { ConnectorService } from '../core/services/connector.service';
 import { Connector } from '../core/models/connector.model';
+import { ApiService } from '../core/services/api.service';
 
 @Component({
   selector: 'app-users',
@@ -22,6 +23,7 @@ import { Connector } from '../core/models/connector.model';
 export class UsersComponent implements OnInit {
   private userService = inject(UserService);
   private connectorService = inject(ConnectorService);
+  private api = inject(ApiService);
   private fb = inject(FormBuilder);
 
   connectors = signal<Connector[]>([]);
@@ -129,5 +131,65 @@ export class UsersComponent implements OnInit {
     // However, I don't have a direct 'create' in UserService, I should add it.
     this.submitting.set(false);
     this.closeModal();
+  }
+
+  async beginWebAuthnRegistration() {
+    try {
+      const resp = await this.api.post<any>('/auth/webauthn/register/begin', {}).toPromise();
+      const opts = resp.options;
+      
+      // Need to convert Base64 URL strings to ArrayBuffers per WebAuthn standard
+      // (Assuming the backend returns standard JSON that needs conversion, typically handled by an interceptor or manual mapping, but we will pass it direct to navigator if it's already properly shaped, though navigator.credentials.create expects typed arrays).
+      // We will attempt creation directly assuming options are formatted or use a helper library if present.
+      
+      // Typical direct usage (simplified):
+      // In a real app we'd decode base64 to Uint8Array here.
+      // We are writing a minimal implementation to satisfy REC-16.
+      opts.publicKey.challenge = this.base64URLStringToBuffer(opts.publicKey.challenge);
+      opts.publicKey.user.id = this.base64URLStringToBuffer(opts.publicKey.user.id);
+      
+      const credential = await navigator.credentials.create({ publicKey: opts.publicKey }) as any;
+      
+      // Encode response back to Base64URL
+      const payload = {
+        id: credential.id,
+        rawId: this.bufferToBase64URLString(credential.rawId),
+        type: credential.type,
+        response: {
+          clientDataJSON: this.bufferToBase64URLString(credential.response.clientDataJSON),
+          attestationObject: this.bufferToBase64URLString(credential.response.attestationObject),
+        },
+      };
+
+      await this.api.post(`/auth/webauthn/register/finish?session_id=${resp.session_id}`, payload).toPromise();
+      alert('Passkey registered successfully!');
+    } catch (err) {
+      console.error('WebAuthn registration failed', err);
+      alert('Failed to register Passkey. Please try again.');
+    }
+  }
+
+  // Helpers for WebAuthn Base64URL conversion
+  private base64URLStringToBuffer(base64URLString: string): ArrayBuffer {
+    const base64 = base64URLString.replace(/-/g, '+').replace(/_/g, '/');
+    const padLen = (4 - (base64.length % 4)) % 4;
+    const padded = base64.padEnd(base64.length + padLen, '=');
+    const binary = window.atob(padded);
+    const buffer = new ArrayBuffer(binary.length);
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return buffer;
+  }
+
+  private bufferToBase64URLString(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let str = '';
+    for (const charCode of bytes) {
+      str += String.fromCharCode(charCode);
+    }
+    const base64String = window.btoa(str);
+    return base64String.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
   }
 }

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openguard/services/webhook-delivery/pkg/repository"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -24,11 +25,11 @@ type Deliverer interface {
 type BackoffFunc func(attempt int) time.Duration
 
 type WebhookConsumer struct {
-	reader     KafkaReader
+	reader     *kafka.Reader
 	deliverer  Deliverer
 	publisher  KafkaPublisher
+	repository *repository.Repository
 	logger     *slog.Logger
-	getBackoff BackoffFunc
 }
 
 func DefaultBackoff(i int) time.Duration {
@@ -40,13 +41,15 @@ type KafkaPublisher interface {
 }
 
 type WebhookDeliveryRequest struct {
-	Target  string `json:"target"`
-	Payload string `json:"payload"`
-	Secret  string `json:"secret"`
-	OrgID   string `json:"org_id"`
+	Target      string `json:"target"`
+	Payload     string `json:"payload"`
+	Secret      string `json:"secret"`
+	OrgID       string `json:"org_id"`
+	EventID     string `json:"event_id"`
+	ConnectorID string `json:"connector_id"`
 }
 
-func NewWebhookConsumer(brokers string, groupID string, topic string, d Deliverer, pub KafkaPublisher, logger *slog.Logger) *WebhookConsumer {
+func NewWebhookConsumer(brokers string, groupID string, topic string, d Deliverer, pub KafkaPublisher, repo *repository.Repository, logger *slog.Logger) *WebhookConsumer {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        strings.Split(brokers, ","),
 		GroupID:        groupID,
@@ -58,8 +61,8 @@ func NewWebhookConsumer(brokers string, groupID string, topic string, d Delivere
 		reader:     r,
 		deliverer:  d,
 		publisher:  pub,
+		repository: repo,
 		logger:     logger,
-		getBackoff: DefaultBackoff,
 	}
 }
 
@@ -107,19 +110,46 @@ func (c *WebhookConsumer) processMessage(ctx context.Context, m kafka.Message) e
 		return nil
 	}
 
+	deliveryID := ""
+	if c.repository != nil {
+		d := &repository.WebhookDelivery{
+			OrgID:       req.OrgID,
+			ConnectorID: req.ConnectorID,
+			EventID:     req.EventID,
+			TargetURL:   req.Target,
+			Payload:     json.RawMessage(req.Payload),
+			Status:      "pending",
+		}
+		id, err := c.repository.Create(ctx, d)
+		if err != nil {
+			c.logger.Error("failed to persist initial webhook delivery", "error", err)
+		} else {
+			deliveryID = id
+		}
+	}
+
 	// Retry loop
 	var lastErr error
 	for i := 0; i < 5; i++ {
 		err := c.deliverer.Deliver(ctx, string(m.Key), req.Target, req.Payload, req.Secret)
 		if err == nil {
 			c.logger.Info("webhook delivered", "target", req.Target, "org_id", req.OrgID)
+			if c.repository != nil && deliveryID != "" {
+				c.repository.Update(ctx, deliveryID, i+1, "delivered", "", nil)
+			}
 			return nil
 		}
 		lastErr = err
 		c.logger.Warn("webhook delivery attempt failed", "attempt", i+1, "target", req.Target, "error", err)
 
+		backoff := DefaultBackoff(i)
+
+		if c.repository != nil && deliveryID != "" {
+			nextRetry := time.Now().Add(backoff)
+			c.repository.Update(ctx, deliveryID, i+1, "failed", err.Error(), &nextRetry)
+		}
+
 		// Backoff: 1s, 2s, 4s, 8s, 16s (context-aware)
-		backoff := c.getBackoff(i)
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -129,6 +159,11 @@ func (c *WebhookConsumer) processMessage(ctx context.Context, m kafka.Message) e
 
 	// Final failure -> DLQ
 	c.logger.Error("webhook delivery failed after 5 attempts, routing to DLQ", "target", req.Target, "error", lastErr)
+
+	if c.repository != nil && deliveryID != "" {
+		c.repository.Update(ctx, deliveryID, 5, "dlq", lastErr.Error(), nil)
+	}
+
 	dlqPayload, _ := json.Marshal(map[string]interface{}{
 		"request":   req,
 		"error":     lastErr.Error(),

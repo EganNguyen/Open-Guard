@@ -19,7 +19,9 @@ func NewRouter() *mux.Router {
 	}).Methods("GET")
 
 	// Placeholder for delivery history/stats if needed
-	r.HandleFunc("/v1/webhook/deliveries", func(w http.ResponseWriter, r *http.Request) {
+	v1 := r.PathPrefix("/v1").Subrouter()
+	v1.Use(middleware.DeprecationHeaders("Fri, 01 Jan 2027 00:00:00 GMT"))
+	v1.HandleFunc("/webhook/deliveries", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte("[]"))
 	}).Methods("GET")

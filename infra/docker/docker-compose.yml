@@ -420,10 +420,12 @@ services:
     ports: ["8087:8080"]
     depends_on:
       kafka-init: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
     volumes:
       - ../certs:/certs:ro
     environment:
       - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
+      - DATABASE_URL=${WEBHOOK_DATABASE_URL:?WEBHOOK_DATABASE_URL is required}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:8080/health"]
       interval: 5s

@@ -1,0 +1,5 @@
+phase: 8
+name: Load Testing & Reliability
+spec_files:
+  - ai-spec/be_open_guard/15-phase8-load-testing-and-reliability.md
+acceptance_criteria_file: ai-spec/be_open_guard/15-phase8-load-testing-and-reliability.md#acceptance-criteria

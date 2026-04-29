@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/otel"
 )
 
 // Publisher implements the Outbox.KafkaPublisher interface using segmentio/kafka-go.
@@ -31,14 +32,48 @@ func NewPublisher(brokers []string) *Publisher {
 	}
 }
 
+// kafkaHeaderCarrier adapts kafka.Header array to the TextMapCarrier interface
+type kafkaHeaderCarrier struct {
+	headers *[]kafka.Header
+}
+
+func (c kafkaHeaderCarrier) Get(key string) string {
+	for _, h := range *c.headers {
+		if h.Key == key {
+			return string(h.Value)
+		}
+	}
+	return ""
+}
+
+func (c kafkaHeaderCarrier) Set(key string, value string) {
+	*c.headers = append(*c.headers, kafka.Header{
+		Key:   key,
+		Value: []byte(value),
+	})
+}
+
+func (c kafkaHeaderCarrier) Keys() []string {
+	keys := make([]string, 0, len(*c.headers))
+	for _, h := range *c.headers {
+		keys = append(keys, h.Key)
+	}
+	return keys
+}
+
 // Publish sends a message to a specific topic.
 // The call blocks until the broker acknowledges receipt from all ISR replicas.
 func (p *Publisher) Publish(ctx context.Context, topic, key string, payload []byte) error {
-	err := p.writer.WriteMessages(ctx, kafka.Message{
+	msg := kafka.Message{
 		Topic: topic,
 		Key:   []byte(key),
 		Value: payload,
-	})
+	}
+
+	// Propagate trace context
+	otel.GetTextMapPropagator().Inject(ctx, kafkaHeaderCarrier{headers: &msg.Headers})
+
+	err := p.writer.WriteMessages(ctx, msg)
 	if err != nil {
 		return fmt.Errorf("kafka publish: %w", err)
 	}

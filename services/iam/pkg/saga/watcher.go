@@ -9,6 +9,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// @AI-INTENT: [Pattern: Saga Deadline Watcher]
+// [Rationale: The saga watcher polls Redis ZSET for expired provisioning timeouts.
+// A distributed consumer group (openguard-saga-v1) is simulated via atomic ZPOPMIN
+// or similar locking, polling every 10s. This decouples the IAM service from temporal
+// workflow engines like Temporal, reducing infrastructure footprint while maintaining
+// reliable timeout compensation (saga abort).]
 type Watcher struct {
 	rdb       *redis.Client
 	publisher interface {

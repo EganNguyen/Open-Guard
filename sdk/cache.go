@@ -10,6 +10,10 @@ type cacheEntry struct {
 	expiresAt time.Time
 }
 
+// @AI-INTENT: [Pattern: Stale-While-Unavailable Local Cache]
+// [Rationale: The control plane SLA is 99.99%, but networks fail. The SDK enforces policy
+// locally during outages. By keeping expired entries for a 60-second grace period (stale-while-unavailable),
+// the SDK can return a cached policy decision if the control plane request fails, preserving availability.]
 type localCache struct {
 	mu   sync.RWMutex
 	data map[string]cacheEntry

@@ -93,6 +93,8 @@ func NewRouter() *chi.Mux {
 	auditURL := envOrDefault("AUDIT_URL", "http://audit:8080")
 
 	r.Route("/v1", func(r chi.Router) {
+		r.Use(sharedmiddleware.DeprecationHeaders("Fri, 01 Jan 2027 00:00:00 GMT"))
+		
 		// Policy evaluation — proxied to policy service at /v1/policy/evaluate (path match fixed)
 		r.Post("/policy/evaluate", proxy.NewProxy(policyURL, cbPolicy))
 

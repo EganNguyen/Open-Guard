@@ -11,8 +11,10 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/openguard/services/webhook-delivery/pkg/consumer"
 	"github.com/openguard/services/webhook-delivery/pkg/deliverer"
+	"github.com/openguard/services/webhook-delivery/pkg/repository"
 	"github.com/openguard/services/webhook-delivery/pkg/router"
 	"github.com/openguard/services/webhook-delivery/pkg/telemetry"
 	"github.com/openguard/shared/kafka"
@@ -43,6 +45,22 @@ func main() {
 	publisher := kafka.NewPublisher(kafkaBrokers)
 	defer publisher.Close()
 
+	// Initialize DB
+	dbURL := os.Getenv("DATABASE_URL")
+	var repo *repository.Repository
+	if dbURL != "" {
+		pool, err := pgxpool.New(context.Background(), dbURL)
+		if err != nil {
+			logger.Error("failed to connect to database", "error", err)
+			os.Exit(1)
+		}
+		defer pool.Close()
+		repo = repository.NewRepository(pool)
+		logger.Info("connected to database")
+	} else {
+		logger.Warn("DATABASE_URL not set, webhook delivery state will not be persisted")
+	}
+
 	// 2. Initialize Deliverer
 	d := deliverer.NewDeliverer(logger)
 
@@ -53,6 +71,7 @@ func main() {
 		"webhook.delivery",
 		d,
 		publisher,
+		repo,
 		logger,
 	)
 	go func() {
