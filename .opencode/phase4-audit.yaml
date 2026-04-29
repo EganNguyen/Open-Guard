@@ -1,0 +1,6 @@
+phase: 4
+name: Event Bus & Audit Trail
+spec_files:
+  - ai-spec/be_open_guard/11-phase4-event-bus-and-audit.md
+  - ai-spec/fe_open_guard/07-audit-log-viewer.md
+acceptance_criteria_file: ai-spec/be_open_guard/11-phase4-event-bus-and-audit.md#acceptance-criteria

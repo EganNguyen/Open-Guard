@@ -1,0 +1,6 @@
+phase: 2
+name: Foundation & Authentication
+spec_files:
+  - ai-spec/be_open_guard/09-phase2-foundation-and-auth.md
+  - ai-spec/fe_open_guard/03-auth-and-session.md
+acceptance_criteria_file: ai-spec/be_open_guard/09-phase2-foundation-and-auth.md#acceptance-criteria

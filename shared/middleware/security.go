@@ -130,3 +130,17 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// DeprecationHeaders adds Deprecation and Sunset headers to signal API retirement.
+// It is used for versioning (e.g. marking /v1/ endpoints as deprecated).
+func DeprecationHeaders(sunsetDate string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Deprecation", "true")
+			if sunsetDate != "" {
+				w.Header().Set("Sunset", sunsetDate)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

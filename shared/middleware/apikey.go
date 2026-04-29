@@ -62,6 +62,11 @@ func APIKeyAuth(expectedKey string) func(http.Handler) http.Handler {
 	}
 }
 
+// @AI-INTENT: [Pattern: Fast-Hash Prefix API Key Authentication]
+// [Rationale: PBKDF2 verify takes ~400ms. At 20,000 req/s, we cannot PBKDF2 on every
+// request. The prefix is public (SHA-256 hashed in Redis). Full PBKDF2 runs only on cache
+// miss (~once per 30s per key). This sustains 20,000 req/s event ingest per §1.2.]
+// [Trade-off: Cache miss triggers 400ms PBKDF2 + DB lookup. Accept this for cache-miss rarity.]
 // APIKeyAuthComplex is a middleware that authenticates connector requests using the
 // fast-hash prefix → Redis → PBKDF2 fallback chain per spec §2.6.
 func APIKeyAuthComplex(lookup APIKeyLookup) func(http.Handler) http.Handler {

@@ -2,12 +2,15 @@ package outbox
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // KafkaPublisher defines the interface for publishing to Kafka.
@@ -174,7 +177,22 @@ func (r *Relay) drain(ctx context.Context) {
 	r.logger.Debug("draining outbox records", "count", len(records))
 
 	for _, rec := range records {
-		if err := r.publisher.Publish(ctx, rec.topic, rec.key, rec.payload); err != nil {
+		var traceCtx context.Context = ctx
+		
+		// Attempt to extract W3C trace context from the payload envelope
+		var envelope struct {
+			Traceparent string `json:"traceparent"`
+			Tracestate  string `json:"tracestate"`
+		}
+		if err := json.Unmarshal(rec.payload, &envelope); err == nil && envelope.Traceparent != "" {
+			carrier := propagation.MapCarrier{
+				"traceparent": envelope.Traceparent,
+				"tracestate":  envelope.Tracestate,
+			}
+			traceCtx = otel.GetTextMapPropagator().Extract(ctx, carrier)
+		}
+
+		if err := r.publisher.Publish(traceCtx, rec.topic, rec.key, rec.payload); err != nil {
 			r.logger.Error("failed to publish to kafka", "id", rec.id, "attempts", rec.attempts+1, "error", err)
 
 			newAttempts := rec.attempts + 1

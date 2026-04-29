@@ -66,6 +66,16 @@ load-test:
 test-integration:
 	go test -v ./tests/integration/...
 
+check-phase-2:
+	@echo "Checking Phase 2 acceptance criteria..."
+	go test ./services/iam/... -run "TestPhase2"
+	go test ./tests/integration/... -run "TestSCIM|TestWebAuthn|TestOIDC"
+
+check-phase-5:
+	@echo "Checking Phase 5 acceptance criteria..."
+	go test ./services/threat/... -run "TestBrute|TestImpossibleTravel"
+	go test ./services/alerting/... -run "TestAlertSaga"
+
 ai-check:
 	./scripts/ai-check.sh
 

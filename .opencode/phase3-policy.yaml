@@ -1,0 +1,6 @@
+phase: 3
+name: Policy Engine
+spec_files:
+  - ai-spec/be_open_guard/10-phase3-policy-engine.md
+  - ai-spec/fe_open_guard/06-policy-management.md
+acceptance_criteria_file: ai-spec/be_open_guard/10-phase3-policy-engine.md#acceptance-criteria

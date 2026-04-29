@@ -1,0 +1,5 @@
+phase: 1
+name: Infra, CI & Observability
+spec_files:
+  - ai-spec/be_open_guard/08-phase1-infra-ci-observability.md
+acceptance_criteria_file: ai-spec/be_open_guard/08-phase1-infra-ci-observability.md#acceptance-criteria

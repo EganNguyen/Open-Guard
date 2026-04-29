@@ -36,6 +36,9 @@ func NewRouter(h *handlers.AlertHandler, keyring []crypto.JWTKey, rdb *redis.Cli
 
 	v1 := r.PathPrefix("/v1/threats").Subrouter()
 
+	// Apply deprecation headers to v1 routes
+	v1.Use(middleware.DeprecationHeaders("Fri, 01 Jan 2027 00:00:00 GMT"))
+
 	// Apply JWT authentication with blocklist to all v1 routes
 	v1.Use(middleware.AuthJWTWithBlocklist(keyring, rdb, breaker))
 

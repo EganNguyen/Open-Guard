@@ -29,6 +29,7 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) 
 	}, nil)
 
 	r.Route("/v1/threats", func(r chi.Router) {
+		r.Use(shared_middleware.DeprecationHeaders("Fri, 01 Jan 2027 00:00:00 GMT"))
 		r.Use(shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker))
 		r.Get("/alerts", h.ListAlerts)
 		r.Get("/alerts/{id}", h.GetAlert)

@@ -34,6 +34,7 @@ func NewRouter(h *handlers.DLPHandler, keyring []crypto.JWTKey, rdb *redis.Clien
 	}, nil) // Default logger
 
 	v1 := r.PathPrefix("/v1/dlp").Subrouter()
+	v1.Use(middleware.DeprecationHeaders("Fri, 01 Jan 2027 00:00:00 GMT"))
 	v1.Use(middleware.AuthJWTWithBlocklist(keyring, rdb, breaker))
 
 	v1.HandleFunc("/scan", h.Scan).Methods("POST")
