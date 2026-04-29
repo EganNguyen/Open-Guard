@@ -67,7 +67,11 @@ jobs:
             go_changed="true"
           fi
 
-          unique=$(printf "%s\n" "${modules[@]}" | sort -u | jq -R . | jq -s -c .)
+          if [ ${#modules[@]} -eq 0 ]; then
+            unique="[]"
+          else
+            unique=$(printf "%s\n" "${modules[@]}" | sort -u | jq -R . | jq -s -c .)
+          fi
           echo "modules=$unique" >> $GITHUB_OUTPUT
           echo "infra_changed=$infra_changed" >> $GITHUB_OUTPUT
           echo "go_changed=$go_changed" >> $GITHUB_OUTPUT
@@ -124,10 +128,8 @@ jobs:
           go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
           ROOT=$(pwd)
           echo "::group::Linting ${{ matrix.module }}"
-          cd ${{ matrix.module }}
-          go mod tidy
-          go list ./... || exit 0
-          golangci-lint run --out-format json ./... > mod_report.json || true
+          go list ./${{ matrix.module }}/... || exit 0
+          golangci-lint run --out-format json ./${{ matrix.module }}/... > mod_report.json || true
           
           if [ -f "$ROOT/.golangci-baseline.json" ]; then
              jq -r '.Issues[] | "\(.FromLinter):\(.Pos.Filename):\(.Pos.Line):\(.Text)"' mod_report.json | sort > current.txt
@@ -184,8 +186,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cd ${{ matrix.module }}
-          go test -race -short ./...
+          go test -race -short ./${{ matrix.module }}/...
 
   # ─────────────────────────────────────────
   # 3. BACKEND BUILD
