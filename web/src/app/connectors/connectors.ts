@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, inject } from '@angular/core';
+import { Component, OnInit, signal, inject, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   FormsModule,
@@ -25,6 +25,19 @@ export class ConnectorsComponent {
   private fb = inject(FormBuilder);
 
   private refresh$ = new Subject<void>();
+
+  @HostListener('window:beforeunload', ['$event'])
+  onBeforeUnload(event: BeforeUnloadEvent): string | undefined {
+    // GAP-SEC-04.4: Warn if user navigates away with unacknowledged API key
+    if (this.registrationResult() && !this.keyAcknowledged()) {
+      event.preventDefault();
+      return (event.returnValue =
+        'You have an unacknowledged API key. Are you sure you want to leave?');
+    }
+    return undefined;
+  }
+
+  keyAcknowledged = signal(false);
 
   connectors$ = this.refresh$.pipe(
     startWith(undefined),

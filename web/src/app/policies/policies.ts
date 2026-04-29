@@ -49,6 +49,7 @@ export class PoliciesComponent implements OnInit {
   // Confirm Dialog state
   showConfirm = signal(false);
   policyToDelete = signal<Policy | null>(null);
+  conflictError = signal<string | null>(null);
 
   policyForm: FormGroup = this.fb.group({
     name: ['', Validators.required],
@@ -172,9 +173,18 @@ export class PoliciesComponent implements OnInit {
       this.policyService.updatePolicy(this.editingId()!, policyData).subscribe({
         next: () => {
           this.showModal.set(false);
+          this.conflictError.set(null);
           this.loadPolicies();
         },
-        error: (err) => console.error('Update failed', err),
+        error: (err) => {
+          if (err.status === 412) {
+            this.conflictError.set(
+              'This policy was modified by someone else. Reload to see the latest version.'
+            );
+          } else {
+            console.error('Update failed', err);
+          }
+        },
       });
     } else {
       this.policyService.createPolicy(policyData).subscribe({
