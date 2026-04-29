@@ -56,16 +56,6 @@ func TxSetSessionVar(ctx context.Context, tx pgx.Tx, orgID string) error {
 	}()
 
 	_, err := tx.Exec(ctx, "SELECT set_config('app.org_id', $1, true)", orgID)
-	return err
-}
-
-	return nil
-}
-
-// TxSetSessionVar sets the app.org_id session variable in the PostgreSQL transaction.
-// This is used by Row-Level Security policies.
-func TxSetSessionVar(ctx context.Context, tx pgx.Tx, orgID string) error {
-	_, err := tx.Exec(ctx, "SELECT set_config('app.org_id', $1, true)", orgID)
 	if err != nil {
 		return fmt.Errorf("set rls session var in tx: %w", err)
 	}
