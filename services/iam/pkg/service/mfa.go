@@ -1,0 +1,346 @@
+package service
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/google/uuid"
+	"github.com/openguard/shared/crypto"
+	"github.com/openguard/shared/resilience"
+	"github.com/pquerna/otp/totp"
+)
+
+type WebAuthnUser struct {
+	id          []byte
+	displayName string
+	name        string
+	credentials []webauthn.Credential
+}
+
+func (u *WebAuthnUser) WebAuthnID() []byte                         { return u.id }
+func (u *WebAuthnUser) WebAuthnName() string                       { return u.name }
+func (u *WebAuthnUser) WebAuthnDisplayName() string                { return u.displayName }
+func (u *WebAuthnUser) WebAuthnIcon() string                       { return "" }
+func (u *WebAuthnUser) WebAuthnCredentials() []webauthn.Credential { return u.credentials }
+
+func (s *Service) BeginWebAuthnRegistration(ctx context.Context, userID string) (string, *webauthn.SessionData, *protocol.CredentialCreation, error) {
+	if s.webauthn == nil {
+		return "", nil, nil, fmt.Errorf("webauthn not configured")
+	}
+
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	wUser := &WebAuthnUser{
+		id:          []byte(userID),
+		displayName: user["display_name"].(string),
+		name:        user["email"].(string),
+	}
+
+	options, session, err := s.webauthn.BeginRegistration(wUser)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	sessionID := uuid.New().String()
+	sessionKey := fmt.Sprintf("webauthn:reg:%s:%s", userID, sessionID)
+	sessionJSON, _ := json.Marshal(session)
+	if err := s.rdb.Set(ctx, sessionKey, sessionJSON, 5*time.Minute).Err(); err != nil {
+		return "", nil, nil, err
+	}
+
+	return sessionID, session, options, nil
+}
+
+func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID, sessionID string, response *http.Request) error {
+	if s.webauthn == nil {
+		return fmt.Errorf("webauthn not configured")
+	}
+
+	sessionKey := fmt.Sprintf("webauthn:reg:%s:%s", userID, sessionID)
+	val, err := s.rdb.GetDel(ctx, sessionKey).Result()
+	if err != nil {
+		return fmt.Errorf("registration session expired or invalid")
+	}
+	var session webauthn.SessionData
+	json.Unmarshal([]byte(val), &session)
+
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	wUser := &WebAuthnUser{
+		id:          []byte(userID),
+		displayName: user["display_name"].(string),
+		name:        user["email"].(string),
+	}
+
+	credential, err := s.webauthn.FinishRegistration(wUser, session, response)
+	if err != nil {
+		return err
+	}
+
+	credMap := map[string]interface{}{
+		"id":               hex.EncodeToString(credential.ID),
+		"public_key":       hex.EncodeToString(credential.PublicKey),
+		"attestation_type": credential.AttestationType,
+		"sign_count":       credential.Authenticator.SignCount,
+	}
+
+	if err := s.repo.SaveWebAuthnCredential(ctx, orgID, userID, credMap); err != nil {
+		return err
+	}
+
+	s.rdb.Del(ctx, "webauthn:reg:"+userID)
+	return nil
+}
+
+func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (string, *webauthn.SessionData, *protocol.CredentialAssertion, error) {
+	if s.webauthn == nil {
+		return "", nil, nil, fmt.Errorf("webauthn not configured")
+	}
+
+	user, err := s.repo.GetUserByEmail(ctx, email)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	userID := user["id"].(string)
+	credentials, _ := s.repo.ListWebAuthnCredentials(ctx, userID)
+
+	wUser := &WebAuthnUser{
+		id:          []byte(userID),
+		displayName: user["display_name"].(string),
+		name:        user["email"].(string),
+	}
+
+	for _, c := range credentials {
+		id, _ := hex.DecodeString(c["credential_id"].(string))
+		pubKey, _ := hex.DecodeString(c["public_key"].(string))
+		wUser.credentials = append(wUser.credentials, webauthn.Credential{
+			ID:        id,
+			PublicKey: pubKey,
+			Authenticator: webauthn.Authenticator{
+				SignCount: uint32(c["sign_count"].(int32)),
+			},
+		})
+	}
+
+	options, session, err := s.webauthn.BeginLogin(wUser)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	sessionID := uuid.New().String()
+	sessionKey := fmt.Sprintf("webauthn:login:%s:%s", userID, sessionID)
+	sessionJSON, _ := json.Marshal(session)
+	if err := s.rdb.Set(ctx, sessionKey, sessionJSON, 5*time.Minute).Err(); err != nil {
+		return "", nil, nil, err
+	}
+
+	return sessionID, session, options, nil
+}
+
+func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID string, userAgent, ip string, response *http.Request) (map[string]interface{}, string, error) {
+	if s.webauthn == nil {
+		return nil, "", fmt.Errorf("webauthn not configured")
+	}
+
+	user, err := s.repo.GetUserByEmail(ctx, email)
+	if err != nil {
+		return nil, "", err
+	}
+
+	userID := user["id"].(string)
+	sessionKey := fmt.Sprintf("webauthn:login:%s:%s", userID, sessionID)
+	val, err := s.rdb.GetDel(ctx, sessionKey).Result()
+	if err != nil {
+		return nil, "", fmt.Errorf("login session expired or invalid")
+	}
+	var session webauthn.SessionData
+	json.Unmarshal([]byte(val), &session)
+
+	credentials, _ := s.repo.ListWebAuthnCredentials(ctx, userID)
+	wUser := &WebAuthnUser{
+		id:          []byte(userID),
+		displayName: user["display_name"].(string),
+		name:        user["email"].(string),
+	}
+	for _, c := range credentials {
+		id, _ := hex.DecodeString(c["credential_id"].(string))
+		pubKey, _ := hex.DecodeString(c["public_key"].(string))
+		wUser.credentials = append(wUser.credentials, webauthn.Credential{
+			ID:        id,
+			PublicKey: pubKey,
+			Authenticator: webauthn.Authenticator{
+				SignCount: uint32(c["sign_count"].(int32)),
+			},
+		})
+	}
+
+	_, err = s.webauthn.FinishLogin(wUser, session, response)
+	if err != nil {
+		return nil, "", err
+	}
+
+	s.rdb.Del(ctx, "webauthn:login:"+userID)
+
+	res, err := s.IssueTokens(ctx, user["org_id"].(string), userID, userAgent, ip, uuid.New())
+	if err != nil {
+		return nil, "", err
+	}
+
+	return user, res["access_token"].(string), nil
+}
+
+func (s *Service) GenerateTOTPSetup(ctx context.Context, userID, email string) (string, string, error) {
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "OpenGuard",
+		AccountName: email,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return key.Secret(), key.URL(), nil
+}
+
+func (s *Service) EnableTOTP(ctx context.Context, orgID, userID, code, secret string) ([]string, error) {
+	if !totp.Validate(code, secret) {
+		return nil, fmt.Errorf("invalid totp code")
+	}
+
+	encrypted, err := crypto.Encrypt([]byte(secret), s.aesKeyring)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt secret: %w", err)
+	}
+
+	if err := s.repo.UpsertMFAConfig(ctx, orgID, userID, "totp", encrypted); err != nil {
+		return nil, err
+	}
+
+	if err := s.repo.EnableUserMFA(ctx, userID, true, "totp"); err != nil {
+		return nil, err
+	}
+
+	return s.GenerateBackupCodes(ctx, orgID, userID)
+}
+
+func (s *Service) GenerateBackupCodes(ctx context.Context, orgID, userID string) ([]string, error) {
+	secret := os.Getenv("IAM_MFA_BACKUP_CODE_HMAC_SECRET")
+	if secret == "" {
+		secret = "dev-backup-code-secret-fixed-value-for-dev"
+	}
+	codes := make([]string, 8)
+	hashes := make([]string, 8)
+	for i := range codes {
+		raw := crypto.GenerateRandomString(8)
+		codes[i] = raw
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write([]byte(raw))
+		hashes[i] = hex.EncodeToString(mac.Sum(nil))
+	}
+	if err := s.repo.StoreBackupCodes(ctx, userID, hashes); err != nil {
+		return nil, err
+	}
+	return codes, nil
+}
+
+func (s *Service) VerifyBackupCode(ctx context.Context, userID, code string) (bool, error) {
+	secret := os.Getenv("IAM_MFA_BACKUP_CODE_HMAC_SECRET")
+	if secret == "" {
+		secret = "dev-backup-code-secret-fixed-value-for-dev"
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(code))
+	codeHash := hex.EncodeToString(mac.Sum(nil))
+	return s.repo.ConsumeBackupCode(ctx, userID, codeHash)
+}
+
+func (s *Service) VerifyTOTP(ctx context.Context, userID, code string) (bool, error) {
+	nonceKey := fmt.Sprintf("totp:used:%s:%s", userID, code)
+	set, err := s.rdb.SetNX(ctx, nonceKey, "1", 90*time.Second).Result()
+	if err != nil {
+		return false, err
+	}
+	if !set {
+		return false, fmt.Errorf("totp code already used")
+	}
+
+	config, err := s.repo.GetMFAConfig(ctx, userID, "totp")
+	if err != nil {
+		return false, err
+	}
+
+	secretBytes, err := crypto.Decrypt(config["secret_encrypted"].(string), s.aesKeyring)
+	if err != nil {
+		return false, fmt.Errorf("decrypt secret: %w", err)
+	}
+
+	return totp.Validate(code, string(secretBytes)), nil
+}
+
+func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (map[string]interface{}, string, error) {
+	res, err := resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
+		return s.rdb.GetDel(ctx, "mfa_challenge:"+challengeToken).Result()
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid or expired challenge")
+	}
+	userID := res.(string)
+
+	ok, err := s.VerifyTOTP(ctx, userID, code)
+	if err != nil || !ok {
+		return nil, "", fmt.Errorf("invalid mfa code")
+	}
+
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	resToken, err := s.IssueTokens(ctx, user["org_id"].(string), user["id"].(string), userAgent, ip, uuid.New())
+	if err != nil {
+		return nil, "", err
+	}
+
+	return user, resToken["access_token"].(string), nil
+}
+
+func (s *Service) VerifyBackupCodeAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (map[string]interface{}, string, error) {
+	res, err := resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
+		return s.rdb.GetDel(ctx, "mfa_challenge:"+challengeToken).Result()
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid or expired challenge")
+	}
+	userID := res.(string)
+
+	ok, err := s.VerifyBackupCode(ctx, userID, code)
+	if err != nil || !ok {
+		return nil, "", fmt.Errorf("invalid backup code")
+	}
+
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	resToken, err := s.IssueTokens(ctx, user["org_id"].(string), user["id"].(string), userAgent, ip, uuid.New())
+	if err != nil {
+		return nil, "", err
+	}
+
+	return user, resToken["access_token"].(string), nil
+}
