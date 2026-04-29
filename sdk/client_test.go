@@ -85,7 +85,7 @@ func TestClient_Allow_StaleGracePeriod(t *testing.T) {
 
 	// Pre-seed cache with an expired entry but within 60s grace
 	c.cache.mu.Lock()
-	c.cache.data["user-1:read:file-1"] = cacheEntry{
+	c.cache.data[":user-1:read:file-1"] = cacheEntry{
 		value:     true,
 		expiresAt: time.Now().Add(-1 * time.Second), // Expired 1s ago
 	}
@@ -98,7 +98,7 @@ func TestClient_Allow_StaleGracePeriod(t *testing.T) {
 
 	// Move entry beyond grace period
 	c.cache.mu.Lock()
-	c.cache.data["user-1:read:file-1"] = cacheEntry{
+	c.cache.data[":user-1:read:file-1"] = cacheEntry{
 		value:     true,
 		expiresAt: time.Now().Add(-61 * time.Second), // Expired 61s ago
 	}
