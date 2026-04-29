@@ -16,6 +16,13 @@ Structured phase definitions for automated guidance:
 - [.opencode/phase7-security.yaml](.opencode/phase7-security.yaml)
 - [.opencode/phase10-dlp.yaml](.opencode/phase10-dlp.yaml)
 
+## Git Workflow
+- Always create a new branch for any task
+- Always use git worktree to create a separate working directory
+- Never modify the main branch directly
+- All changes must be committed in the new branch
+- Work must be ready for merge into main via pull request
+
 ## High-Signal Context
 Open-Guard is a high-performance security control plane using a "beside, not in front" architecture.
 - **Backend:** Go 1.22+ (using `go.work` workspace). Microservices communicate via **mTLS**.
@@ -42,13 +49,29 @@ Open-Guard is a high-performance security control plane using a "beside, not in 
 - **State:** Prefer Signals (`signal`, `computed`) over `BehaviorSubject` for component state.
 - **API:** Use `ThreatService` for alert data. Charts should use `viewChild<ElementRef<HTMLCanvasElement>>` and initialize in `ngAfterViewInit`.
 
-## Verification Steps
-1. **Lint:** `golangci-lint run ./...` (Go) and `npx prettier --check .`
-2. **AI-Audit:** `make ai-check` (Ensures architectural discipline).
-3. **Build:** `go build ./...`
-4. **Test:** `go test -race ./...` (Unit) and `make test-acceptance` (System).
-5. **Visualize:** `make visualize` (Update the system map if topology changed).
-6. **Closing the Loop:** After every job, use `make remember` to ingest learnings into the Experience Ledger.
+## Verification & Merge Rules
+**CRITICAL:** Every Pull Request **MUST** be verified locally by the agent before being merged to `main`. The local verification suite is the authoritative "Gold Standard" and includes checks not present in the remote GitHub Actions pipeline.
+
+### Mandatory Pre-Merge Steps
+The following steps must pass in your local environment (or worktree) before you are permitted to merge a PR:
+
+1. **Build All Modules:** `make build`
+   - Ensures zero compilation errors across the Go workspace and Angular frontend.
+2. **Linting:** `make lint`
+   - Verifies Go code style (`golangci-lint`), SQL schemas (`sqlfluff`), and Frontend standards (`npm run lint`).
+3. **AI-Audit:** `make ai-check`
+   - Enforces architectural discipline (Context usage, RLS compliance, state management).
+4. **Unit Tests:** `make test`
+   - Runs all Go tests with `-race` detection enabled.
+5. **Acceptance Tests:** `make test-acceptance`
+   - Executes the 45-step end-to-end functional scenario (requires Docker).
+6. **Documentation:** `make visualize` and `make index`
+   - Updates the system map and ctags for AI navigation if any structural changes were made.
+
+### Post-Task Loop
+After every successful job:
+- Use `make remember` to ingest learnings into the Experience Ledger.
+- Use `make visualize` to update `SYSTEM_MAP.md` if the topology changed.
 
 ## Gotchas
 - **mTLS:** Services will fail to start or connect if certificates in `certs/` are missing or expired.

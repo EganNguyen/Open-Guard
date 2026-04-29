@@ -1,4 +1,4 @@
-.PHONY: dev test lint build migrate seed load-test certs help generate generate-phase-5 ai-check
+.PHONY: dev test lint build migrate seed load-test certs help generate generate-phase-5 ai-check test-acceptance index visualize remember
 
 help:
 	@echo "OpenGuard Makefile Targets:"
@@ -30,8 +30,10 @@ test:
 		./services/threat/... ./services/audit/... ./services/compliance/... \
 		./services/control-plane/... ./services/dlp/... \
 		./services/connector-registry/... ./services/webhook-delivery/...
-	# cd web && npm test
 
+test-acceptance:
+	@echo "Running System Acceptance Tests (45-step E2E)..."
+	go test -v ./tests/integration/...
 
 lint:
 	golangci-lint run ./...
@@ -40,7 +42,11 @@ lint:
 
 build:
 	go work sync
-	go build ./...
+	go build ./sdk/... ./shared/... \
+		./services/iam/... ./services/policy/... ./services/alerting/... \
+		./services/threat/... ./services/audit/... ./services/compliance/... \
+		./services/control-plane/... ./services/dlp/... \
+		./services/connector-registry/... ./services/webhook-delivery/...
 	cd web && npm run build
 
 migrate:
