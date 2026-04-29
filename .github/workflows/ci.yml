@@ -54,6 +54,7 @@ jobs:
               services/control-plane/*) modules+=("services/control-plane"); go_changed="true" ;;
               services/dlp/*) modules+=("services/dlp"); go_changed="true" ;;
               services/webhook-delivery/*) modules+=("services/webhook-delivery"); go_changed="true" ;;
+              tests/integration/*) ;; # requires Docker Compose stack; not run in CI
               web/*) infra_changed="true" ;;
               infra/*) infra_changed="true" ;;
               .github/workflows/ci.yml) run_all_go="true"; infra_changed="true" ;;
@@ -63,7 +64,8 @@ jobs:
           done
 
           if [ "$run_all_go" == "true" ]; then
-            modules=("sdk" "shared" "services/iam" "services/policy" "services/alerting" "services/threat" "services/audit" "services/compliance" "services/connector-registry" "services/control-plane" "services/dlp" "services/webhook-delivery" "tests/integration")
+            # tests/integration requires a full Docker Compose stack; excluded from CI unit tests
+            modules=("sdk" "shared" "services/iam" "services/policy" "services/alerting" "services/threat" "services/audit" "services/compliance" "services/connector-registry" "services/control-plane" "services/dlp" "services/webhook-delivery")
             go_changed="true"
           fi
 
