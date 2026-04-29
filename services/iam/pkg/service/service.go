@@ -25,6 +25,11 @@ import (
 	"net/http"
 )
 
+// @AI-INTENT: [Pattern: Heuristic Risk Scoring for Session Revocation]
+// [Rationale: Hard thresholds for UA/IP changes cause false positives (e.g. mobile networks).
+// This additive risk model assigns weights to changes: UA family changes are high risk (60),
+// IP subnet changes are medium risk (40). If the cumulative score exceeds riskThresholdRevoke (80),
+// the session and refresh token family are immediately revoked as a potential account takeover.]
 const (
 	riskScoreUAFamilyChange  = 60
 	riskScoreIPSubnetChange  = 40
@@ -945,24 +950,6 @@ func (s *Service) GetAuthCode(ctx context.Context, code string) (string, string,
 	}
 	
 	return data["org_id"], data["user_id"], data["code_challenge"], nil
-}
-	data := fmt.Sprintf("%s:%s", orgID, userID)
-	return s.rdb.Set(ctx, "auth_code:"+code, data, 10*time.Minute).Err()
-}
-
-func (s *Service) GetAuthCode(ctx context.Context, code string) (string, string, error) {
-	if s.rdb == nil {
-		return "", "", fmt.Errorf("redis not configured")
-	}
-	val, err := s.rdb.GetDel(ctx, "auth_code:"+code).Result()
-	if err != nil {
-		return "", "", fmt.Errorf("invalid or expired auth code")
-	}
-	parts := strings.Split(val, ":")
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid auth code data")
-	}
-	return parts[0], parts[1], nil
 }
 
 // OffboardOrg revokes all sessions and deprovisions all users for an organization.
