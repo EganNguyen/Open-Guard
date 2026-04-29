@@ -18,3 +18,12 @@
 ## 5. Why Angular Signals?
 - **Alternative:** BehaviorSubject / Observables.
 - **Intent:** To leverage Angular 19's fine-grained reactivity. Signals reduce unnecessary change detection cycles, resulting in a more performant dashboard when handling high-volume real-time alert streams (SSE).
+
+## 6. Why Constant-Time Login?
+- **Intent:** Protect against account enumeration via timing side-channels. By running bcrypt even on user-not-found, we eliminate the measurable ~350ms difference that reveals email existence.
+
+## 7. Why Redis SetNX for MFA Replay?
+- **Intent:** Prevent reuse of single-use codes (TOTP/Backup) and SAML assertions within their validity window. A simple check-and-set isn't enough; atomic SetNX ensures a code can never be used twice.
+
+## 8. Why SSE org_id Derivation from JWT?
+- **Intent:** Prevent IDOR (Insecure Direct Object Reference) attacks on real-time streams. By deriving the tenant ID from the authenticated session rather than a URL parameter, we ensure users can only ever see events belonging to their own organization.

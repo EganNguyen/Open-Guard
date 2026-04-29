@@ -87,10 +87,13 @@ func (p *AuthWorkerPool) Verify(ctx context.Context, hash, password string) erro
     case <-ctx.Done():
         return ctx.Err()
     default:
-        return models.ErrBulkheadFull // backpressure: too many logins in flight
+        // Backpressure: Return 429 when the worker queue is saturated
+        return models.ErrBulkheadFull
     }
 }
 ```
+
+**Backpressure Strategy:** When the worker pool queue depth exceeds the channel buffer (default: 100), the service MUST return `429 RATE_LIMITED` rather than blocking indefinitely. This protects the service's memory and overall responsiveness.
 
 Configured via `IAM_BCRYPT_WORKER_COUNT`. Recommended size: `2 × NumCPU`.
 

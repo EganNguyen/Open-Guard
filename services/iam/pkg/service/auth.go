@@ -14,31 +14,42 @@ import (
 )
 
 func (s *Service) Login(ctx context.Context, email, password, userAgent, ip string) (map[string]interface{}, string, error) {
-	user, err := s.repo.GetUserByEmail(ctx, email)
-	if err != nil {
-		return nil, "", err
+	user, userErr := s.repo.GetUserByEmail(ctx, email)
+	
+	// Rationale: constant-time comparison to prevent account enumeration.
+	// Use a pre-generated dummy hash for cost 12 to equalize timing.
+	hashToCompare := "$2a$12$R9h/cIPz0gi.URQHeNH5OuLzBeGPWbS6vS6vS6vS6vS6vS6vS6vS6" 
+	if userErr == nil {
+		hashToCompare = user["password_hash"].(string)
 	}
 
+	// Always run bcrypt comparison to equalize timing (~350ms)
+	bcryptErr := s.pool.Compare(ctx, password, hashToCompare)
+
+	if userErr != nil {
+		return nil, "", fmt.Errorf("INVALID_CREDENTIALS")
+	}
+
+	// Status and lockout checks happen AFTER bcrypt to prevent state enumeration
 	if user["status"].(string) == "initializing" {
-		return nil, "", fmt.Errorf("USER_PROVISIONING_IN_PROGRESS")
+		return nil, "", fmt.Errorf("ACCOUNT_SETUP_PENDING")
 	}
 
 	if user["locked_until"] != nil {
 		until := user["locked_until"].(*time.Time)
 		if until != nil && time.Now().Before(*until) {
-			return nil, "", fmt.Errorf("account is locked until %v", until.Format(time.RFC3339))
+			return nil, "", fmt.Errorf("INVALID_CREDENTIALS")
 		}
 	}
 
-	err = s.pool.Compare(ctx, password, user["password_hash"].(string))
-	if err != nil {
+	if bcryptErr != nil {
 		count, _ := s.repo.IncrementFailedLogin(ctx, email)
 		if count >= 10 {
+			// Lockout duration doubles per attempt beyond threshold (exp backoff logic to be added)
 			until := time.Now().Add(15 * time.Minute)
 			_ = s.repo.LockAccount(ctx, email, until)
-			return nil, "", fmt.Errorf("account locked due to too many failed attempts")
 		}
-		return nil, "", fmt.Errorf("invalid password")
+		return nil, "", fmt.Errorf("INVALID_CREDENTIALS")
 	}
 
 	_ = s.repo.ResetFailedLogin(ctx, email)

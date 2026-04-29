@@ -144,3 +144,13 @@ The following end-to-end scenario must execute without manual intervention. Run 
 45. PATCH /v1/admin/connectors/:id {status:"suspended"}
     → Redis sentinel key written; cached hits return CONNECTOR_SUSPENDED
 ```
+
+---
+
+## 20.2 Acceptance Verification Script
+The authoritative verification for PR approval is the \`make test-acceptance\` command. It executes a 45-step end-to-end scenario including:
+1.  **Auth Flow:** Login, MFA enrollment, TOTP verification, Backup code usage.
+2.  **Multi-Tenancy:** Cross-org isolation on all data tables.
+3.  **Audit Trail:** Event ingestion, SSE streaming, hash chain verification.
+4.  **Policy Engine:** RBAC evaluation, cache invalidation, fail-closed behavior.
+5.  **Remediation Verifications:** Constant-time login, MFA replay detection, OIDC discovery.

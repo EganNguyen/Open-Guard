@@ -110,3 +110,13 @@ func NewService(repo Repository, pool *AuthWorkerPool, keyring []crypto.JWTKey, 
 func (s *Service) SetWebAuthn(w *webauthn.WebAuthn) {
 	s.webauthn = w
 }
+
+// Redis returns the underlying redis client.
+func (s *Service) Redis() *redis.Client {
+	return s.rdb
+}
+
+// GetKeyring returns the JWT keyring.
+func (s *Service) GetKeyring() []crypto.JWTKey {
+	return s.keyring
+}

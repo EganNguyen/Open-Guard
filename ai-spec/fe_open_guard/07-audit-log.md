@@ -4,7 +4,22 @@ Mirrors BE spec §12 (Phase 4: Event Bus & Audit Log). The audit log is append-o
 
 ---
 
-## 7.1 Audit Event List Page
+## 7.1 Audit Stream (SSE)
+
+Real-time audit events are consumed via Server-Sent Events.
+
+**Security Requirements:**
+- **Zero-Parameter Auth:** The SSE URL must NOT include `org_id` as a query parameter.
+- **Server-Side Derivation:** The backend MUST derive the `org_id` strictly from the session/JWT associated with the connection.
+
+```typescript
+// web/src/app/core/services/sse.service.ts
+// Correct: No org_id in URL. Server derives from cookie/token.
+const url = `${this.apiUrl}/audit/v1/events/stream`;
+this.eventSource = new EventSource(url, { withCredentials: true });
+```
+
+## 7.2 Audit Event List Page
 
 ```
 Route: /audit

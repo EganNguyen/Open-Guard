@@ -139,7 +139,18 @@ func (p *OrgPool) WithConn(ctx context.Context, fn func(conn *pgxpool.Conn) erro
 
 Every repository in every service uses `*rls.OrgPool`, not `*pgxpool.Pool` directly.
 
-### 6.1.4 Outbox Table RLS
+### 6.1.4 RLS Context Reset
+Every `pgxpool` MUST configure `AfterRelease` to reset the session variable:
+
+```go
+pgConfig.AfterRelease = func(conn *pgx.Conn) bool {
+    // Definitive reset to empty string prevents context leakage on connection reuse
+    _, err := conn.Exec(context.Background(), "SELECT set_config('app.org_id', '', false)")
+    return err == nil // true = return to pool; false = close and destroy
+}
+```
+
+### 6.1.5 Outbox Table RLS
 
 ```sql
 CREATE TABLE outbox_records (

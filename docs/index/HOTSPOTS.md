@@ -24,8 +24,24 @@
 - **Why:** Centralized identity state.
 - **Risk:** Introducing side-effects inside `computed()` signals or manual Signal updates from within templates.
 
-## 3. Deployment Hazards
+## 4. Security Critical Areas (Remediation Required)
 
-### Postgres Migrations
-- **Why:** Managed via `curl` to the IAM service or manual SQL.
-- **Risk:** RLS policies (`CREATE POLICY`) are not idempotent in some SQL versions; check existence before creating.
+### `services/iam/pkg/service/auth.go`
+- **Risk:** Timing oracle in `Login()`.
+- **Mitigation:** Ensure bcrypt runs even on user-not-found using a dummy hash to maintain constant response time.
+
+### `services/iam/pkg/service/mfa.go`
+- **Risk:** TOTP/WebAuthn replay attacks.
+- **Mitigation:** Implement Redis `SetNX` checks for used codes/assertions.
+
+### `shared/kafka/outbox/relay.go`
+- **Risk:** Kafka downtime → Outbox table bloat or DLQ accumulation.
+- **Mitigation:** Monitor `openguard_outbox_records_pending` and follow the `outbox-dlq.md` runbook.
+
+### `services/policy/pkg/service/`
+- **Risk:** Thundering herd on cache invalidation.
+- **Mitigation:** Use `singleflight` and stale-while-revalidate for evaluation requests.
+
+### `shared/rls/context.go`
+- **Risk:** RLS session leakage on connection reuse.
+- **Mitigation:** Ensure `pgxpool.AfterRelease` always clears `app.org_id`.

@@ -145,6 +145,50 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) JWKS(w http.ResponseWriter, r *http.Request) {
+	keyring := h.svc.GetKeyring()
+	var keys []map[string]interface{}
+
+	for _, k := range keyring {
+		// Only expose KID and Algorithm for public JWKS (RFC 7517)
+		// Since we use HS256 (symmetric), we don't expose N/E public components.
+		// For symmetric keys, JWKS usually includes 'k', but we OMIT it for security.
+		// External clients validate tokens via their own knowledge of the secret
+		// or by calling IAM. OIDC spec for HS256 is subtle.
+		keys = append(keys, map[string]interface{}{
+			"kid": k.Kid,
+			"kty": "oct", // Octet sequence for symmetric keys
+			"alg": k.Algorithm,
+			"use": "sig",
+		})
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{"keys": keys})
+}
+
+func (h *Handler) OIDCDiscovery(w http.ResponseWriter, r *http.Request) {
+	issuer := os.Getenv("OIDC_ISSUER_URL")
+	if issuer == "" {
+		issuer = "http://localhost:8081"
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"issuer":                                issuer,
+		"authorization_endpoint":                issuer + "/auth/authorize",
+		"token_endpoint":                        issuer + "/auth/token",
+		"userinfo_endpoint":                     issuer + "/auth/me",
+		"jwks_uri":                              issuer + "/oauth/jwks",
+		"response_types_supported":               []string{"code", "token", "id_token"},
+		"grant_types_supported":                  []string{"authorization_code", "refresh_token", "password"},
+		"subject_types_supported":                []string{"public"},
+		"id_token_signing_alg_values_supported": []string{"HS256"},
+		"scopes_supported":                      []string{"openid", "profile", "email"},
+		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
+		"claims_supported":                      []string{"iss", "sub", "aud", "exp", "iat", "org_id"},
+		"code_challenge_methods_supported":      []string{"S256"},
+	})
+}
+
 // generateOAuthCode creates a random auth code, stores it in Redis with PKCE challenge,
 // and returns the code string. Used by the OAuthLogin handler.
 func generateOAuthCode(ctx context.Context, svc *service.Service, orgID, userID, codeChallenge string) (string, error) {

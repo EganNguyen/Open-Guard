@@ -173,7 +173,14 @@ func (r *Relay) processBatch(ctx context.Context) (int, error) {
 
 ---
 
-## 7.4 Business Handler Pattern (Canonical)
+## 7.4 Hybrid Pull/Push Strategy
+The relay combines two wakeup mechanisms:
+1. `pg_notify` on channel `outbox_new` — low-latency push on insert
+2. Polling ticker (configurable, default 1s) — fallback for missed notifications
+
+---
+
+## 7.5 Business Handler Pattern (Canonical)
 
 ```go
 // Every service write that produces an event follows this pattern exactly.

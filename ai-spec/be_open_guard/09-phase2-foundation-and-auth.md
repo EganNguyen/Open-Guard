@@ -172,8 +172,9 @@ SCIM endpoints exposed at `/v1/scim/v2/*`, proxied to IAM via mTLS.
 **Internal management API (mTLS):** `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/mfa/*`, `/auth/webauthn/*`, `/users/*`, `/orgs/*`.
 
 **Account Lockout Policy:**
-- 10 consecutive failures → lock. Exponential backoff: 15min → 24hr cap.
-- Locked user receives `INVALID_CREDENTIALS` (not `ACCOUNT_LOCKED`).
+- 10 consecutive failures → lock. 
+- **Exponential backoff:** 15min → 30min → 1hr → 2hr → ... → 24hr cap.
+- Locked user receives `INVALID_CREDENTIALS` (not `ACCOUNT_LOCKED`) until credential check passes.
 - Admin unlock: `POST /users/:id/unlock`.
 
 **TOTP Implementation:**
@@ -198,11 +199,37 @@ Audit events: `auth.saml.login.success`, `auth.saml.login.failure`.
 
 ### 10.3.10 Account Enumeration Protection
 
-Always run bcrypt comparison even for nonexistent users:
+Always run bcrypt comparison even for nonexistent users to maintain constant response time (~350ms).
+
 ```go
-if user == nil {
-    _ = p.Verify(ctx, dummyHash, password)
-    return ErrUnauthorized
+// services/iam/pkg/service/auth.go
+func (s *Service) Login(ctx context.Context, email, password, userAgent, ip string) (map[string]interface{}, string, error) {
+    user, userErr := s.repo.GetUserByEmail(ctx, email)
+    
+    // Dummy hash for constant-time comparison on user-not-found
+    // Use a pre-generated bcrypt hash with cost 12
+    hashToCompare := "$2a$12$invalidhashinvalidhashinvalidhashinvalidhashinvalidhash.."
+    if userErr == nil {
+        hashToCompare = user["password_hash"].(string)
+    }
+
+    // Always run bcrypt to equalize timing
+    bcryptErr := s.pool.Compare(ctx, password, hashToCompare)
+
+    if userErr != nil {
+        return nil, "", fmt.Errorf("INVALID_CREDENTIALS")
+    }
+
+    // Status check MUST happen AFTER bcrypt to prevent state enumeration
+    if user["status"] == "initializing" {
+        return nil, "", fmt.Errorf("ACCOUNT_SETUP_PENDING")
+    }
+    
+    if bcryptErr != nil {
+        // ... lockout logic ...
+        return nil, "", fmt.Errorf("INVALID_CREDENTIALS")
+    }
+    // ...
 }
 ```
 

@@ -178,6 +178,24 @@ func (h *Handler) SAMLAssertionConsumerService(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// GAP-SEC-04: SAML Assertion Replay Protection
+	assertionID := assertion.ID
+	notOnOrAfter := assertion.Conditions.NotOnOrAfter
+	ttl := time.Until(notOnOrAfter)
+	if ttl <= 0 {
+		http.Error(w, "expired assertion", http.StatusUnauthorized)
+		return
+	}
+
+	replayKey := fmt.Sprintf("saml:assertion:%s", assertionID)
+	// Atomic SetNX prevents replay within the assertion's validity window.
+	set, err := h.svc.Redis().SetNX(r.Context(), replayKey, "1", ttl).Result()
+	if err != nil || !set {
+		slog.Warn("saml: assertion replay detected", "assertion_id", assertionID, "org_id", orgID)
+		http.Error(w, "assertion replay detected", http.StatusUnauthorized)
+		return
+	}
+
 	nameID := assertion.Subject.NameID.Value
 	if nameID == "" {
 		http.Error(w, "SAML assertion missing NameID", http.StatusUnauthorized)

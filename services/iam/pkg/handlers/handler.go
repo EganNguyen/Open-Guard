@@ -59,10 +59,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	user, token, err := h.svc.Login(r.Context(), body.Email, body.Password, userAgent, ip)
 	if err != nil {
 		slog.Error("login failed", "error", err, "email", body.Email)
-		if err.Error() == "USER_PROVISIONING_IN_PROGRESS" {
+		if err.Error() == "ACCOUNT_SETUP_PENDING" {
 			h.writeJSON(w, http.StatusForbidden, map[string]interface{}{
-				"error": "User provisioning in progress",
-				"code":  "USER_PROVISIONING_IN_PROGRESS",
+				"error": "Account setup in progress",
+				"code":  "ACCOUNT_SETUP_PENDING",
 			})
 			return
 		}

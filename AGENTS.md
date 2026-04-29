@@ -17,11 +17,25 @@ Structured phase definitions for automated guidance:
 - [.opencode/phase10-dlp.yaml](.opencode/phase10-dlp.yaml)
 
 ## Git Workflow
-- Always create a new branch for any task
-- Always use git worktree to create a separate working directory
-- Never modify the main branch directly
-- All changes must be committed in the new branch
-- Work must be ready for merge into main via pull request
+
+- Sync main branch
+  ```bash
+  git checkout main
+  git pull origin main
+  ```
+- Create branch + worktree
+  ```bash
+  git worktree add -b <branch_name> <path> main
+  ```
+- Develop only in worktree directory
+- Commit and push only from worktree directory
+- Open PR → Review PR → merge into main
+- Cleanup after merge
+  ```bash
+  git worktree remove <path>
+  git branch -d <branch_name>
+  ```
+
 
 ## High-Signal Context
 Open-Guard is a high-performance security control plane using a "beside, not in front" architecture.

@@ -59,102 +59,45 @@ web/
 
 ### Files and directories
 
-- **Page components:** `page.tsx` (Next.js convention).
-- **Server Components:** Default. No `"use client"` unless the component uses hooks, browser APIs, or event handlers.
-- **Client Components:** Named `*.client.tsx` when colocated with a server component of the same name, e.g., `audit-stream.client.tsx`.
-- **Hooks:** `use-kebab-case.ts`.
+- **Components:** `kebab-case.ts` (Logic) / `kebab-case.html` (Template) / `kebab-case.css` (Style).
+- **Services:** `name.service.ts`.
+- **Guards:** `name.guard.ts`.
+- **Interceptors:** `name.interceptor.ts`.
 - **Utilities:** `kebab-case.ts`.
 - **Types:** `PascalCase` interfaces and types.
 
 ### Component naming
 
-```tsx
-// ✅ — PascalCase, descriptive, no "Component" suffix
-export function ConnectorCard({ connector }: ConnectorCardProps) { ... }
+Angular components use `@Component` decorator with a selector and a class name.
 
-// ❌ — redundant suffix
-export function ConnectorCardComponent() { ... }
+```typescript
+// ✅ — PascalCase class name with Component suffix
+@Component({ selector: 'og-connector-card', ... })
+export class ConnectorCardComponent { ... }
 
-// ❌ — too generic
-export function Card() { ... }  // use ui/card.tsx for the primitive
-```
-
-### Query key factories
-
-All query keys are defined in `lib/query/keys.ts`. No inline string arrays.
-
-```ts
-// lib/query/keys.ts
-export const queryKeys = {
-  connectors: {
-    all: (orgId: string) => ['connectors', orgId] as const,
-    detail: (orgId: string, id: string) => ['connectors', orgId, id] as const,
-    deliveries: (orgId: string, id: string) => ['connectors', orgId, id, 'deliveries'] as const,
-  },
-  policies: {
-    all: (orgId: string) => ['policies', orgId] as const,
-    detail: (orgId: string, id: string) => ['policies', orgId, id] as const,
-    evalLogs: (orgId: string) => ['policies', orgId, 'eval-logs'] as const,
-  },
-  audit: {
-    events: (orgId: string, filters: AuditFilters) => ['audit', orgId, 'events', filters] as const,
-    integrity: (orgId: string) => ['audit', orgId, 'integrity'] as const,
-  },
-  threats: {
-    alerts: (orgId: string, filters: AlertFilters) => ['threats', orgId, 'alerts', filters] as const,
-    detail: (orgId: string, id: string) => ['threats', orgId, id] as const,
-  },
-  users: {
-    all: (orgId: string) => ['users', orgId] as const,
-    detail: (orgId: string, id: string) => ['users', orgId, id] as const,
-    sessions: (orgId: string, userId: string) => ['users', orgId, userId, 'sessions'] as const,
-  },
-  // ... etc
-}
+// ✅ — Kebab-case selectors with 'og-' prefix
+// og-policy-list, og-audit-detail
 ```
 
 ---
 
 ## 0.4 Component Rules
 
-### Server Components by default
+### Signals-First State
+Angular 19+ uses Signals for change detection. Prefer `signal`, `computed`, and `effect` over `BehaviorSubject` where possible.
 
-```tsx
-// ✅ — Server Component (no directive needed)
-// app/(dashboard)/connectors/page.tsx
-import { getConnectors } from '@/lib/api/connectors'
-
-export default async function ConnectorsPage() {
-  const connectors = await getConnectors()  // direct server-side fetch
-  return <ConnectorList initialData={connectors} />
+```typescript
+export class ConnectorListComponent {
+  connectors = signal<Connector[]>([]);
+  activeCount = computed(() => this.connectors().filter(c => c.status === 'active').length);
 }
 ```
 
-### When to use `"use client"`
+### Typed Forms
+Always use Angular Reactive Forms with strong typing.
 
-- Component uses React state (`useState`, `useReducer`).
-- Component uses browser APIs (`window`, `document`, `EventSource`).
-- Component uses event handlers directly (`onClick`, `onChange`).
-- Component uses animation libraries (Framer Motion).
-- Component uses TanStack Query hooks (client-side refetch).
-
-### Props typing
-
-Every component has an explicit Props interface. No `React.FC<{}>`. No implicit `children: any`.
-
-```tsx
-interface ConnectorCardProps {
-  connector: Connector
-  onSuspend: (id: string) => Promise<void>
-  className?: string
-}
-
-export function ConnectorCard({ connector, onSuspend, className }: ConnectorCardProps) { ... }
-```
-
-### No prop drilling beyond two levels
-
-If a prop would be passed through more than two layers, use Zustand or React Context (scoped to the feature subtree).
+### No implicit 'any'
+Strict mode is enabled. All component inputs, outputs, and internal state must have explicit types.
 
 ---
 
@@ -162,20 +105,20 @@ If a prop would be passed through more than two layers, use Zustand or React Con
 
 | Data type | Where it lives | Tool |
 |---|---|---|
-| Server data (lists, details) | TanStack Query cache | `useQuery` / `useMutation` |
-| Form state | React Hook Form | `useForm` |
-| Global UI state (sidebar, modals) | Zustand `ui` store | `useUIStore` |
-| Notifications / toasts | Zustand `notification` store | `useNotificationStore` |
-| Auth session | NextAuth.js session | `useSession` / `auth()` |
-| Org context | NextAuth session + `useOrg` hook | Derived from session |
-| URL state (filters, pagination cursors) | `useSearchParams` + `nuqs` | Synced to URL |
-| Real-time stream data | Local `useState` inside SSE hook | `useAuditStream` |
+| Server data (lists, details) | Angular Services + Signals | `HttpClient` + `signal` |
+| Form state | Reactive Forms | `FormGroup`, `FormControl` |
+| Global UI state (sidebar, modals) | Singleton Services | `UiService` |
+| Notifications / toasts | Singleton Services | `NotificationService` |
+| Auth session | Auth Service | `AuthService` (OIDC) |
+| Org context | Auth Service | `AuthService.currentOrg()` |
+| URL state | Angular Router | `ActivatedRoute` queryParams |
 
-**Rule:** TanStack Query is the single source of truth for all server data. Never duplicate server data into Zustand. Zustand is for UI-only state that has no server representation.
+**Rule:** Services are the single source of truth for data. Components should only hold UI-specific state.
 
 ---
 
 ## 0.6 Error Handling
+
 
 Every async operation uses a consistent pattern:
 
@@ -219,13 +162,11 @@ export const ERROR_MESSAGES: Record<string, string> = {
 
 | Pattern | Why forbidden | Alternative |
 |---|---|---|
-| `localStorage` for tokens or org_id | XSS-accessible; security boundary | `httpOnly` cookies via NextAuth |
-| Raw `fetch` in components | No auth injection, no error normalization | `lib/api/*` client functions |
-| `any` type | Defeats TypeScript | Define proper types in `types/` |
-| Inline `style={{}}` for visual styling | Bypasses CSP, hard to maintain | Tailwind classes or CSS Modules |
-| `useEffect` for data fetching | Race conditions, no caching | TanStack Query `useQuery` |
-| Single-click destructive actions | Too easy to trigger accidentally | `ConfirmDialog` with resource name |
-| Hard-coded org_id strings | Breaks multi-tenancy | `useOrg()` hook |
-| `console.log` left in committed code | Leaks sensitive data to browser console | Remove before commit; use structured logging patterns |
-| Cursor pagination with manual offset arithmetic | Error-prone, breaks on delete | Use `next_cursor` from API response meta |
-| Polling with `setInterval` | Not cleanup-safe | `useQuery` with `refetchInterval` |
+| `localStorage` for sensitive tokens | XSS-accessible; security boundary | `httpOnly` cookies |
+| Raw `fetch` in components | No auth injection, no error normalization | Angular `HttpClient` |
+| `any` type | Defeats TypeScript | Define proper typed interfaces |
+| Inline `style={{}}` | Bypasses CSP, hard to maintain | Tailwind classes |
+| `BehaviorSubject` for simple state | Signals are more efficient in Angular 19 | Angular `signal()` |
+| Single-click destructive actions | Too easy to trigger accidentally | `UiService.confirm()` |
+| Hard-coded org_id strings | Breaks multi-tenancy | `AuthService` current org signal |
+| `console.log` in production | Leaks sensitive data | Remove before commit |

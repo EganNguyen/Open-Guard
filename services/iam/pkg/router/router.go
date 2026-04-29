@@ -97,6 +97,8 @@ func NewRouter(ctx context.Context, h *handlers.Handler, keyring []crypto.JWTKey
 
 		r.Get("/authorize", h.Authorize)
 		r.With(idemMiddleware).Post("/token", h.Token)
+		r.Get("/jwks", h.JWKS)
+		r.Get("/.well-known/openid-configuration", h.OIDCDiscovery)
 
 	scimTokens := shared_middleware.LoadSCIMTokensFromEnv()
 	scimMiddleware := shared_middleware.SCIMAuth(scimTokens)

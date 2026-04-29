@@ -180,8 +180,9 @@ func TestLogin_LockedAccount(t *testing.T) {
 	repo.LockedUntil["test@example.com"] = time.Now().Add(1 * time.Hour)
 
 	_, _, err := s.Login(context.Background(), "test@example.com", "any", "ua", "127.0.0.1")
-	if err == nil || !strings.Contains(err.Error(), "locked") {
-		t.Errorf("expected locked error, got %v", err)
+	// Constant-time login returns INVALID_CREDENTIALS for locked accounts too
+	if err == nil || !strings.Contains(err.Error(), "INVALID_CREDENTIALS") {
+		t.Errorf("expected INVALID_CREDENTIALS error, got %v", err)
 	}
 }
 
@@ -193,8 +194,8 @@ func TestLogin_LockAfterTenFailures(t *testing.T) {
 	repo.FailedLogins["test@example.com"] = 9
 
 	_, _, err := s.Login(context.Background(), "test@example.com", "wrong", "ua", "127.0.0.1")
-	if err == nil || !strings.Contains(err.Error(), "locked due to too many failed attempts") {
-		t.Errorf("expected lock error after 10 attempts, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "INVALID_CREDENTIALS") {
+		t.Errorf("expected INVALID_CREDENTIALS error after 10 attempts, got %v", err)
 	}
 	if repo.LockedUntil["test@example.com"].IsZero() {
 		t.Error("account should be locked")
