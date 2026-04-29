@@ -257,6 +257,9 @@ func (c *AuditConsumer) flush(ctx context.Context, batch []kafka.Message) {
 		return
 	}
 
+	// GAP-OBS-01: Record batch size metric
+	telemetry.KafkaBulkInsertSize.Observe(float64(len(interfaceEvents)))
+
 	// 5. Commit offsets after successful write
 	if err := c.reader.CommitMessages(ctx, batch...); err != nil {
 		c.logger.Error("offset commit failed", "error", err)

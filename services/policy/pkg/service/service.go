@@ -24,7 +24,8 @@ import (
 
 const (
 	cachePrefix   = "policy:eval:"
-	cacheTTL      = 60 * time.Second // stale-while-revalidate window (spec §9: SDK TTL = 60s)
+	cacheTTL      = 60 * time.Second // total cache lifetime
+	staleWindow   = 5 * time.Second  // stale-while-revalidate grace period per spec §11.2
 	maxRetryDelay = 5 * time.Second
 )
 
@@ -48,9 +49,10 @@ type EvaluateResponse struct {
 
 // cachedDecision is what we store in Redis.
 type cachedDecision struct {
-	Effect           string   `json:"effect"`
-	MatchedPolicyIDs []string `json:"matched_policy_ids"`
-	MaxVersion       int      `json:"max_version"`
+	Effect           string    `json:"effect"`
+	MatchedPolicyIDs []string  `json:"matched_policy_ids"`
+	MaxVersion       int       `json:"max_version"`
+	ExpiresAt        time.Time `json:"expires_at"` // Used for Stale-While-Revalidate
 }
 
 // PolicyLogic is the JSONB structure stored in policies.logic
@@ -152,22 +154,29 @@ func (s *Service) Evaluate(ctx context.Context, req EvaluateRequest) (*EvaluateR
 	start := time.Now()
 	key := cacheKey(req)
 
-	// Tier 1: Redis cache check
+	// Tier 1: Redis cache check with Stale-While-Revalidate
 	if s.rdb != nil {
 		if cached, err := s.rdb.Get(ctx, key).Bytes(); err == nil {
 			var decision cachedDecision
 			if json.Unmarshal(cached, &decision) == nil {
 				latency := int(time.Since(start).Milliseconds())
-				telemetry.EvaluateDuration.WithLabelValues(req.OrgID).Observe(time.Since(start).Seconds())
-				telemetry.CacheHits.WithLabelValues("redis").Inc()
-				telemetry.CacheHits.WithLabelValues("redis").Inc()
-				// Async background refresh (stale-while-revalidate) with bounding
-				select {
-				case s.refreshSem <- struct{}{}:
-					go s.backgroundRefresh(req, key)
-				default:
-					s.logger.Debug("background refresh skipped, semaphore full")
+
+				// GAP-SCALE-01: Stale-While-Revalidate logic
+				isStale := time.Now().After(decision.ExpiresAt)
+				if isStale {
+					// Entry is within the grace period (handled by Redis TTL) but past its ideal expiry
+					telemetry.CacheHits.WithLabelValues("stale").Inc()
+					select {
+					case s.refreshSem <- struct{}{}:
+						go s.backgroundRefresh(req, key)
+					default:
+						s.logger.Debug("background refresh skipped, semaphore full")
+					}
+				} else {
+					telemetry.CacheHits.WithLabelValues("redis").Inc()
 				}
+
+				telemetry.EvaluateDuration.WithLabelValues(req.OrgID).Observe(time.Since(start).Seconds())
 				return &EvaluateResponse{
 					Effect:           decision.Effect,
 					MatchedPolicyIDs: decision.MatchedPolicyIDs,
@@ -238,13 +247,16 @@ func (s *Service) evaluateFromDB(ctx context.Context, req EvaluateRequest, key s
 
 	// Cache the result in Redis
 	if s.rdb != nil {
+		now := time.Now()
 		decision := cachedDecision{
 			Effect:           effect,
 			MatchedPolicyIDs: matchedIDs,
 			MaxVersion:       maxVersion,
+			ExpiresAt:        now.Add(cacheTTL - staleWindow), // Actual ideal expiry
 		}
 		if b, err := json.Marshal(decision); err == nil {
 			pipe := s.rdb.Pipeline()
+			// Set Redis TTL to cacheTTL (which includes the stale window)
 			pipe.Set(ctx, key, b, cacheTTL)
 			pipe.SAdd(ctx, orgIndexKey(req.OrgID), key)
 			pipe.Expire(ctx, orgIndexKey(req.OrgID), 24*time.Hour)

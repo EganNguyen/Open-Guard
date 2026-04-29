@@ -21,4 +21,10 @@ var (
 		Name: "audit_hash_chain_sequence",
 		Help: "Current hash chain sequence number per org",
 	}, []string{"org_id"})
+
+	KafkaBulkInsertSize = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "openguard_kafka_bulk_insert_size",
+		Help:    "Size of audit events batch inserted into MongoDB",
+		Buckets: []float64{10, 50, 100, 200, 500, 1000},
+	})
 )
