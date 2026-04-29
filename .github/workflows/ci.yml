@@ -19,64 +19,84 @@ jobs:
     name: "Detect changes"
     runs-on: ubuntu-latest
     outputs:
-      modules: ${{ steps.set.outputs.modules }}
-      infra_changed: ${{ steps.set.outputs.infra_changed }}
-      go_changed: ${{ steps.set.outputs.go_changed }}
+      modules: ${{ steps.set-matrix.outputs.modules }}
+      go_changed: ${{ steps.filter.outputs.go }}
+      infra_changed: ${{ steps.filter.outputs.infra }}
+      shared_changed: ${{ steps.filter.outputs.shared }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - id: set
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            sdk:
+              - 'sdk/**'
+            shared:
+              - 'shared/**'
+            iam:
+              - 'services/iam/**'
+            policy:
+              - 'services/policy/**'
+            alerting:
+              - 'services/alerting/**'
+            threat:
+              - 'services/threat/**'
+            audit:
+              - 'services/audit/**'
+            compliance:
+              - 'services/compliance/**'
+            connector-registry:
+              - 'services/connector-registry/**'
+            control-plane:
+              - 'services/control-plane/**'
+            dlp:
+              - 'services/dlp/**'
+            webhook-delivery:
+              - 'services/webhook-delivery/**'
+            web:
+              - 'web/**'
+            infra:
+              - 'infra/**'
+            workflow:
+              - '.github/workflows/ci.yml'
+            go:
+              - 'sdk/**'
+              - 'shared/**'
+              - 'services/**'
+              - 'go.work'
+              - 'go.work.sum'
+
+      - id: set-matrix
         run: |
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            changed=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          MODULES=()
+          SHARED="${{ steps.filter.outputs.shared }}"
+          WORKFLOW="${{ steps.filter.outputs.workflow }}"
+          
+          if [ "$SHARED" == "true" ] || [ "$WORKFLOW" == "true" ]; then
+            MODULES=("sdk" "shared" "services/iam" "services/policy" "services/alerting" "services/threat" "services/audit" "services/compliance" "services/connector-registry" "services/control-plane" "services/dlp" "services/webhook-delivery")
           else
-            changed=$(git diff --name-only HEAD~1...HEAD || true)
+            [[ "${{ steps.filter.outputs.sdk }}" == "true" ]] && MODULES+=("sdk")
+            [[ "${{ steps.filter.outputs.iam }}" == "true" ]] && MODULES+=("services/iam")
+            [[ "${{ steps.filter.outputs.policy }}" == "true" ]] && MODULES+=("services/policy")
+            [[ "${{ steps.filter.outputs.alerting }}" == "true" ]] && MODULES+=("services/alerting")
+            [[ "${{ steps.filter.outputs.threat }}" == "true" ]] && MODULES+=("services/threat")
+            [[ "${{ steps.filter.outputs.audit }}" == "true" ]] && MODULES+=("services/audit")
+            [[ "${{ steps.filter.outputs.compliance }}" == "true" ]] && MODULES+=("services/compliance")
+            [[ "${{ steps.filter.outputs.connector-registry }}" == "true" ]] && MODULES+=("services/connector-registry")
+            [[ "${{ steps.filter.outputs.control-plane }}" == "true" ]] && MODULES+=("services/control-plane")
+            [[ "${{ steps.filter.outputs.dlp }}" == "true" ]] && MODULES+=("services/dlp")
+            [[ "${{ steps.filter.outputs.webhook-delivery }}" == "true" ]] && MODULES+=("services/webhook-delivery")
           fi
 
-          modules=()
-          infra_changed="false"
-          go_changed="false"
-          run_all_go="false"
-
-          for file in $changed; do
-            case $file in
-              sdk/*) modules+=("sdk"); go_changed="true" ;;
-              shared/*) run_all_go="true"; go_changed="true" ;;
-              services/iam/*) modules+=("services/iam"); go_changed="true" ;;
-              services/policy/*) modules+=("services/policy"); go_changed="true" ;;
-              services/alerting/*) modules+=("services/alerting"); go_changed="true" ;;
-              services/threat/*) modules+=("services/threat"); go_changed="true" ;;
-              services/audit/*) modules+=("services/audit"); go_changed="true" ;;
-              services/compliance/*) modules+=("services/compliance"); go_changed="true" ;;
-              services/connector-registry/*) modules+=("services/connector-registry"); go_changed="true" ;;
-              services/control-plane/*) modules+=("services/control-plane"); go_changed="true" ;;
-              services/dlp/*) modules+=("services/dlp"); go_changed="true" ;;
-              services/webhook-delivery/*) modules+=("services/webhook-delivery"); go_changed="true" ;;
-              tests/integration/*) ;; # requires Docker Compose stack; not run in CI
-              web/*) infra_changed="true" ;;
-              infra/*) infra_changed="true" ;;
-              .github/workflows/ci.yml) run_all_go="true"; infra_changed="true" ;;
-              .golangci.yml) run_all_go="true" ;;
-              go.work|go.work.sum) run_all_go="true" ;;
-            esac
-          done
-
-          if [ "$run_all_go" == "true" ]; then
-            # tests/integration requires a full Docker Compose stack; excluded from CI unit tests
-            modules=("sdk" "shared" "services/iam" "services/policy" "services/alerting" "services/threat" "services/audit" "services/compliance" "services/connector-registry" "services/control-plane" "services/dlp" "services/webhook-delivery")
-            go_changed="true"
-          fi
-
-          if [ ${#modules[@]} -eq 0 ]; then
+          if [ ${#MODULES[@]} -eq 0 ]; then
             unique="[]"
           else
-            unique=$(printf "%s\n" "${modules[@]}" | sort -u | jq -R . | jq -s -c .)
+            unique=$(printf "%s\n" "${MODULES[@]}" | sort -u | jq -R . | jq -s -c .)
           fi
           echo "modules=$unique" >> $GITHUB_OUTPUT
-          echo "infra_changed=$infra_changed" >> $GITHUB_OUTPUT
-          echo "go_changed=$go_changed" >> $GITHUB_OUTPUT
 
   # ─────────────────────────────────────────
   # 1. LINT
@@ -197,7 +217,10 @@ jobs:
     name: "Build (backend)"
     runs-on: ubuntu-latest
     needs: [detect-changes, test]
-    if: needs.detect-changes.outputs.go_changed == 'true'
+    if: |
+      always() &&
+      needs.detect-changes.outputs.go_changed == 'true' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
     steps:
       - uses: actions/checkout@v4
 

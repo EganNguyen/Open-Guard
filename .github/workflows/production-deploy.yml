@@ -13,13 +13,92 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.set-matrix.outputs.services }}
+      infra_changed: ${{ steps.filter.outputs.infra }}
+      any_changed: ${{ steps.set-matrix.outputs.any_changed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            iam:
+              - 'services/iam/**'
+            policy:
+              - 'services/policy/**'
+            audit:
+              - 'services/audit/**'
+            threat:
+              - 'services/threat/**'
+            alerting:
+              - 'services/alerting/**'
+            webhook-delivery:
+              - 'services/webhook-delivery/**'
+            compliance:
+              - 'services/compliance/**'
+            dlp:
+              - 'services/dlp/**'
+            connector-registry:
+              - 'services/connector-registry/**'
+            control-plane:
+              - 'services/control-plane/**'
+            example-app:
+              - 'examples/task-management-app/backend/**'
+            dashboard:
+              - 'web/**'
+            infra:
+              - 'infra/**'
+            shared:
+              - 'shared/**'
+              - 'sdk/**'
+              - 'go.work'
+              - 'go.work.sum'
+              - '.github/workflows/production-deploy.yml'
+
+      - id: set-matrix
+        run: |
+          SERVICES=()
+          SHARED="${{ steps.filter.outputs.shared }}"
+          
+          if [ "$SHARED" == "true" ]; then
+            SERVICES=("iam" "policy" "audit" "threat" "alerting" "webhook-delivery" "compliance" "dlp" "connector-registry" "control-plane" "example-app" "dashboard")
+          else
+            [[ "${{ steps.filter.outputs.iam }}" == "true" ]] && SERVICES+=("iam")
+            [[ "${{ steps.filter.outputs.policy }}" == "true" ]] && SERVICES+=("policy")
+            [[ "${{ steps.filter.outputs.audit }}" == "true" ]] && SERVICES+=("audit")
+            [[ "${{ steps.filter.outputs.threat }}" == "true" ]] && SERVICES+=("threat")
+            [[ "${{ steps.filter.outputs.alerting }}" == "true" ]] && SERVICES+=("alerting")
+            [[ "${{ steps.filter.outputs.webhook-delivery }}" == "true" ]] && SERVICES+=("webhook-delivery")
+            [[ "${{ steps.filter.outputs.compliance }}" == "true" ]] && SERVICES+=("compliance")
+            [[ "${{ steps.filter.outputs.dlp }}" == "true" ]] && SERVICES+=("dlp")
+            [[ "${{ steps.filter.outputs.connector-registry }}" == "true" ]] && SERVICES+=("connector-registry")
+            [[ "${{ steps.filter.outputs.control-plane }}" == "true" ]] && SERVICES+=("control-plane")
+            [[ "${{ steps.filter.outputs.example-app }}" == "true" ]] && SERVICES+=("example-app")
+            [[ "${{ steps.filter.outputs.dashboard }}" == "true" ]] && SERVICES+=("dashboard")
+          fi
+
+          if [ ${#SERVICES[@]} -eq 0 ]; then
+            echo "services=[]" >> $GITHUB_OUTPUT
+            echo "any_changed=false" >> $GITHUB_OUTPUT
+          else
+            JSON=$(printf "%s\n" "${SERVICES[@]}" | jq -R . | jq -s -c .)
+            echo "services=$JSON" >> $GITHUB_OUTPUT
+            echo "any_changed=true" >> $GITHUB_OUTPUT
+          fi
+
   build-services:
     name: Build Microservices
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any_changed == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        service: [iam, policy, audit, threat, alerting, webhook-delivery, compliance, dlp, connector-registry, control-plane, example-app, dashboard]
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
         include:
           - service: iam
             path: services/iam/Dockerfile
@@ -65,7 +144,11 @@ jobs:
 
   mock-deploy:
     name: Mock Infrastructure & Registry
-    needs: build-services
+    needs: [detect-changes, build-services]
+    if: |
+      always() && 
+      (needs.detect-changes.outputs.any_changed == 'true' || needs.detect-changes.outputs.infra_changed == 'true') &&
+      (needs.build-services.result == 'success' || needs.build-services.result == 'skipped')
     runs-on: ubuntu-latest
     services:
       localstack:
@@ -148,6 +231,14 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+
+      - name: Cache Terraform
+        uses: actions/cache@v4
+        with:
+          path: infra/environments/prod/.terraform
+          key: ${{ runner.os }}-terraform-${{ hashFiles('infra/environments/prod/*.tf') }}
+          restore-keys: |
+            ${{ runner.os }}-terraform-
 
       - name: Terraform Init & Apply (Mock)
         working-directory: infra/environments/prod
