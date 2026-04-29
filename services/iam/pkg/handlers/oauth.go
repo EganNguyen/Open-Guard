@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"context"
+	"github.com/openguard/services/iam/pkg/service"
 )
 
 	func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
@@ -141,4 +143,14 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 		"token_type":   "Bearer",
 		"expires_in":   3600,
 	})
+}
+
+// generateOAuthCode creates a random auth code, stores it in Redis with PKCE challenge,
+// and returns the code string. Used by the OAuthLogin handler.
+func generateOAuthCode(ctx context.Context, svc *service.Service, orgID, userID, codeChallenge string) (string, error) {
+	code := base64.RawURLEncoding.EncodeToString([]byte(uuid.New().String()))
+	if err := svc.StoreAuthCode(ctx, code, orgID, userID, codeChallenge); err != nil {
+		return "", err
+	}
+	return code, nil
 }
