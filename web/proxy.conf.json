@@ -1,0 +1,22 @@
+{
+  "/auth": {
+    "target": "http://localhost:8080",
+    "secure": false
+  },
+  "/v1": {
+    "target": "http://localhost:8080",
+    "secure": false
+  },
+  "/audit": {
+    "target": "http://localhost:8080",
+    "secure": false
+  },
+  "/mgmt": {
+    "target": "http://localhost:8080",
+    "secure": false
+  },
+  "/health": {
+    "target": "http://localhost:8080",
+    "secure": false
+  }
+}
