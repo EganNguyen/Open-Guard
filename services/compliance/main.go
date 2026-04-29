@@ -24,10 +24,11 @@ import (
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/database"
 	"github.com/openguard/shared/resilience"
+	shared_telemetry "github.com/openguard/shared/telemetry"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(shared_telemetry.NewSafeHandler(slog.NewJSONHandler(os.Stdout, nil)))
 
 	// Graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

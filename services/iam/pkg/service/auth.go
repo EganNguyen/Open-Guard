@@ -45,8 +45,7 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 	if bcryptErr != nil {
 		count, _ := s.repo.IncrementFailedLogin(ctx, email)
 		if count >= 10 {
-			// Lockout duration doubles per attempt beyond threshold (exp backoff logic to be added)
-			until := time.Now().Add(15 * time.Minute)
+			until := time.Now().Add(lockoutDuration(count))
 			_ = s.repo.LockAccount(ctx, email, until)
 		}
 		return nil, "", fmt.Errorf("INVALID_CREDENTIALS")
@@ -226,4 +225,17 @@ func ipToSubnet16(ipStr string) string {
 		return ipStr
 	}
 	return fmt.Sprintf("%d.%d", ip[0], ip[1])
+}
+
+func lockoutDuration(failCount int) time.Duration {
+	// failCount=10 -> 15m, 20 -> 30m, 30 -> 60m, ... cap at 24h
+	steps := (failCount / 10) - 1
+	if steps < 0 {
+		steps = 0
+	}
+	dur := 15 * time.Minute * (1 << uint(steps))
+	if dur > 24*time.Hour {
+		dur = 24 * time.Hour
+	}
+	return dur
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/openguard/services/alerting/pkg/repository"
 	"github.com/openguard/services/alerting/pkg/webhook"
+	sharedkafka "github.com/openguard/shared/kafka"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -65,9 +66,11 @@ func (s *AlertSaga) Start(ctx context.Context) error {
 			s.processMessage(ctx, msg)
 
 			// Commit ONLY after processing
+			commitStart := time.Now()
 			if err := s.reader.CommitMessages(ctx, msg); err != nil {
 				s.logger.Error("failed to commit offset", "error", err)
 			}
+			sharedkafka.OffsetCommitDuration.Observe(time.Since(commitStart).Seconds())
 		}(m)
 	}
 }

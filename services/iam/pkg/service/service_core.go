@@ -58,6 +58,7 @@ type Repository interface {
 	UpdateConnector(ctx context.Context, id, name string, uris []string) error
 	DeleteConnector(ctx context.Context, id string) error
 	ListUsers(ctx context.Context, orgID string, filter string) ([]map[string]interface{}, error)
+	ListUsersPaginated(ctx context.Context, orgID string, filter string, offset, limit int) ([]map[string]interface{}, int, error)
 	BeginTx(ctx context.Context) (pgx.Tx, error)
 	CreateOutboxEvent(ctx context.Context, tx pgx.Tx, orgID, topic, key string, payload []byte) error
 	UpdateUserStatus(ctx context.Context, userID, status string) error

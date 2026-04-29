@@ -25,11 +25,12 @@ import (
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/secrets"
+	shared_telemetry "github.com/openguard/shared/telemetry"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(shared_telemetry.NewSafeHandler(slog.NewJSONHandler(os.Stdout, nil)))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

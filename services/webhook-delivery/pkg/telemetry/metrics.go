@@ -7,7 +7,7 @@ import (
 
 var (
 	OperationsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "webhook-delivery_operations_total",
+		Name: "openguard_webhook_delivery_attempts_total",
 		Help: "Total operations for webhook-delivery",
 	}, []string{"operation", "status"})
 )

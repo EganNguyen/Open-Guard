@@ -1,86 +1,56 @@
 groups:
-  - name: openguard-security
+  - name: openguard-canonical-alerts
     rules:
-      - alert: BruteForceAttackDetected
-        expr: rate(iam_login_failures_total[5m]) > 10
-        for: 1m
-        labels:
-          severity: critical
-          team: security
-        annotations:
-          summary: "Brute force attack detected"
-          description: "Login failures > 10/s for 1 minute on {{ $labels.instance }}"
-
-      - alert: ImpossibleTravelDetected
-        expr: increase(threat_events_total{detector="impossible_travel"}[5m]) > 0
-        for: 0m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Impossible travel event detected"
-
-      - alert: AuditChainIntegrityFailure
-        expr: audit_chain_integrity_failures_total > 0
-        for: 0m
-        labels:
-          severity: critical
-          team: security
-        annotations:
-          summary: "Audit chain integrity failure detected"
-          description: "Hash chain verification failed for org {{ $labels.org_id }}"
-
-      - alert: DLPHighBlockRate
-        expr: |
-          rate(dlp_blocks_total[5m]) /
-          rate(dlp_scans_total[5m]) > 0.1
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "DLP blocking more than 10% of events"
-
-  - name: openguard-infrastructure
-    rules:
-      - alert: ServiceDown
-        expr: up{job!=""} == 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "OpenGuard service {{ $labels.job }} is down"
-
-      - alert: KafkaConsumerLagHigh
-        expr: kafka_consumer_group_lag{group!=""} > 10000
+      - alert: OutboxLagHigh
+        expr: openguard_outbox_pending_records > 1000
         for: 2m
         labels:
           severity: warning
         annotations:
-          summary: "Kafka consumer lag high"
-          description: "Group {{ $labels.group }} lag: {{ $value }}"
+          summary: "Transactional Outbox lag high"
+          description: "Outbox relay has > 1000 pending records for 2 minutes"
 
-      - alert: OutboxRelayBacklogHigh
-        expr: openguard_outbox_pending_total > 1000
+      - alert: CircuitBreakerOpen
+        expr: openguard_circuit_breaker_state{state="2"} == 1
         for: 30s
-        labels:
-          severity: warning
-        annotations:
-          summary: "Outbox relay backlog > 1000 records"
-
-      - alert: HighErrorRate
-        expr: |
-          sum(rate(http_requests_total{status="500"}[5m])) by (service) /
-          sum(rate(http_requests_total[5m])) by (service) > 0.05
-        for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "Error rate > 5% on {{ $labels.service }}"
+          summary: "Circuit breaker is OPEN"
+          description: "Service {{ $labels.job }} circuit breaker {{ $labels.name }} is OPEN"
 
-      - alert: HighLoginLatency
-        expr: |
-          histogram_quantile(0.99, rate(iam_login_duration_seconds_bucket[5m])) > 0.4
+      - alert: KafkaConsumerLagHigh
+        expr: openguard_kafka_consumer_lag > 50000
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "IAM p99 login latency > 400ms (bcrypt pool saturation risk)"
+          summary: "Kafka consumer lag high"
+          description: "Kafka consumer group {{ $labels.group }} lag > 50000 for 5 minutes"
+
+      - alert: AuditChainIntegrityFailure
+        expr: openguard_audit_chain_integrity_failures_total > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Audit chain integrity failure"
+          description: "Hash chain verification failed for org {{ $labels.org_id }}"
+
+      - alert: PolicyServiceDown
+        expr: up{job="policy-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Policy service is down"
+
+      - alert: KafkaOffsetCommitLag
+        expr: histogram_quantile(0.99, rate(openguard_kafka_offset_commit_duration_seconds_bucket[5m])) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka offset commit latency high"
+          description: "p99 offset commit duration > 500ms"
+

@@ -19,11 +19,12 @@ import (
 	"github.com/openguard/services/connector-registry/pkg/telemetry"
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/secrets"
+	shared_telemetry "github.com/openguard/shared/telemetry"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(shared_telemetry.NewSafeHandler(slog.NewJSONHandler(os.Stdout, nil)))
 	slog.SetDefault(logger)
 
 	// Initialize OpenTelemetry (INFRA-04)

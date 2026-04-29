@@ -50,9 +50,14 @@ func (h *Handler) ListScimUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := rls.WithOrgID(r.Context(), orgID)
+
+	startIndex := max(parseIntParam(r.URL.Query().Get("startIndex"), 1), 1)
+	count := min(parseIntParam(r.URL.Query().Get("count"), 100), 1000)
+	offset := startIndex - 1 // SCIM is 1-indexed
+
 	filter := r.URL.Query().Get("filter")
 
-	users, err := h.svc.ListUsers(ctx, orgID, filter)
+	users, total, err := h.svc.ListUsersPaginated(ctx, orgID, filter, offset, count)
 	if err != nil {
 		h.writeScimError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -65,8 +70,8 @@ func (h *Handler) ListScimUsers(w http.ResponseWriter, r *http.Request) {
 
 	h.writeJSON(w, http.StatusOK, scimListResponse{
 		Schemas:      []string{"urn:ietf:params:scim:api:messages:2.0:ListResponse"},
-		TotalResults: len(scimUsers),
-		StartIndex:   1,
+		TotalResults: total,
+		StartIndex:   startIndex,
 		ItemsPerPage: len(scimUsers),
 		Resources:    scimUsers,
 	})
@@ -203,4 +208,29 @@ func (h *Handler) writeScimError(w http.ResponseWriter, status int, scimType str
 		"detail":   detail,
 		"status":   fmt.Sprintf("%d", status),
 	})
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func parseIntParam(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	var res int
+	if _, err := fmt.Sscanf(s, "%d", &res); err != nil {
+		return def
+	}
+	return res
 }

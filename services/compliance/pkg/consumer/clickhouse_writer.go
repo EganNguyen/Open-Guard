@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/openguard/services/compliance/pkg/repository"
+	sharedkafka "github.com/openguard/shared/kafka"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -86,7 +87,9 @@ func (w *ClickHouseWriter) flush(ctx context.Context, messages []kafka.Message) 
 
 	if len(events) == 0 {
 		// Still commit so we don't re-process undecodable messages forever
+		commitStart := time.Now()
 		_ = w.reader.CommitMessages(ctx, messages...)
+		sharedkafka.OffsetCommitDuration.Observe(time.Since(commitStart).Seconds())
 		return
 	}
 
@@ -97,9 +100,11 @@ func (w *ClickHouseWriter) flush(ctx context.Context, messages []kafka.Message) 
 	}
 
 	// 2. Commit offsets ONLY after successful write
+	commitStart := time.Now()
 	if err := w.reader.CommitMessages(ctx, messages...); err != nil {
 		w.logger.Error("offset commit failed after successful ingest", "error", err)
 	}
+	sharedkafka.OffsetCommitDuration.Observe(time.Since(commitStart).Seconds())
 }
 
 func getEnvInt(key string, fallback int) int {

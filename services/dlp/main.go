@@ -19,12 +19,13 @@ import (
 	"github.com/openguard/services/dlp/pkg/router"
 	"github.com/openguard/services/dlp/pkg/telemetry"
 	"github.com/openguard/shared/crypto"
+	shared_telemetry "github.com/openguard/shared/telemetry"
 	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(shared_telemetry.NewSafeHandler(slog.NewJSONHandler(os.Stdout, nil)))
 
 	// Initialize OpenTelemetry (INFRA-04)
 	tp, err := telemetry.InitTracer()

@@ -29,11 +29,12 @@ import (
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/kafka/outbox"
 	"github.com/openguard/shared/secrets"
+	shared_telemetry "github.com/openguard/shared/telemetry"
 )
 
 func main() {
 	// Initialize slog (R-13)
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "iam")
+	logger := slog.New(shared_telemetry.NewSafeHandler(slog.NewJSONHandler(os.Stdout, nil))).With("service", "iam")
 	slog.SetDefault(logger)
 
 	// Initialize OpenTelemetry
@@ -168,7 +169,7 @@ func main() {
 	kp := kafka.NewPublisher([]string{brokers})
 	defer kp.Close()
 
-	relayLogger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("component", "outbox-relay")
+	relayLogger := slog.New(shared_telemetry.NewSafeHandler(slog.NewJSONHandler(os.Stdout, nil))).With("component", "outbox-relay")
 	relay := outbox.NewRelay(pool, kp, "outbox_records", 5*time.Second, relayLogger)
 
 	// Start Outbox Relay in background

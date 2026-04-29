@@ -23,13 +23,14 @@ import (
 	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/kafka/outbox"
 	"github.com/openguard/shared/secrets"
+	"github.com/openguard/shared/telemetry"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+	logger := slog.New(telemetry.NewSafeHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
-	})).With("service", "policy")
+	}))).With("service", "policy")
 	slog.SetDefault(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

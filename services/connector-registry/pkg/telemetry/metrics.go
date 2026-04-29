@@ -7,7 +7,7 @@ import (
 
 var (
 	ConnectorOperations = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "connector_operations_total",
+		Name: "openguard_connector_auth_total",
 		Help: "Total operations on connectors",
 	}, []string{"operation", "status"})
 )

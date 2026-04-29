@@ -51,12 +51,6 @@ func APIKeyAuth(expectedKey string) func(http.Handler) http.Handler {
 				return
 			}
 
-			// For internal calls, we trust the org ID header if the internal key is valid.
-			if orgID := r.Header.Get("X-OpenGuard-Org-ID"); orgID != "" {
-				ctx := context.WithValue(r.Context(), OrgIDKey, orgID)
-				r = r.WithContext(ctx)
-			}
-
 			next.ServeHTTP(w, r)
 		})
 	}

@@ -7,7 +7,12 @@ import (
 
 var (
 	OperationsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "compliance_operations_total",
+		Name: "openguard_compliance_operations_total",
 		Help: "Total operations for compliance",
 	}, []string{"operation", "status"})
+
+	BulkheadRejected = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "openguard_report_bulkhead_rejected_total",
+		Help: "Total number of reports rejected by the bulkhead",
+	})
 )

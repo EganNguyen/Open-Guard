@@ -23,6 +23,7 @@ import (
 	"github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/resilience"
 	"github.com/openguard/shared/secrets"
+	shared_telemetry "github.com/openguard/shared/telemetry"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -31,7 +32,7 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "audit")
+	logger := slog.New(shared_telemetry.NewSafeHandler(slog.NewJSONHandler(os.Stdout, nil))).With("service", "audit")
 	slog.SetDefault(logger)
 
 	// Initialize OpenTelemetry (INFRA-04)

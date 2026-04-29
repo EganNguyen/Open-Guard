@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"time"
 
 	"github.com/openguard/services/dlp/pkg/repository"
 	"github.com/openguard/services/dlp/pkg/scanner"
+	sharedkafka "github.com/openguard/shared/kafka"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -62,7 +64,9 @@ func (c *Consumer) Start(ctx context.Context) error {
 		var event DLPEvent
 		if err := json.Unmarshal(msg.Value, &event); err != nil {
 			c.logger.Error("failed to unmarshal event", "error", err)
+			commitStart := time.Now()
 			c.reader.CommitMessages(ctx, msg)
+			sharedkafka.OffsetCommitDuration.Observe(time.Since(commitStart).Seconds())
 			continue
 		}
 
@@ -74,18 +78,22 @@ func (c *Consumer) Start(ctx context.Context) error {
 				c.logger.Error("DLP consumer exceeded max consecutive failures, sending to DLQ",
 					"event_id", event.EventID)
 				c.sendToDLQ(ctx, msg)
+				commitStart := time.Now()
 				if err := c.reader.CommitMessages(ctx, msg); err != nil {
 					c.logger.Error("DLQ commit failed", "error", err)
 				}
+				sharedkafka.OffsetCommitDuration.Observe(time.Since(commitStart).Seconds())
 				c.consecutiveFailures = 0
 			}
 			continue
 		}
 
 		c.consecutiveFailures = 0
+		commitStart := time.Now()
 		if err := c.reader.CommitMessages(ctx, msg); err != nil {
 			c.logger.Error("failed to commit message", "error", err)
 		}
+		sharedkafka.OffsetCommitDuration.Observe(time.Since(commitStart).Seconds())
 	}
 }
 

@@ -20,12 +20,13 @@ import (
 	"github.com/openguard/shared/crypto"
 	sharedkafka "github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/secrets"
+	shared_telemetry "github.com/openguard/shared/telemetry"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(shared_telemetry.NewSafeHandler(slog.NewJSONHandler(os.Stdout, nil)))
 
 	// Initialize OpenTelemetry
 	tp, err := telemetry.InitTracer()

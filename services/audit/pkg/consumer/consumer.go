@@ -16,6 +16,7 @@ import (
 
 	"github.com/openguard/services/audit/pkg/telemetry"
 	"github.com/segmentio/kafka-go"
+	sharedkafka "github.com/openguard/shared/kafka"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -261,9 +262,11 @@ func (c *AuditConsumer) flush(ctx context.Context, batch []kafka.Message) {
 	telemetry.KafkaBulkInsertSize.Observe(float64(len(interfaceEvents)))
 
 	// 5. Commit offsets after successful write
+	commitStart := time.Now()
 	if err := c.reader.CommitMessages(ctx, batch...); err != nil {
 		c.logger.Error("offset commit failed", "error", err)
 	}
+	sharedkafka.OffsetCommitDuration.Observe(time.Since(commitStart).Seconds())
 
 	telemetry.BatchFlushDuration.WithLabelValues("success").Observe(time.Since(start).Seconds())
 }

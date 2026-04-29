@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"time"
 
 	"github.com/google/uuid"
 	"context"
@@ -99,49 +98,128 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
+
+	grantType := r.Form.Get("grant_type")
+	if grantType == "" {
+		grantType = "authorization_code" // Default for backward compatibility
+	}
+
+	switch grantType {
+	case "authorization_code":
+		h.handleAuthCodeGrant(w, r)
+	case "refresh_token":
+		h.handleRefreshTokenGrant(w, r)
+	case "password":
+		h.handlePasswordGrant(w, r)
+	default:
+		http.Error(w, "unsupported_grant_type", http.StatusBadRequest)
+	}
+}
+
+func (h *Handler) handleAuthCodeGrant(w http.ResponseWriter, r *http.Request) {
 	clientID := r.Form.Get("client_id")
 	if clientID == "" {
 		clientID, _, _ = r.BasicAuth()
 	}
-		code := r.Form.Get("code")
-		codeVerifier := r.Form.Get("code_verifier")
+	code := r.Form.Get("code")
+	codeVerifier := r.Form.Get("code_verifier")
 
-		if clientID == "" || code == "" || codeVerifier == "" {
-			http.Error(w, "missing client_id, code, or code_verifier", http.StatusBadRequest)
-			return
-		}
+	if clientID == "" || code == "" || codeVerifier == "" {
+		http.Error(w, "missing client_id, code, or code_verifier", http.StatusBadRequest)
+		return
+	}
 
-		_, err = h.svc.GetConnector(r.Context(), clientID)
-		if err != nil {
-			http.Error(w, "invalid client_id", http.StatusUnauthorized)
-			return
-		}
-
-		// Verify the 'code' from Redis (R-03)
-		orgID, userID, storedChallenge, err := h.svc.GetAuthCode(r.Context(), code)
-		if err != nil {
-			http.Error(w, "invalid or expired code", http.StatusUnauthorized)
-			return
-		}
-
-		// PKCE Verification
-		h256 := sha256.Sum256([]byte(codeVerifier))
-		computed := base64.RawURLEncoding.EncodeToString(h256[:])
-		if subtle.ConstantTimeCompare([]byte(computed), []byte(storedChallenge)) != 1 {
-			http.Error(w, "invalid code_verifier", http.StatusUnauthorized)
-			return
-		}
-
-	token, err := h.svc.SignToken(orgID, userID, "oauth-jti-"+uuid.New().String(), 1*time.Hour)
+	_, err := h.svc.GetConnector(r.Context(), clientID)
 	if err != nil {
-		http.Error(w, "failed to sign token", http.StatusInternalServerError)
+		http.Error(w, "invalid client_id", http.StatusUnauthorized)
+		return
+	}
+
+	// Verify the 'code' from Redis (R-03)
+	orgID, userID, storedChallenge, err := h.svc.GetAuthCode(r.Context(), code)
+	if err != nil {
+		http.Error(w, "invalid or expired code", http.StatusUnauthorized)
+		return
+	}
+
+	// PKCE Verification
+	h256 := sha256.Sum256([]byte(codeVerifier))
+	computed := base64.RawURLEncoding.EncodeToString(h256[:])
+	if subtle.ConstantTimeCompare([]byte(computed), []byte(storedChallenge)) != 1 {
+		http.Error(w, "invalid code_verifier", http.StatusUnauthorized)
+		return
+	}
+
+	res, err := h.svc.IssueTokens(r.Context(), orgID, userID, r.UserAgent(), r.RemoteAddr, uuid.New())
+	if err != nil {
+		http.Error(w, "failed to issue tokens", http.StatusInternalServerError)
 		return
 	}
 
 	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"access_token": token,
-		"token_type":   "Bearer",
-		"expires_in":   3600,
+		"access_token":  res["access_token"],
+		"refresh_token": res["refresh_token"],
+		"token_type":    "Bearer",
+		"expires_in":    res["expires_in"],
+	})
+}
+
+func (h *Handler) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request) {
+	refreshToken := r.Form.Get("refresh_token")
+	if refreshToken == "" {
+		http.Error(w, "missing refresh_token", http.StatusBadRequest)
+		return
+	}
+
+	res, err := h.svc.RefreshToken(r.Context(), refreshToken, r.UserAgent(), r.RemoteAddr)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"access_token":  res["access_token"],
+		"refresh_token": res["refresh_token"],
+		"token_type":    "Bearer",
+		"expires_in":    res["expires_in"],
+	})
+}
+
+func (h *Handler) handlePasswordGrant(w http.ResponseWriter, r *http.Request) {
+	email := r.Form.Get("username")
+	password := r.Form.Get("password")
+
+	if email == "" || password == "" {
+		http.Error(w, "missing username or password", http.StatusBadRequest)
+		return
+	}
+
+	user, _, err := h.svc.Login(r.Context(), email, password, r.UserAgent(), r.RemoteAddr)
+	if err != nil {
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	if mfa, ok := user["mfa_required"].(bool); ok && mfa {
+		h.writeJSON(w, http.StatusForbidden, map[string]interface{}{
+			"error":         "mfa_required",
+			"mfa_challenge": user["mfa_challenge"],
+		})
+		return
+	}
+
+	// Issue full tokens (Access + Refresh)
+	res, err := h.svc.IssueTokens(r.Context(), user["org_id"].(string), user["id"].(string), r.UserAgent(), r.RemoteAddr, uuid.New())
+	if err != nil {
+		http.Error(w, "failed to issue tokens", http.StatusInternalServerError)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"access_token":  res["access_token"],
+		"refresh_token": res["refresh_token"],
+		"token_type":    "Bearer",
+		"expires_in":    res["expires_in"],
 	})
 }
 

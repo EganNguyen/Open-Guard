@@ -637,6 +637,128 @@ func (r *Repository) ListUsers(ctx context.Context, orgID string, filter string)
 	return users, err
 }
 
+func (r *Repository) ListUsersPaginated(ctx context.Context, orgID string, filter string, offset, limit int) ([]map[string]interface{}, int, error) {
+	var users []map[string]interface{}
+	var total int
+
+	isSystem := orgID == "00000000-0000-0000-0000-000000000000"
+
+	if isSystem {
+		conn, err := r.pool.Acquire(ctx)
+		if err != nil {
+			return nil, 0, err
+		}
+		defer conn.Release()
+
+		_, err = conn.Exec(ctx, "SET ROLE openguard_login")
+		if err != nil {
+			return nil, 0, fmt.Errorf("set login role: %w", err)
+		}
+		defer func() { _, _ = conn.Exec(ctx, "RESET ROLE") }()
+
+		baseQuery := `FROM users`
+		whereClause := ""
+		var args []interface{}
+
+		if filter != "" {
+			if strings.Contains(filter, `userName eq "`) {
+				email := strings.Split(strings.Split(filter, `userName eq "`)[1], `"`)[0]
+				whereClause = ` WHERE email = $1`
+				args = append(args, email)
+			}
+		}
+
+		err = conn.QueryRow(ctx, `SELECT COUNT(*) `+baseQuery+whereClause, args...).Scan(&total)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		query := `SELECT id, org_id, email, display_name, role, status, scim_external_id, version, created_at, updated_at ` + baseQuery + whereClause + ` ORDER BY created_at OFFSET $` + fmt.Sprint(len(args)+1) + ` LIMIT $` + fmt.Sprint(len(args)+2)
+		args = append(args, offset, limit)
+
+		rows, err := conn.Query(ctx, query, args...)
+		if err != nil {
+			return nil, 0, err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var id, orgIDStr, email, name, role, status string
+			var externalID *string
+			var version int
+			var created, updated time.Time
+			if err := rows.Scan(&id, &orgIDStr, &email, &name, &role, &status, &externalID, &version, &created, &updated); err != nil {
+				return nil, 0, err
+			}
+			users = append(users, map[string]interface{}{
+				"id":               id,
+				"org_id":           orgIDStr,
+				"email":            email,
+				"display_name":     name,
+				"role":             role,
+				"status":           status,
+				"scim_external_id": externalID,
+				"version":          version,
+				"created_at":       created,
+				"updated_at":       updated,
+			})
+		}
+		return users, total, nil
+	}
+
+	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		baseQuery := `FROM users WHERE org_id = $1`
+		args := []interface{}{orgID}
+
+		if filter != "" {
+			if strings.Contains(filter, `userName eq "`) {
+				email := strings.Split(strings.Split(filter, `userName eq "`)[1], `"`)[0]
+				baseQuery += ` AND email = $2`
+				args = append(args, email)
+			}
+		}
+
+		err := conn.QueryRow(ctx, `SELECT COUNT(*) `+baseQuery, args...).Scan(&total)
+		if err != nil {
+			return err
+		}
+
+		query := `SELECT id, org_id, email, display_name, role, status, scim_external_id, version, created_at, updated_at ` + baseQuery + ` ORDER BY created_at OFFSET $` + fmt.Sprint(len(args)+1) + ` LIMIT $` + fmt.Sprint(len(args)+2)
+		args = append(args, offset, limit)
+
+		rows, err := conn.Query(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var id, orgIDStr, email, name, role, status string
+			var externalID *string
+			var version int
+			var created, updated time.Time
+			if err := rows.Scan(&id, &orgIDStr, &email, &name, &role, &status, &externalID, &version, &created, &updated); err != nil {
+				return err
+			}
+			users = append(users, map[string]interface{}{
+				"id":               id,
+				"org_id":           orgIDStr,
+				"email":            email,
+				"display_name":     name,
+				"role":             role,
+				"status":           status,
+				"scim_external_id": externalID,
+				"version":          version,
+				"created_at":       created,
+				"updated_at":       updated,
+			})
+		}
+		return nil
+	})
+
+	return users, total, err
+}
+
 func (r *Repository) GetUserByExternalID(ctx context.Context, orgID, externalID string) (map[string]interface{}, error) {
 	return r.getUser(ctx, "org_id = $1 AND scim_external_id = $2", orgID, externalID)
 }

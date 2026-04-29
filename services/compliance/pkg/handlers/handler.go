@@ -21,6 +21,7 @@ import (
 
 	"github.com/openguard/services/compliance/pkg/repository"
 	"github.com/openguard/services/compliance/pkg/storage"
+	"github.com/openguard/services/compliance/pkg/telemetry"
 	"github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/resilience"
 )
@@ -145,6 +146,7 @@ func (h *ComplianceHandler) CreateReport(w http.ResponseWriter, r *http.Request)
 
 	if err != nil {
 		if err == resilience.ErrBulkheadFull {
+			telemetry.BulkheadRejected.Inc()
 			w.Header().Set("Retry-After", "30")
 			http.Error(w, "Bulkhead full, try again later", http.StatusTooManyRequests)
 			return

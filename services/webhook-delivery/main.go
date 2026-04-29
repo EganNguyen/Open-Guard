@@ -18,10 +18,11 @@ import (
 	"github.com/openguard/services/webhook-delivery/pkg/router"
 	"github.com/openguard/services/webhook-delivery/pkg/telemetry"
 	"github.com/openguard/shared/kafka"
+	shared_telemetry "github.com/openguard/shared/telemetry"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(shared_telemetry.NewSafeHandler(slog.NewJSONHandler(os.Stdout, nil)))
 
 	// Initialize OpenTelemetry (INFRA-04)
 	tp, err := telemetry.InitTracer()

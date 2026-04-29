@@ -227,6 +227,10 @@ func (s *Service) ListUsers(ctx context.Context, orgID string, filter string) ([
 	return s.repo.ListUsers(ctx, orgID, filter)
 }
 
+func (s *Service) ListUsersPaginated(ctx context.Context, orgID string, filter string, offset, limit int) ([]map[string]interface{}, int, error) {
+	return s.repo.ListUsersPaginated(ctx, orgID, filter, offset, limit)
+}
+
 func (s *Service) GetConnector(ctx context.Context, id string) (map[string]interface{}, error) {
 	return s.repo.GetConnectorByID(ctx, id)
 }

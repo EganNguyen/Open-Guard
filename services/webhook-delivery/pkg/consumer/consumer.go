@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/openguard/services/webhook-delivery/pkg/repository"
+	sharedkafka "github.com/openguard/shared/kafka"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -98,9 +99,11 @@ func (c *WebhookConsumer) Start(ctx context.Context) error {
 				c.logger.Error("message processing failed after all retries", "error", err)
 			}
 
+			commitStart := time.Now()
 			if err := c.reader.CommitMessages(ctx, msg); err != nil {
 				c.logger.Error("failed to commit offset", "error", err)
 			}
+			sharedkafka.OffsetCommitDuration.Observe(time.Since(commitStart).Seconds())
 		}(m)
 	}
 }

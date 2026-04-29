@@ -7,6 +7,8 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
+    "e2e": "playwright test",
+    "e2e:ci": "playwright test --reporter=github",
     "lint": "prettier --check .",
     "format": "prettier --write .",
     "serve:ssr:web": "node dist/web/server/server.mjs"
@@ -34,6 +36,7 @@
     "@angular/build": "^21.2.7",
     "@angular/cli": "^21.2.7",
     "@angular/compiler-cli": "^21.2.0",
+    "@playwright/test": "^1.59.1",
     "@types/express": "^5.0.1",
     "@types/node": "^20.17.19",
     "autoprefixer": "^10.4.17",

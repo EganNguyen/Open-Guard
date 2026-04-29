@@ -30,7 +30,13 @@ export class LoginComponent implements OnInit {
   mfaChallenge = signal<string | null>(null);
   mfaCode = signal('');
 
-  oauthParams: any = null;
+  oauthParams: {
+    client_id: string;
+    redirect_uri: string;
+    state?: string;
+    code_challenge?: string;
+    code_challenge_method?: string;
+  } | null = null;
 
   ngOnInit() {
     this.route.queryParams.subscribe((params) => {
@@ -39,6 +45,8 @@ export class LoginComponent implements OnInit {
           client_id: params['client_id'],
           redirect_uri: params['redirect_uri'],
           state: params['state'],
+          code_challenge: params['code_challenge'],
+          code_challenge_method: params['code_challenge_method'],
         };
       }
     });
@@ -53,7 +61,7 @@ export class LoginComponent implements OnInit {
       this.isLoading.set(true);
       this.errorMessage.set(null);
 
-      this.authService.login(this.loginForm.value as any, this.oauthParams).subscribe({
+      this.authService.login(this.loginForm.value as any, this.oauthParams ?? undefined).subscribe({
         next: (res) => {
           if (res.mfa_required) {
             this.mfaRequired.set(true);
@@ -72,7 +80,7 @@ export class LoginComponent implements OnInit {
   onMfaSubmit(): void {
     if (this.mfaCode().length === 6) {
       this.isLoading.set(true);
-      this.authService.verifyMfa(this.mfaChallenge()!, this.mfaCode(), this.oauthParams).subscribe({
+      this.authService.verifyMfa(this.mfaChallenge()!, this.mfaCode(), this.oauthParams ?? undefined).subscribe({
         error: (err) => {
           this.errorMessage.set(err.message || 'MFA verification failed');
           this.isLoading.set(false);
