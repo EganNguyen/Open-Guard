@@ -171,3 +171,8 @@ public-url:
 	@echo "🌐 Public URL is: https://openguard-dev.instatunnel.io"
 
 
+
+.PHONY: index
+index:
+	@echo "Generating ctags for AI fast navigation..."
+	@ctags -R --exclude=.git --exclude=node_modules --exclude=web/dist .
