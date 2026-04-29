@@ -123,13 +123,13 @@ func NewRouter(ctx context.Context, h *handlers.Handler, keyring []crypto.JWTKey
 		})
 
 		r.Route("/saml", func(r chi.Router) {
-			//r.Get("/metadata", h.SAMLMetadata)
-			//r.Post("/acs", h.SAMLAssertionConsumerService)
+			r.Get("/metadata", h.SAMLMetadata)
+			r.Post("/acs", h.SAMLAssertionConsumerService)
 
 			r.Group(func(r chi.Router) {
 				r.Use(authMiddleware)
-				//r.Post("/providers", h.CreateSAMLProvider)
-				//r.Get("/providers", h.ListSAMLProviders)
+				r.Post("/providers", h.CreateSAMLProvider)
+				r.Get("/providers", h.ListSAMLProviders)
 			})
 		})
 	})

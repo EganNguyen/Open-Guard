@@ -9,6 +9,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	iam_repo "github.com/openguard/services/iam/pkg/repository"
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/resilience"
 	"github.com/redis/go-redis/v9"
@@ -70,6 +71,10 @@ type Repository interface {
 	GetUserByExternalID(ctx context.Context, orgID, externalID string) (map[string]interface{}, error)
 	SaveWebAuthnCredential(ctx context.Context, orgID, userID string, cred map[string]interface{}) error
 	ListWebAuthnCredentials(ctx context.Context, userID string) ([]map[string]interface{}, error)
+	UpsertSAMLProvider(ctx context.Context, orgID string, p *iam_repo.SAMLProvider) (*iam_repo.SAMLProvider, error)
+	GetSAMLProvider(ctx context.Context, orgID string) (*iam_repo.SAMLProvider, error)
+	ListSAMLProviders(ctx context.Context, orgID string) ([]*iam_repo.SAMLProvider, error)
+
 }
 
 // Service handles business logic for the IAM service.
