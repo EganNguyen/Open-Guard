@@ -30,6 +30,7 @@ type WebhookConsumer struct {
 	publisher  KafkaPublisher
 	repository *repository.Repository
 	logger     *slog.Logger
+	backoff    BackoffFunc
 }
 
 func DefaultBackoff(i int) time.Duration {
@@ -63,6 +64,7 @@ func NewWebhookConsumer(brokers string, groupID string, topic string, d Delivere
 		publisher:  pub,
 		repository: repo,
 		logger:     logger,
+		backoff:    DefaultBackoff,
 	}
 }
 
@@ -142,7 +144,10 @@ func (c *WebhookConsumer) processMessage(ctx context.Context, m kafka.Message) e
 		lastErr = err
 		c.logger.Warn("webhook delivery attempt failed", "attempt", i+1, "target", req.Target, "error", err)
 
-		backoff := DefaultBackoff(i)
+		backoff := c.backoff(i)
+		if backoff == 0 {
+			backoff = DefaultBackoff(i)
+		}
 
 		if c.repository != nil && deliveryID != "" {
 			nextRetry := time.Now().Add(backoff)

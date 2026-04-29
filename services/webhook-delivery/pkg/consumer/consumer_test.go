@@ -55,7 +55,7 @@ func TestWebhookConsumer_ProcessMessage_DLQ(t *testing.T) {
 		deliverer:  mockDeliverer,
 		publisher:  mockPublisher,
 		logger:     logger,
-		getBackoff: func(int) time.Duration { return 0 }, // Instant retry for test
+		backoff:    func(int) time.Duration { return 0 }, // Instant retry for test
 	}
 
 	ctx := context.Background()
