@@ -27,7 +27,7 @@ var (
 func TestMain(m *testing.M) {
 	// 1. Start Infrastructure
 	fmt.Println("Starting infrastructure via Docker Compose...")
-	cmd := exec.Command("docker", "compose", "-f", "../../infra/docker/docker-compose.yml", "up", "-d")
+	cmd := exec.Command("docker", "compose", "-f", "../../infra/docker/docker-compose.yml", "--env-file", "../../infra/docker/.env", "up", "-d")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
