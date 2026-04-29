@@ -86,7 +86,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	r := router.NewRouter(h, keyring, rdb)
+	// Graceful shutdown channel
+	stopCh := make(chan struct{})
+
+	r := router.NewRouter(h, keyring, rdb, stopCh)
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────
 	port := os.Getenv("PORT")
@@ -133,6 +136,7 @@ func main() {
 	}()
 
 	<-ctx.Done()
+	close(stopCh)
 	logger.Info("shutting down connector-registry")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

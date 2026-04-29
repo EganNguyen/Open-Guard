@@ -156,6 +156,11 @@ func main() {
 	}
 	authMiddleware := middleware.AuthJWTWithBlocklist(keyring, rdb, breaker)
 
+	// ── Rate Limiter ─────────────────────────────────────────────────────────
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	rateLimiter := middleware.NewRateLimiter(rdb, 1000, 2000, stopCh)
+
 	// ── HTTP Server (Health + Read API) ──────────────────────────────────────
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -172,10 +177,10 @@ func main() {
 	})
 
 	mux.HandleFunc("/v1/events/stream", func(w http.ResponseWriter, r *http.Request) {
-		authMiddleware(http.HandlerFunc(sseH.StreamEvents)).ServeHTTP(w, r)
+		rateLimiter.Limit(authMiddleware(http.HandlerFunc(sseH.StreamEvents))).ServeHTTP(w, r)
 	})
 	mux.HandleFunc("/v1/events", func(w http.ResponseWriter, r *http.Request) {
-		authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rateLimiter.Limit(authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			events, err := readRepo.FindEvents(r.Context(), nil, 50, 0)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -183,7 +188,7 @@ func main() {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{"events": events})
-		})).ServeHTTP(w, r)
+		}))).ServeHTTP(w, r)
 	})
 
 	var tlsConfig *tls.Config

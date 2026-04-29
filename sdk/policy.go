@@ -16,10 +16,10 @@ type EvaluationResponse struct {
 	Reason  string `json:"reason"`
 }
 
-func (c *Client) Allow(ctx context.Context, subjectID, action, resource string) (bool, error) {
-	cacheKey := fmt.Sprintf("%s:%s:%s", subjectID, action, resource)
-
-	// Check cache — including grace period (stale-while-unavailable)
+	func (c *Client) Allow(ctx context.Context, subjectID, action, resource string) (bool, error) {
+		cacheKey := fmt.Sprintf("%s:%s:%s:%s", c.orgID, subjectID, action, resource)
+	
+		// Check cache — including grace period (stale-while-unavailable)
 	if val, ok := c.cache.GetOrStale(cacheKey); ok {
 		return val, nil
 	}

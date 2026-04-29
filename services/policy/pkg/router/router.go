@@ -12,11 +12,12 @@ import (
 	"github.com/openguard/shared/crypto"
 	shared_middleware "github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/resilience"
+	"golang.org/x/time/rate"
 )
 
 // NewRouter wires up the chi router for the policy service.
 // Route paths match exactly what the control-plane expects per spec §11.5.
-func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) *chi.Mux {
+func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, stop <-chan struct{}) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -31,16 +32,19 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) 
 	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/health", h.Health)
 
-	r.Route("/v1", func(r chi.Router) {
-		breaker := resilience.NewBreaker(resilience.BreakerConfig{
-			Name:             "policy-redis-blocklist",
-			MaxRequests:      5,
-			Interval:         10 * time.Second,
-			FailureThreshold: 3,
-			OpenDuration:     5 * time.Second,
-		}, nil)
+		r.Route("/v1", func(r chi.Router) {
+			breaker := resilience.NewBreaker(resilience.BreakerConfig{
+				Name:             "policy-redis-blocklist",
+				MaxRequests:      5,
+				Interval:         10 * time.Second,
+				FailureThreshold: 3,
+				OpenDuration:     5 * time.Second,
+			}, nil)
+			
+			rateLimiter := shared_middleware.NewRateLimiter(rdb, rate.Limit(1000), 2000, stop)
 
-		r.Use(shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker))
+			r.Use(rateLimiter.Limit)
+			r.Use(shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker))
 		idemMiddleware := shared_middleware.IdempotencyMiddleware(rdb)
 		r.Route("/policies", func(r chi.Router) {
 			r.Get("/", h.ListPolicies)

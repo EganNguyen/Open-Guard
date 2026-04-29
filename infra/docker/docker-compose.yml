@@ -150,6 +150,9 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server:23.3-alpine
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-default}
     ports:
       - "8123:8123"
       - "9000:9000"
@@ -433,6 +436,8 @@ services:
     ports: ["8088:8080"]
     environment:
       - CLICKHOUSE_ADDR=clickhouse:9000
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-default}
       - DATABASE_URL=${COMPLIANCE_DATABASE_URL:?COMPLIANCE_DATABASE_URL is required}
       - KAFKA_BROKERS=${KAFKA_BROKERS:?KAFKA_BROKERS is required}
       - JWT_KEYS=${JWT_KEYS:?JWT_KEYS is required}

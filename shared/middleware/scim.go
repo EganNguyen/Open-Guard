@@ -2,7 +2,10 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
+	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -61,4 +64,50 @@ func GetSCIMOrgID(ctx context.Context) string {
 		return id
 	}
 	return ""
+}
+
+// SCIMToken represents a single SCIM bearer token mapped to an org.
+type SCIMToken struct {
+	Token string `json:"token"`
+	OrgID string `json:"org_id"`
+}
+
+// staticSCIMValidator is a simple in-memory validator backed by a slice of SCIMTokens.
+// It is safe for concurrent use — the slice is read-only after construction.
+type staticSCIMValidator struct {
+	tokens []SCIMToken
+}
+
+func (v *staticSCIMValidator) ValidateSCIMToken(_ context.Context, token string) (string, error) {
+	for _, t := range v.tokens {
+		if t.Token == token {
+			return t.OrgID, nil
+		}
+	}
+	return "", errInvalidSCIMToken
+}
+
+var errInvalidSCIMToken = &scimTokenError{"invalid or unknown SCIM token"}
+
+type scimTokenError struct{ msg string }
+
+func (e *scimTokenError) Error() string { return e.msg }
+
+// LoadSCIMTokensFromEnv reads the SCIM_TOKENS environment variable (JSON array of
+// {"token":"...","org_id":"..."} objects) and returns a ready-to-use SCIMTokenValidator.
+// The process exits immediately if SCIM_TOKENS is set but cannot be parsed — this is
+// intentional fail-closed behaviour consistent with the rest of the security plane.
+func LoadSCIMTokensFromEnv() SCIMTokenValidator {
+	raw := os.Getenv("SCIM_TOKENS")
+	if raw == "" {
+		slog.Warn("SCIM_TOKENS not set; all SCIM requests will be rejected")
+		return &staticSCIMValidator{}
+	}
+	var tokens []SCIMToken
+	if err := json.Unmarshal([]byte(raw), &tokens); err != nil {
+		slog.Error("SCIM_TOKENS parse failed — cannot start with broken SCIM config", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("SCIM token validator loaded", "count", len(tokens))
+	return &staticSCIMValidator{tokens: tokens}
 }

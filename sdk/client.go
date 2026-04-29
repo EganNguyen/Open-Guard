@@ -47,6 +47,7 @@ func WithMTLS(caCertPath, clientCertPath, clientKeyPath string) ClientOption {
 type Client struct {
 	baseURL               string
 	apiKey                string
+	orgID                 string
 	httpClient            *http.Client
 	cache                 *localCache
 	failOpen              bool
@@ -54,6 +55,14 @@ type Client struct {
 	retryMax              int                       // 0 = no retry
 	retryDelay            time.Duration
 	useExponentialBackoff bool
+}
+
+// WithOrgID sets a specific tenant (org_id) context for this client instance.
+// This is required in multi-tenant environments to prevent policy cache collisions.
+func WithOrgID(orgID string) ClientOption {
+	return func(c *Client) {
+		c.orgID = orgID
+	}
 }
 
 type ClientOption func(*Client)

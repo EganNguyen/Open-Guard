@@ -913,10 +913,39 @@ func (s *Service) VerifyTOTP(ctx context.Context, userID, code string) (bool, er
 	return totp.Validate(code, string(secretBytes)), nil
 }
 
-func (s *Service) StoreAuthCode(ctx context.Context, code, orgID, userID string) error {
+func (s *Service) StoreAuthCode(ctx context.Context, code, orgID, userID, codeChallenge string) error {
 	if s.rdb == nil {
 		return fmt.Errorf("redis not configured")
 	}
+	data, _ := json.Marshal(map[string]string{
+		"org_id":         orgID,
+		"user_id":        userID,
+		"code_challenge": codeChallenge,
+	})
+	return s.rdb.Set(ctx, "auth_code:"+code, data, 10*time.Minute).Err()
+}
+
+func (s *Service) GetAuthCode(ctx context.Context, code string) (string, string, string, error) {
+	if s.rdb == nil {
+		return "", "", "", fmt.Errorf("redis not configured")
+	}
+	val, err := s.rdb.GetDel(ctx, "auth_code:"+code).Result()
+	if err != nil {
+		return "", "", "", err
+	}
+	
+	var data map[string]string
+	if err := json.Unmarshal([]byte(val), &data); err != nil {
+		// Fallback for old colon-separated data
+		parts := strings.Split(val, ":")
+		if len(parts) >= 2 {
+			return parts[0], parts[1], "", nil
+		}
+		return "", "", "", fmt.Errorf("invalid auth code data")
+	}
+	
+	return data["org_id"], data["user_id"], data["code_challenge"], nil
+}
 	data := fmt.Sprintf("%s:%s", orgID, userID)
 	return s.rdb.Set(ctx, "auth_code:"+code, data, 10*time.Minute).Err()
 }

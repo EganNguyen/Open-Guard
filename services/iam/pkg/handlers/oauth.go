@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,15 +13,26 @@ import (
 	"github.com/google/uuid"
 )
 
-func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
-	clientID := r.URL.Query().Get("client_id")
-	redirectURI := r.URL.Query().Get("redirect_uri")
-	state := r.URL.Query().Get("state")
+	func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
+		clientID := r.URL.Query().Get("client_id")
+		redirectURI := r.URL.Query().Get("redirect_uri")
+		state := r.URL.Query().Get("state")
+		codeChallenge := r.URL.Query().Get("code_challenge")
+		codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
 
-	if clientID == "" || redirectURI == "" {
-		http.Error(w, "missing client_id or redirect_uri", http.StatusBadRequest)
-		return
-	}
+		if clientID == "" || redirectURI == "" {
+			http.Error(w, "missing client_id or redirect_uri", http.StatusBadRequest)
+			return
+		}
+		
+		if codeChallenge == "" {
+			http.Error(w, "code_challenge required", http.StatusBadRequest)
+			return
+		}
+		if codeChallengeMethod != "S256" {
+			http.Error(w, "only S256 code_challenge_method supported", http.StatusBadRequest)
+			return
+		}
 
 	connector, err := h.svc.GetConnector(r.Context(), clientID)
 	if err != nil {
@@ -67,13 +81,15 @@ func (h *Handler) Authorize(w http.ResponseWriter, r *http.Request) {
 		dashboardURL = "http://localhost:4200"
 	}
 
-	loginURL := fmt.Sprintf("%s/login?client_id=%s&redirect_uri=%s&state=%s",
-		dashboardURL,
-		url.QueryEscape(clientID),
-		url.QueryEscape(redirectURI),
-		url.QueryEscape(state))
-	http.Redirect(w, r, loginURL, http.StatusFound)
-}
+		loginURL := fmt.Sprintf("%s/login?client_id=%s&redirect_uri=%s&state=%s&code_challenge=%s&code_challenge_method=%s",
+			dashboardURL,
+			url.QueryEscape(clientID),
+			url.QueryEscape(redirectURI),
+			url.QueryEscape(state),
+			url.QueryEscape(codeChallenge),
+			url.QueryEscape(codeChallengeMethod))
+		http.Redirect(w, r, loginURL, http.StatusFound)
+	}
 
 func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
@@ -85,25 +101,34 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 	if clientID == "" {
 		clientID, _, _ = r.BasicAuth()
 	}
-	code := r.Form.Get("code")
+		code := r.Form.Get("code")
+		codeVerifier := r.Form.Get("code_verifier")
 
-	if clientID == "" || code == "" {
-		http.Error(w, "missing client_id or code", http.StatusBadRequest)
-		return
-	}
+		if clientID == "" || code == "" || codeVerifier == "" {
+			http.Error(w, "missing client_id, code, or code_verifier", http.StatusBadRequest)
+			return
+		}
 
-	_, err = h.svc.GetConnector(r.Context(), clientID)
-	if err != nil {
-		http.Error(w, "invalid client_id", http.StatusUnauthorized)
-		return
-	}
+		_, err = h.svc.GetConnector(r.Context(), clientID)
+		if err != nil {
+			http.Error(w, "invalid client_id", http.StatusUnauthorized)
+			return
+		}
 
-	// Verify the 'code' from Redis (R-03)
-	orgID, userID, err := h.svc.GetAuthCode(r.Context(), code)
-	if err != nil {
-		http.Error(w, "invalid or expired code", http.StatusUnauthorized)
-		return
-	}
+		// Verify the 'code' from Redis (R-03)
+		orgID, userID, storedChallenge, err := h.svc.GetAuthCode(r.Context(), code)
+		if err != nil {
+			http.Error(w, "invalid or expired code", http.StatusUnauthorized)
+			return
+		}
+
+		// PKCE Verification
+		h256 := sha256.Sum256([]byte(codeVerifier))
+		computed := base64.RawURLEncoding.EncodeToString(h256[:])
+		if subtle.ConstantTimeCompare([]byte(computed), []byte(storedChallenge)) != 1 {
+			http.Error(w, "invalid code_verifier", http.StatusUnauthorized)
+			return
+		}
 
 	token, err := h.svc.SignToken(orgID, userID, "oauth-jti-"+uuid.New().String(), 1*time.Hour)
 	if err != nil {

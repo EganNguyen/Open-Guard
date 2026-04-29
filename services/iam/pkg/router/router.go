@@ -78,7 +78,7 @@ func NewRouter(ctx context.Context, h *handlers.Handler, keyring []crypto.JWTKey
 		r.Post("/users/mfa/totp/enable", h.TOTPEnable)
 	})
 
-	authRateLimiter := iam_middleware.NewRateLimiter(rdb, rate.Limit(1), 5, stop) // 1 req/sec, burst 5
+	authRateLimiter := shared_middleware.NewRateLimiter(rdb, rate.Limit(1), 5, stop) // 1 req/sec, burst 5
 	r.Route("/auth", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
 			r.Use(authRateLimiter.Limit)
@@ -98,7 +98,11 @@ func NewRouter(ctx context.Context, h *handlers.Handler, keyring []crypto.JWTKey
 		r.Get("/authorize", h.Authorize)
 		r.With(idemMiddleware).Post("/token", h.Token)
 
-		r.Route("/scim/v2", func(r chi.Router) {
+	scimTokens := shared_middleware.LoadSCIMTokensFromEnv()
+	scimMiddleware := shared_middleware.SCIMAuth(scimTokens)
+
+	r.Route("/scim/v2", func(r chi.Router) {
+			r.Use(scimMiddleware)
 			r.Use(idemMiddleware)
 			r.Get("/Users", h.ListScimUsers)
 			r.Post("/Users", h.PostScimUser)

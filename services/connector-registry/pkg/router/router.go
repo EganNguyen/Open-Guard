@@ -10,9 +10,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"time"
+	"golang.org/x/time/rate"
 )
 
-func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) *chi.Mux {
+func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, stop <-chan struct{}) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -32,7 +33,11 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client) 
 		OpenDuration:     5 * time.Second,
 	}, nil)
 
+	// Ingest endpoints need 20,000 req/s. We will use a reasonably high limit per IP for public endpoints.
+	rateLimiter := shared_middleware.NewRateLimiter(rdb, rate.Limit(1000), 2000, stop)
+
 	r.Route("/v1/connectors", func(r chi.Router) {
+		r.Use(rateLimiter.Limit)
 		r.Use(shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker))
 		idemMiddleware := shared_middleware.IdempotencyMiddleware(rdb)
 		r.With(idemMiddleware).Post("/", h.Register)

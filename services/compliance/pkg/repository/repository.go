@@ -46,9 +46,9 @@ func NewRepository(chAddr string, pgPool *pgxpool.Pool) (*Repository, error) {
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{chAddr},
 		Auth: clickhouse.Auth{
-			Database: "default",
-			Username: "default",
-			Password: "",
+			Database: getEnvOrDefault("CLICKHOUSE_DB", "default"),
+			Username: getEnvOrDefault("CLICKHOUSE_USER", "default"),
+			Password: os.Getenv("CLICKHOUSE_PASSWORD"), // Must be non-empty in production
 		},
 	})
 	if err != nil {

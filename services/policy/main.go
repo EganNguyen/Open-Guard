@@ -138,7 +138,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	r := router.NewRouter(h, keyring, rdb)
+	stopCh := make(chan struct{})
+
+	r := router.NewRouter(h, keyring, rdb, stopCh)
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────
 	port := os.Getenv("PORT")
@@ -185,6 +187,7 @@ func main() {
 	}()
 
 	<-ctx.Done()
+	close(stopCh)
 	logger.Info("shutting down policy service")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

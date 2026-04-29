@@ -35,6 +35,14 @@ func NewProxy(targetURL string, cb *gobreaker.CircuitBreaker) http.HandlerFunc {
 	}
 	proxy := httputil.NewSingleHostReverseProxy(parsedURL)
 
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Header.Del("X-Org-ID")
+		req.Header.Del("X-Internal-Key")
+		req.Header.Del("X-OpenGuard-Org-ID")
+	}
+
 	// Default transport wrapped with circuit breaker
 	if cb != nil {
 		proxy.Transport = &CircuitBreakerTransport{

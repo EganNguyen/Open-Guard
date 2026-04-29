@@ -1,4 +1,4 @@
-import { Injectable, inject, NgZone } from '@angular/core';
+import { Injectable, inject, NgZone, signal } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { AuthService } from './auth.service';
@@ -12,6 +12,7 @@ export class SseService {
   private apiUrl = environment.apiUrl;
   private eventSource: EventSource | null = null;
   private eventSubject = new Subject<any>();
+  public connectionError = signal<string | null>(null);
 
   /**
    * Connects to the audit event stream for the current organization.
@@ -38,6 +39,7 @@ export class SseService {
 
     this.eventSource.onmessage = (event) => {
       this.zone.run(() => {
+        this.connectionError.set(null);
         try {
           const data = JSON.parse(event.data);
           this.eventSubject.next(data);
@@ -50,7 +52,7 @@ export class SseService {
     this.eventSource.onerror = (error) => {
       this.zone.run(() => {
         console.error('SseService: EventSource error', error);
-        this.eventSubject.error(error);
+        this.connectionError.set('Connection lost. Reconnecting...');
         // EventSource will automatically attempt reconnection by default.
       });
     };

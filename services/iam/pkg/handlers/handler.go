@@ -169,11 +169,12 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Email       string `json:"email"`
-		Password    string `json:"password"`
-		ClientID    string `json:"client_id"`
-		RedirectURI string `json:"redirect_uri"`
-		State       string `json:"state"`
+		Email         string `json:"email"`
+		Password      string `json:"password"`
+		ClientID      string `json:"client_id"`
+		RedirectURI   string `json:"redirect_uri"`
+		State         string `json:"state"`
+		CodeChallenge string `json:"code_challenge"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -186,9 +187,14 @@ func (h *Handler) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if body.CodeChallenge == "" {
+		http.Error(w, "code_challenge is required for OAuth login", http.StatusBadRequest)
+		return
+	}
+
 	// Generate auth code (R-03)
 	code := uuid.New().String()
-	err = h.svc.StoreAuthCode(r.Context(), code, user["org_id"].(string), user["id"].(string))
+	err = h.svc.StoreAuthCode(r.Context(), code, user["org_id"].(string), user["id"].(string), body.CodeChallenge)
 	if err != nil {
 		http.Error(w, "failed to store auth code", http.StatusInternalServerError)
 		return

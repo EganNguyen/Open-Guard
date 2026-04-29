@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/openguard/services/iam/pkg/service"
 	"github.com/openguard/shared/crypto"
+	shared_middleware "github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/rls"
 )
 
@@ -42,10 +43,16 @@ type scimListResponse struct {
 }
 
 func (h *Handler) ListScimUsers(w http.ResponseWriter, r *http.Request) {
-	orgID := r.Header.Get("X-Org-ID") // SCIM usually identifies org via URL or header
+	// org_id is derived from the validated SCIM bearer token — never from request headers.
+	orgID := shared_middleware.GetSCIMOrgID(r.Context())
+	if orgID == "" {
+		h.writeScimError(w, http.StatusUnauthorized, "unauthorized", "Missing SCIM context")
+		return
+	}
+	ctx := rls.WithOrgID(r.Context(), orgID)
 	filter := r.URL.Query().Get("filter")
 
-	users, err := h.svc.ListUsers(r.Context(), orgID, filter)
+	users, err := h.svc.ListUsers(ctx, orgID, filter)
 	if err != nil {
 		h.writeScimError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -66,9 +73,10 @@ func (h *Handler) ListScimUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) PostScimUser(w http.ResponseWriter, r *http.Request) {
-	orgID := r.Header.Get("X-Org-ID")
+	// org_id is derived from the validated SCIM bearer token — never from request headers.
+	orgID := shared_middleware.GetSCIMOrgID(r.Context())
 	if orgID == "" {
-		h.writeScimError(w, http.StatusUnauthorized, "unauthorized", "Missing X-Org-ID")
+		h.writeScimError(w, http.StatusUnauthorized, "unauthorized", "Missing SCIM context")
 		return
 	}
 	ctx := rls.WithOrgID(r.Context(), orgID)
@@ -115,7 +123,8 @@ func (h *Handler) PostScimUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetScimUser(w http.ResponseWriter, r *http.Request) {
-	orgID := r.Header.Get("X-Org-ID")
+	// org_id is derived from the validated SCIM bearer token — never from request headers.
+	orgID := shared_middleware.GetSCIMOrgID(r.Context())
 	ctx := rls.WithOrgID(r.Context(), orgID)
 	userID := chi.URLParam(r, "id")
 	user, err := h.svc.GetCurrentUser(ctx, userID)
@@ -128,7 +137,8 @@ func (h *Handler) GetScimUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteScimUser(w http.ResponseWriter, r *http.Request) {
-	orgID := r.Header.Get("X-Org-ID")
+	// org_id is derived from the validated SCIM bearer token — never from request headers.
+	orgID := shared_middleware.GetSCIMOrgID(r.Context())
 	ctx := rls.WithOrgID(r.Context(), orgID)
 	id := chi.URLParam(r, "id")
 	if err := h.svc.DeleteUser(ctx, id); err != nil {
@@ -139,7 +149,8 @@ func (h *Handler) DeleteScimUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) PatchScimUser(w http.ResponseWriter, r *http.Request) {
-	orgID := r.Header.Get("X-Org-ID")
+	// org_id is derived from the validated SCIM bearer token — never from request headers.
+	orgID := shared_middleware.GetSCIMOrgID(r.Context())
 	ctx := rls.WithOrgID(r.Context(), orgID)
 	id := chi.URLParam(r, "id")
 	var body struct {
