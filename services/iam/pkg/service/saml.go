@@ -32,7 +32,7 @@ func (s *Service) ListSAMLProviders(ctx context.Context, orgID string) ([]*iam_r
 // ProvisionOrGetSAMLUser looks up a user by their SAML NameID (external ID).
 // If none is found, a new user is provisioned with an empty password hash
 // (password login is disabled for SAML-federated users).
-func (s *Service) ProvisionOrGetSAMLUser(ctx context.Context, orgID, nameID, email, displayName string) (map[string]interface{}, error) {
+func (s *Service) ProvisionOrGetSAMLUser(ctx context.Context, orgID, nameID, email, displayName string) (*iam_repo.User, error) {
 	// Try to find by external ID first (idempotent re-entry on repeated SSO)
 	existing, err := s.repo.GetUserByExternalID(ctx, orgID, nameID)
 	if err == nil && existing != nil {
@@ -44,8 +44,7 @@ func (s *Service) ProvisionOrGetSAMLUser(ctx context.Context, orgID, nameID, ema
 		byEmail, err := s.repo.GetUserByEmail(ctx, email)
 		if err == nil && byEmail != nil {
 			// Wire the external SAML ID to the existing account
-			userID, _ := byEmail["id"].(string)
-			_ = s.repo.UpdateUserSCIM(ctx, userID, nameID, "active")
+			_ = s.repo.UpdateUserSCIM(ctx, byEmail.ID, nameID, "active")
 			return byEmail, nil
 		}
 	}

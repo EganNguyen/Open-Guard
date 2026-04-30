@@ -28,6 +28,11 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
+// Pool returns the underlying pgxpool.Pool.
+func (r *Repository) Pool() *pgxpool.Pool {
+	return r.pool
+}
+
 // BeginTx starts a new transaction.
 func (r *Repository) BeginTx(ctx context.Context) (pgx.Tx, error) {
 	return r.pool.Begin(ctx)
@@ -175,13 +180,13 @@ func (r *Repository) DeprovisionAllUsers(ctx context.Context, orgID string) erro
 		_, err := conn.Exec(ctx, `
 			UPDATE users SET status = 'deprovisioned', version = version + 1, updated_at = NOW()
 			WHERE org_id = $1
-		`)
+		`, orgID)
 		return err
 	})
 }
 
 // GetSessionByUserID returns the most recent active session for a user.
-func (r *Repository) GetSessionByUserID(ctx context.Context, userID string) (map[string]interface{}, error) {
+func (r *Repository) GetSessionByUserID(ctx context.Context, userID string) (*Session, error) {
 	orgID := rls.OrgID(ctx)
 	var jti, ua, ip string
 	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
@@ -197,14 +202,14 @@ func (r *Repository) GetSessionByUserID(ctx context.Context, userID string) (map
 		}
 		return nil, err
 	}
-	return map[string]interface{}{
-		"jti":        jti,
-		"user_agent": ua,
-		"ip_address": ip,
+	return &Session{
+		JTI:       jti,
+		UserAgent: ua,
+		IPAddress: ip,
 	}, nil
 }
 
-func (r *Repository) GetUserByEmail(ctx context.Context, email string) (map[string]interface{}, error) {
+func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	// 1. Initial lookup to get org_id (Login path)
 	// This uses a non-RLS query by setting the role to openguard_login
 	conn, err := r.pool.Acquire(ctx)
@@ -218,67 +223,48 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (map[stri
 		return nil, fmt.Errorf("set login role: %w", err)
 	}
 
-	var id, orgID, pwdHash, displayName, role, status string
-	var failedCount int
-	var lockedUntil *time.Time
+	var u User
 	err = conn.QueryRow(ctx, `
 		SELECT id, org_id, password_hash, display_name, role, status, failed_login_count, locked_until 
 		FROM users WHERE email = $1
-	`, email).Scan(&id, &orgID, &pwdHash, &displayName, &role, &status, &failedCount, &lockedUntil)
+	`, email).Scan(&u.ID, &u.OrgID, &u.PasswordHash, &u.DisplayName, &u.Role, &u.Status, &u.FailedLoginCount, &u.LockedUntil)
 
 	// Reset role back to default (openguard_app) before releasing
 	_, _ = conn.Exec(ctx, "RESET ROLE")
 
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 
-	return map[string]interface{}{
-		"id":                 id,
-		"org_id":             orgID,
-		"password_hash":      pwdHash,
-		"display_name":       displayName,
-		"role":               role,
-		"status":             status,
-		"email":              email,
-		"failed_login_count": failedCount,
-		"locked_until":       lockedUntil,
-	}, nil
+	u.Email = email
+	return &u, nil
 }
 
-func (r *Repository) GetUserByID(ctx context.Context, id string) (map[string]interface{}, error) {
+func (r *Repository) GetUserByID(ctx context.Context, id string) (*User, error) {
 	orgID := rls.OrgID(ctx)
-	var user = make(map[string]interface{})
-	var email, displayName, role, status string
-	var orgIDRes string
+	var u User
 
 	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		return conn.QueryRow(ctx, `
 			SELECT org_id, email, display_name, role, status FROM users WHERE id = $1
-		`, id).Scan(&orgIDRes, &email, &displayName, &role, &status)
+		`, id).Scan(&u.OrgID, &u.Email, &u.DisplayName, &u.Role, &u.Status)
 	})
 
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
-	user["id"] = id
-	user["org_id"] = orgIDRes
-	user["email"] = email
-	user["display_name"] = displayName
-	user["role"] = role
-	user["status"] = status
-	return user, nil
+	u.ID = id
+	return &u, nil
 }
+
 func (r *Repository) IncrementFailedLogin(ctx context.Context, email string) (int, error) {
 	var count int
-	// We use the login lookup pattern here if we don't have orgID.
-	// But IncrementFailedLogin is called after a failed login attempt.
-	// We might not have orgID in context.
-	// For simplicity and since this is a write to a specific user by email,
-	// we use the openguard_login role to bypass RLS for this specific update if needed,
-	// or we find the orgID first.
-	// Let's find the orgID first to stay consistent.
-
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
 		return 0, err
@@ -306,7 +292,6 @@ func (r *Repository) IncrementFailedLogin(ctx context.Context, email string) (in
 func (r *Repository) ResetFailedLogin(ctx context.Context, email string) error {
 	orgID := rls.OrgID(ctx)
 	if orgID == "" {
-		// If not in context, we need to find it (similar to above)
 		conn, err := r.pool.Acquire(ctx)
 		if err == nil {
 			_, _ = conn.Exec(ctx, "SET ROLE openguard_login")
@@ -345,9 +330,8 @@ func (r *Repository) LockAccount(ctx context.Context, email string, until time.T
 	})
 }
 
-func (r *Repository) GetMFAConfig(ctx context.Context, userID, mfaType string) (map[string]interface{}, error) {
+func (r *Repository) GetMFAConfig(ctx context.Context, userID, mfaType string) (*MFAConfig, error) {
 	orgID := rls.OrgID(ctx)
-	var config = make(map[string]interface{})
 	var secretEncrypted string
 	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		return conn.QueryRow(ctx, `
@@ -355,10 +339,138 @@ func (r *Repository) GetMFAConfig(ctx context.Context, userID, mfaType string) (
 		`, userID, mfaType).Scan(&secretEncrypted)
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
-	config["secret_encrypted"] = secretEncrypted
-	return config, nil
+	return &MFAConfig{
+		MFAType:         mfaType,
+		SecretEncrypted: secretEncrypted,
+	}, nil
+}
+
+func (r *Repository) ListMFAConfigs(ctx context.Context, userID string) ([]MFAConfig, error) {
+	orgID := rls.OrgID(ctx)
+	var configs []MFAConfig
+	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		rows, err := conn.Query(ctx, `
+			SELECT mfa_type, secret_encrypted FROM mfa_configs WHERE user_id = $1
+		`, userID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var mfaType, secret string
+			if err := rows.Scan(&mfaType, &secret); err != nil {
+				return err
+			}
+			configs = append(configs, MFAConfig{
+				MFAType:         mfaType,
+				SecretEncrypted: secret,
+			})
+		}
+		return nil
+	})
+	return configs, err
+}
+
+func (r *Repository) GetConnectorByID(ctx context.Context, id string) (*Connector, error) {
+	orgID := rls.OrgID(ctx)
+	var name, secret string
+	var orgIDRes *string
+	var uris []string
+	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		return conn.QueryRow(ctx, `
+			SELECT org_id, name, client_secret, redirect_uris FROM connectors WHERE id = $1
+		`, id).Scan(&orgIDRes, &name, &secret, &uris)
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &Connector{
+		ID:           id,
+		OrgID:        orgIDRes,
+		Name:         name,
+		ClientSecret: secret,
+		RedirectURIs: uris,
+	}, nil
+}
+
+func (r *Repository) ListConnectors(ctx context.Context) ([]Connector, error) {
+	orgID := rls.OrgID(ctx)
+	isSystem := orgID == "00000000-0000-0000-0000-000000000000"
+	var connectors []Connector
+
+	if isSystem {
+		conn, err := r.pool.Acquire(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer conn.Release()
+
+		_, err = conn.Exec(ctx, "SET ROLE openguard_login")
+		if err != nil {
+			return nil, fmt.Errorf("set login role: %w", err)
+		}
+		defer func() { _, _ = conn.Exec(ctx, "RESET ROLE") }()
+
+		rows, err := conn.Query(ctx, `SELECT id, org_id, name, client_secret, redirect_uris FROM connectors`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var id, name, secret string
+			var orgIDStr *string
+			var uris []string
+			if err := rows.Scan(&id, &orgIDStr, &name, &secret, &uris); err != nil {
+				return nil, err
+			}
+			connectors = append(connectors, Connector{
+				ID:           id,
+				OrgID:        orgIDStr,
+				Name:         name,
+				ClientSecret: secret,
+				RedirectURIs: uris,
+			})
+		}
+		return connectors, nil
+	}
+
+	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		rows, err := conn.Query(ctx, `
+			SELECT id, org_id, name, client_secret, redirect_uris FROM connectors
+		`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var id, name, secret string
+			var orgIDStr *string
+			var uris []string
+			if err := rows.Scan(&id, &orgIDStr, &name, &secret, &uris); err != nil {
+				return err
+			}
+			connectors = append(connectors, Connector{
+				ID:           id,
+				OrgID:        orgIDStr,
+				Name:         name,
+				ClientSecret: secret,
+				RedirectURIs: uris,
+			})
+		}
+		return nil
+	})
+	return connectors, err
 }
 
 func (r *Repository) UpsertMFAConfig(ctx context.Context, orgID, userID, mfaType, secretEncrypted string) error {
@@ -413,130 +525,10 @@ func (r *Repository) ConsumeBackupCode(ctx context.Context, userID string, codeH
 	return rowsAffected > 0, err
 }
 
-func (r *Repository) ListMFAConfigs(ctx context.Context, userID string) ([]map[string]interface{}, error) {
-	orgID := rls.OrgID(ctx)
-	var configs []map[string]interface{}
-	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		rows, err := conn.Query(ctx, `
-			SELECT mfa_type, secret_encrypted FROM mfa_configs WHERE user_id = $1
-		`, userID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var mfaType, secret string
-			if err := rows.Scan(&mfaType, &secret); err != nil {
-				return err
-			}
-			configs = append(configs, map[string]interface{}{
-				"mfa_type":         mfaType,
-				"secret_encrypted": secret,
-			})
-		}
-		return nil
-	})
-	return configs, err
-}
-
-func (r *Repository) GetConnectorByID(ctx context.Context, id string) (map[string]interface{}, error) {
-	orgID := rls.OrgID(ctx)
-	var connector = make(map[string]interface{})
-	var name, secret string
-	var uris []string
-	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		return conn.QueryRow(ctx, `
-			SELECT name, client_secret, redirect_uris FROM connectors WHERE id = $1
-		`, id).Scan(&name, &secret, &uris)
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-	connector["id"] = id
-	connector["name"] = name
-	connector["client_secret"] = secret
-	connector["redirect_uris"] = uris
-	return connector, nil
-}
-func (r *Repository) ListConnectors(ctx context.Context) ([]map[string]interface{}, error) {
-	orgID := rls.OrgID(ctx)
-	isSystem := orgID == "00000000-0000-0000-0000-000000000000"
-	var connectors []map[string]interface{}
-
-	if isSystem {
-		conn, err := r.pool.Acquire(ctx)
-		if err != nil {
-			return nil, err
-		}
-		defer conn.Release()
-
-		_, err = conn.Exec(ctx, "SET ROLE openguard_login")
-		if err != nil {
-			return nil, fmt.Errorf("set login role: %w", err)
-		}
-		defer func() { _, _ = conn.Exec(ctx, "RESET ROLE") }()
-
-		rows, err := conn.Query(ctx, `SELECT id, org_id, name, redirect_uris FROM connectors`)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var id, name string
-			var orgIDStr *string
-			var uris []string
-			if err := rows.Scan(&id, &orgIDStr, &name, &uris); err != nil {
-				return nil, err
-			}
-			connectors = append(connectors, map[string]interface{}{
-				"id":            id,
-				"org_id":        orgIDStr,
-				"name":          name,
-				"redirect_uris": uris,
-			})
-		}
-		return connectors, nil
-	}
-
-	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		rows, err := conn.Query(ctx, `
-			SELECT id, org_id, name, redirect_uris FROM connectors
-		`)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var id, name string
-			var orgIDStr *string // Can be null
-			var uris []string
-			if err := rows.Scan(&id, &orgIDStr, &name, &uris); err != nil {
-				return err
-			}
-			connectors = append(connectors, map[string]interface{}{
-				"id":            id,
-				"org_id":        orgIDStr,
-				"name":          name,
-				"redirect_uris": uris,
-			})
-		}
-		return nil
-	})
-	return connectors, err
-}
-
-func (r *Repository) ListUsers(ctx context.Context, orgID string, filter string) ([]map[string]interface{}, error) {
-	var users []map[string]interface{}
-
+func (r *Repository) ListUsers(ctx context.Context, orgID string, filter string) ([]User, error) {
+	var users []User
 	isSystem := orgID == "00000000-0000-0000-0000-000000000000"
 
-	// If system org, we bypass RLS using openguard_login role
 	if isSystem {
 		conn, err := r.pool.Acquire(ctx)
 		if err != nil {
@@ -568,30 +560,15 @@ func (r *Repository) ListUsers(ctx context.Context, orgID string, filter string)
 		defer rows.Close()
 
 		for rows.Next() {
-			var id, orgIDStr, email, name, role, status string
-			var externalID *string
-			var version int
-			var created, updated time.Time
-			if err := rows.Scan(&id, &orgIDStr, &email, &name, &role, &status, &externalID, &version, &created, &updated); err != nil {
+			var u User
+			if err := rows.Scan(&u.ID, &u.OrgID, &u.Email, &u.DisplayName, &u.Role, &u.Status, &u.SCIMExternalID, &u.Version, &u.CreatedAt, &u.UpdatedAt); err != nil {
 				return nil, err
 			}
-			users = append(users, map[string]interface{}{
-				"id":               id,
-				"org_id":           orgIDStr,
-				"email":            email,
-				"display_name":     name,
-				"role":             role,
-				"status":           status,
-				"scim_external_id": externalID,
-				"version":          version,
-				"created_at":       created,
-				"updated_at":       updated,
-			})
+			users = append(users, u)
 		}
 		return users, nil
 	}
 
-	// Non-system org: use RLS
 	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		query := `SELECT id, org_id, email, display_name, role, status, scim_external_id, version, created_at, updated_at FROM users WHERE org_id = $1`
 		args := []interface{}{orgID}
@@ -611,36 +588,20 @@ func (r *Repository) ListUsers(ctx context.Context, orgID string, filter string)
 		defer rows.Close()
 
 		for rows.Next() {
-			var id, orgIDStr, email, name, role, status string
-			var externalID *string
-			var version int
-			var created, updated time.Time
-			if err := rows.Scan(&id, &orgIDStr, &email, &name, &role, &status, &externalID, &version, &created, &updated); err != nil {
+			var u User
+			if err := rows.Scan(&u.ID, &u.OrgID, &u.Email, &u.DisplayName, &u.Role, &u.Status, &u.SCIMExternalID, &u.Version, &u.CreatedAt, &u.UpdatedAt); err != nil {
 				return err
 			}
-			user := map[string]interface{}{
-				"id":               id,
-				"org_id":           orgIDStr,
-				"email":            email,
-				"display_name":     name,
-				"role":             role,
-				"status":           status,
-				"scim_external_id": externalID,
-				"version":          version,
-				"created_at":       created,
-				"updated_at":       updated,
-			}
-			users = append(users, user)
+			users = append(users, u)
 		}
 		return nil
 	})
 	return users, err
 }
 
-func (r *Repository) ListUsersPaginated(ctx context.Context, orgID string, filter string, offset, limit int) ([]map[string]interface{}, int, error) {
-	var users []map[string]interface{}
+func (r *Repository) ListUsersPaginated(ctx context.Context, orgID string, filter string, offset, limit int) ([]User, int, error) {
+	var users []User
 	var total int
-
 	isSystem := orgID == "00000000-0000-0000-0000-000000000000"
 
 	if isSystem {
@@ -683,25 +644,11 @@ func (r *Repository) ListUsersPaginated(ctx context.Context, orgID string, filte
 		defer rows.Close()
 
 		for rows.Next() {
-			var id, orgIDStr, email, name, role, status string
-			var externalID *string
-			var version int
-			var created, updated time.Time
-			if err := rows.Scan(&id, &orgIDStr, &email, &name, &role, &status, &externalID, &version, &created, &updated); err != nil {
+			var u User
+			if err := rows.Scan(&u.ID, &u.OrgID, &u.Email, &u.DisplayName, &u.Role, &u.Status, &u.SCIMExternalID, &u.Version, &u.CreatedAt, &u.UpdatedAt); err != nil {
 				return nil, 0, err
 			}
-			users = append(users, map[string]interface{}{
-				"id":               id,
-				"org_id":           orgIDStr,
-				"email":            email,
-				"display_name":     name,
-				"role":             role,
-				"status":           status,
-				"scim_external_id": externalID,
-				"version":          version,
-				"created_at":       created,
-				"updated_at":       updated,
-			})
+			users = append(users, u)
 		}
 		return users, total, nil
 	}
@@ -733,25 +680,11 @@ func (r *Repository) ListUsersPaginated(ctx context.Context, orgID string, filte
 		defer rows.Close()
 
 		for rows.Next() {
-			var id, orgIDStr, email, name, role, status string
-			var externalID *string
-			var version int
-			var created, updated time.Time
-			if err := rows.Scan(&id, &orgIDStr, &email, &name, &role, &status, &externalID, &version, &created, &updated); err != nil {
+			var u User
+			if err := rows.Scan(&u.ID, &u.OrgID, &u.Email, &u.DisplayName, &u.Role, &u.Status, &u.SCIMExternalID, &u.Version, &u.CreatedAt, &u.UpdatedAt); err != nil {
 				return err
 			}
-			users = append(users, map[string]interface{}{
-				"id":               id,
-				"org_id":           orgIDStr,
-				"email":            email,
-				"display_name":     name,
-				"role":             role,
-				"status":           status,
-				"scim_external_id": externalID,
-				"version":          version,
-				"created_at":       created,
-				"updated_at":       updated,
-			})
+			users = append(users, u)
 		}
 		return nil
 	})
@@ -759,11 +692,10 @@ func (r *Repository) ListUsersPaginated(ctx context.Context, orgID string, filte
 	return users, total, err
 }
 
-func (r *Repository) GetUserByExternalID(ctx context.Context, orgID, externalID string) (map[string]interface{}, error) {
+func (r *Repository) GetUserByExternalID(ctx context.Context, orgID, externalID string) (*User, error) {
 	return r.getUser(ctx, "org_id = $1 AND scim_external_id = $2", orgID, externalID)
 }
 
-// UpdateUserSCIM updates a user from SCIM and increments the version.
 func (r *Repository) UpdateUserSCIM(ctx context.Context, id string, externalID string, status string) error {
 	orgID := rls.OrgID(ctx)
 	return r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
@@ -780,9 +712,8 @@ func (r *Repository) CreateConnector(ctx context.Context, id, name, secret strin
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
-	// 1. Create Org (Global or special role might be needed if RLS is on orgs)
 	var orgID string
 	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-")) + "-" + id
 	err = tx.QueryRow(ctx, `
@@ -792,12 +723,10 @@ func (r *Repository) CreateConnector(ctx context.Context, id, name, secret strin
 		return "", err
 	}
 
-	// Set RLS for the following operations in this transaction
 	if err := rls.TxSetSessionVar(ctx, tx, orgID); err != nil {
 		return "", err
 	}
 
-	// 2. Create Connector
 	_, err = tx.Exec(ctx, `
 		INSERT INTO connectors (id, org_id, name, client_secret, redirect_uris)
 		VALUES ($1, $2, $3, $4, $5)
@@ -839,19 +768,14 @@ func (r *Repository) CreateRefreshToken(ctx context.Context, orgID, userID, toke
 	})
 }
 
-func (r *Repository) GetRefreshToken(ctx context.Context, tokenHash string) (map[string]interface{}, error) {
+func (r *Repository) GetRefreshToken(ctx context.Context, tokenHash string) (*RefreshToken, error) {
 	orgID := rls.OrgID(ctx)
-	var rt = make(map[string]interface{})
-	var id, orgIDRes, userID string
-	var familyID uuid.UUID
-	var expiresAt time.Time
-	var revoked bool
-
+	var rt RefreshToken
 	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		return conn.QueryRow(ctx, `
 			SELECT id, org_id, user_id, family_id, expires_at, revoked 
 			FROM refresh_tokens WHERE token_hash = $1
-		`, tokenHash).Scan(&id, &orgIDRes, &userID, &familyID, &expiresAt, &revoked)
+		`, tokenHash).Scan(&rt.ID, &rt.OrgID, &rt.UserID, &rt.FamilyID, &rt.ExpiresAt, &rt.Revoked)
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -859,14 +783,7 @@ func (r *Repository) GetRefreshToken(ctx context.Context, tokenHash string) (map
 		}
 		return nil, err
 	}
-
-	rt["id"] = id
-	rt["org_id"] = orgIDRes
-	rt["user_id"] = userID
-	rt["family_id"] = familyID
-	rt["expires_at"] = expiresAt
-	rt["revoked"] = revoked
-	return rt, nil
+	return &rt, nil
 }
 
 func (r *Repository) RevokeRefreshTokenFamily(ctx context.Context, familyID uuid.UUID) error {
@@ -879,13 +796,9 @@ func (r *Repository) RevokeRefreshTokenFamily(ctx context.Context, familyID uuid
 	})
 }
 
-func (r *Repository) ClaimRefreshToken(ctx context.Context, tokenHash string) (map[string]interface{}, error) {
+func (r *Repository) ClaimRefreshToken(ctx context.Context, tokenHash string) (*RefreshToken, error) {
 	orgID := rls.OrgID(ctx)
-	var rt = make(map[string]interface{})
-	var id, orgIDRes, userID string
-	var familyID uuid.UUID
-	var expiresAt time.Time
-
+	var rt RefreshToken
 	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		return conn.QueryRow(ctx, `
 			UPDATE refresh_tokens
@@ -894,7 +807,7 @@ func (r *Repository) ClaimRefreshToken(ctx context.Context, tokenHash string) (m
 			  AND revoked = FALSE
 			  AND expires_at > NOW()
 			RETURNING id, org_id, user_id, family_id, expires_at
-		`, tokenHash).Scan(&id, &orgIDRes, &userID, &familyID, &expiresAt)
+		`, tokenHash).Scan(&rt.ID, &rt.OrgID, &rt.UserID, &rt.FamilyID, &rt.ExpiresAt)
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -902,13 +815,8 @@ func (r *Repository) ClaimRefreshToken(ctx context.Context, tokenHash string) (m
 		}
 		return nil, err
 	}
-
-	rt["id"] = id
-	rt["org_id"] = orgIDRes
-	rt["user_id"] = userID
-	rt["family_id"] = familyID
-	rt["expires_at"] = expiresAt
-	return rt, nil
+	rt.Revoked = true
+	return &rt, nil
 }
 
 func (r *Repository) RevokeRefreshTokenFamilyByHash(ctx context.Context, tokenHash string) error {
@@ -932,12 +840,13 @@ func (r *Repository) DeleteRefreshToken(ctx context.Context, tokenHash string) e
 		return err
 	})
 }
-func (r *Repository) getUser(ctx context.Context, where string, args ...interface{}) (map[string]interface{}, error) {
+
+func (r *Repository) getUser(ctx context.Context, where string, args ...interface{}) (*User, error) {
 	orgID := rls.OrgID(ctx)
 	query := `SELECT id, org_id, email, display_name, role, status FROM users WHERE ` + where
-	var id, orgIDRes, email, displayName, role, status string
+	var u User
 	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		return conn.QueryRow(ctx, query, args...).Scan(&id, &orgIDRes, &email, &displayName, &role, &status)
+		return conn.QueryRow(ctx, query, args...).Scan(&u.ID, &u.OrgID, &u.Email, &u.DisplayName, &u.Role, &u.Status)
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -945,16 +854,10 @@ func (r *Repository) getUser(ctx context.Context, where string, args ...interfac
 		}
 		return nil, err
 	}
-	return map[string]interface{}{
-		"id":           id,
-		"org_id":       orgIDRes,
-		"email":        email,
-		"display_name": displayName,
-		"role":         role,
-		"status":       status,
-	}, nil
+	return &u, nil
 }
-func (r *Repository) SaveWebAuthnCredential(ctx context.Context, orgID, userID string, cred map[string]interface{}) error {
+
+func (r *Repository) SaveWebAuthnCredential(ctx context.Context, orgID, userID string, cred WebAuthnCredential) error {
 	return r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		_, err := conn.Exec(ctx, `
 			INSERT INTO webauthn_credentials (org_id, user_id, credential_id, public_key, attestation_type, sign_count)
@@ -962,14 +865,14 @@ func (r *Repository) SaveWebAuthnCredential(ctx context.Context, orgID, userID s
 			ON CONFLICT (user_id, credential_id) DO UPDATE SET
 				sign_count = EXCLUDED.sign_count,
 				updated_at = NOW()
-		`, orgID, userID, cred["id"], cred["public_key"], cred["attestation_type"], cred["sign_count"])
+		`, orgID, userID, cred.CredentialID, cred.PublicKey, cred.AttestationType, cred.SignCount)
 		return err
 	})
 }
 
-func (r *Repository) ListWebAuthnCredentials(ctx context.Context, userID string) ([]map[string]interface{}, error) {
+func (r *Repository) ListWebAuthnCredentials(ctx context.Context, userID string) ([]WebAuthnCredential, error) {
 	orgID := rls.OrgID(ctx)
-	var credentials []map[string]interface{}
+	var credentials []WebAuthnCredential
 	err := r.withOrgContext(ctx, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		rows, err := conn.Query(ctx, `
 			SELECT credential_id, public_key, attestation_type, sign_count FROM webauthn_credentials WHERE user_id = $1
@@ -980,17 +883,11 @@ func (r *Repository) ListWebAuthnCredentials(ctx context.Context, userID string)
 		defer rows.Close()
 
 		for rows.Next() {
-			var credID, pubKey, attType string
-			var signCount int32
-			if err := rows.Scan(&credID, &pubKey, &attType, &signCount); err != nil {
+			var c WebAuthnCredential
+			if err := rows.Scan(&c.CredentialID, &c.PublicKey, &c.AttestationType, &c.SignCount); err != nil {
 				return err
 			}
-			credentials = append(credentials, map[string]interface{}{
-				"credential_id":    credID,
-				"public_key":       pubKey,
-				"attestation_type": attType,
-				"sign_count":       signCount,
-			})
+			credentials = append(credentials, c)
 		}
 		return nil
 	})

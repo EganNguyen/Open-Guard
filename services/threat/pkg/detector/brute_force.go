@@ -62,7 +62,7 @@ func NewBruteForceDetector(redisAddr string, brokers string, groupID string, top
 	}, nil
 }
 
-func (d *BruteForceDetector) Start(ctx context.Context) error {
+func (d *BruteForceDetector) Run(ctx context.Context) error {
 	d.logger.Info("Starting BruteForceDetector", "max_attempts", d.maxAttempts)
 	for {
 		select {
@@ -143,10 +143,11 @@ func (d *BruteForceDetector) trackFailedAttempt(ctx context.Context, key string)
 	if count >= d.maxAttempts {
 		// Deduplicate: only fire once per alert window
 		alertKey := "alert_fired:" + key
-		set, err := d.rdb.SetNX(ctx, alertKey, "1", WindowSize).Result()
-		if err != nil {
+		res, err := d.rdb.SetArgs(ctx, alertKey, "1", redis.SetArgs{Mode: "NX", TTL: WindowSize}).Result()
+		if err != nil && err != redis.Nil {
 			d.logger.Error("failed to check alert dedup key", "error", err)
 		}
+		set := res == "OK"
 
 		if set {
 			d.logger.Warn("brute force attack detected, firing alert", "key", key, "attempts", count)
@@ -202,8 +203,8 @@ func (d *BruteForceDetector) publishThreatEvent(ctx context.Context, key string,
 }
 
 func (d *BruteForceDetector) Close() {
-	d.reader.Close()
-	d.rdb.Close()
+	_ = d.reader.Close()
+	_ = d.rdb.Close()
 }
 
 func (d *BruteForceDetector) CheckRateLimit(ctx context.Context, key string) (bool, int64) {

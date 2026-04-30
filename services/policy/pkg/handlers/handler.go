@@ -17,13 +17,12 @@ import (
 // Handler manages HTTP requests for the policy service.
 type Handler struct {
 	svc    *service.Service
-	repo   *repository.Repository
 	logger *slog.Logger
 }
 
 // NewHandler creates a new handler instance.
-func NewHandler(svc *service.Service, repo *repository.Repository, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, repo: repo, logger: logger}
+func NewHandler(svc *service.Service, logger *slog.Logger) *Handler {
+	return &Handler{svc: svc, logger: logger}
 }
 
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -95,7 +94,7 @@ func (h *Handler) ListPolicies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	policies, err := h.repo.ListPolicies(r.Context(), orgID)
+	policies, err := h.svc.ListPolicies(r.Context(), orgID)
 	if err != nil {
 		h.logger.Error("list policies failed", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "failed to list policies")
@@ -148,9 +147,6 @@ func (h *Handler) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Invalidate cache for the org after mutation
-	go h.svc.InvalidateOrgCache(r.Context(), orgID)
-
 	w.Header().Set("ETag", fmt.Sprintf(`"%s-v%d"`, policy.ID, policy.Version))
 	h.writeJSON(w, http.StatusCreated, policy)
 }
@@ -169,7 +165,7 @@ func (h *Handler) GetPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	policy, err := h.repo.GetPolicy(r.Context(), orgID, policyID)
+	policy, err := h.svc.GetPolicy(r.Context(), orgID, policyID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			h.writeError(w, http.StatusNotFound, "policy not found")
@@ -219,9 +215,6 @@ func (h *Handler) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Invalidate cache for the org after mutation
-	go h.svc.InvalidateOrgCache(r.Context(), orgID)
-
 	w.Header().Set("ETag", fmt.Sprintf(`"%s-v%d"`, policy.ID, policy.Version))
 	h.writeJSON(w, http.StatusOK, policy)
 }
@@ -250,13 +243,12 @@ func (h *Handler) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Invalidate cache for the org after mutation
-	go h.svc.InvalidateOrgCache(r.Context(), orgID)
-
 	h.writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // ListEvalLogs handles GET /v1/policy/eval-logs
+const maxLimit = 500
+
 func (h *Handler) ListEvalLogs(w http.ResponseWriter, r *http.Request) {
 	orgID, ok := orgIDFromContext(r)
 	if !ok {
@@ -270,8 +262,11 @@ func (h *Handler) ListEvalLogs(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
 
-	logs, err := h.repo.ListEvalLogs(r.Context(), orgID, limit)
+	logs, err := h.svc.ListEvalLogs(r.Context(), orgID, limit)
 	if err != nil {
 		h.logger.Error("list eval logs failed", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "failed to list eval logs")
@@ -295,7 +290,7 @@ func (h *Handler) ListAssignments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	assignments, err := h.repo.ListAssignments(r.Context(), orgID)
+	assignments, err := h.svc.ListAssignments(r.Context(), orgID)
 	if err != nil {
 		h.logger.Error("list assignments failed", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "failed to list assignments")
