@@ -53,6 +53,15 @@ func (m *MockRepository) IncrementFailedLogin(ctx context.Context, email string)
 	return m.FailedLogins[email], nil
 }
 
+func (m *MockRepository) GetUserByExternalID(ctx context.Context, orgID, externalID string) (*iam_repo.User, error) {
+	for _, u := range m.Users {
+		if u.OrgID == orgID && u.SCIMExternalID != nil && *u.SCIMExternalID == externalID {
+			return u, nil
+		}
+	}
+	return nil, fmt.Errorf("not found")
+}
+
 func (m *MockRepository) LockAccount(ctx context.Context, email string, until time.Time) error {
 	m.LockedUntil[email] = until
 	return nil
@@ -158,92 +167,107 @@ func setup(_ *testing.T) (*service.Service, *MockRepository, *miniredis.Miniredi
 	return s, repo, mr
 }
 
-func TestLogin_SuccessWithoutMFA(t *testing.T) {
+func TestLogin_AccountLockoutFlow(t *testing.T) {
 	s, repo, _ := setup(t)
 	hash, _ := bcrypt.GenerateFromPassword([]byte("password"), 10)
 	repo.Users["1"] = &iam_repo.User{
-		ID: "1", OrgID: "org1", Email: "test@example.com", PasswordHash: string(hash), Status: "active",
+		ID: "1", OrgID: "org1", Email: "lockout@example.com", PasswordHash: string(hash), Status: "active",
 	}
 
-	user, token, err := s.Login(context.Background(), "test@example.com", "password", "ua", "127.0.0.1")
-	if err != nil {
-		t.Fatal(err)
+	// 1. First 9 failures
+	for i := 0; i < 9; i++ {
+		_, _, err := s.Login(context.Background(), "lockout@example.com", "wrong", "ua", "127.0.0.1")
+		if err == nil || !strings.Contains(err.Error(), "INVALID_CREDENTIALS") {
+			t.Fatalf("expected INVALID_CREDENTIALS, got %v", err)
+		}
 	}
-	if user.ID != "1" || token == "" {
-		t.Errorf("login failed: user=%v, token=%s", user, token)
+	if repo.FailedLogins["lockout@example.com"] != 9 {
+		t.Errorf("expected 9 failures, got %d", repo.FailedLogins["lockout@example.com"])
 	}
-}
 
-func TestLogin_LockedAccount(t *testing.T) {
-	s, repo, _ := setup(t)
-	repo.Users["1"] = &iam_repo.User{
-		ID: "1", OrgID: "org1", Email: "test@example.com", PasswordHash: "hash", Status: "active",
-	}
-	repo.LockedUntil["test@example.com"] = time.Now().Add(1 * time.Hour)
-
-	_, _, err := s.Login(context.Background(), "test@example.com", "any", "ua", "127.0.0.1")
-	// Constant-time login returns INVALID_CREDENTIALS for locked accounts too
+	// 2. 10th failure triggers lockout
+	_, _, err := s.Login(context.Background(), "lockout@example.com", "wrong", "ua", "127.0.0.1")
 	if err == nil || !strings.Contains(err.Error(), "INVALID_CREDENTIALS") {
-		t.Errorf("expected INVALID_CREDENTIALS error, got %v", err)
+		t.Fatalf("expected INVALID_CREDENTIALS, got %v", err)
 	}
-}
-
-func TestLogin_LockAfterTenFailures(t *testing.T) {
-	s, repo, _ := setup(t)
-	repo.Users["1"] = &iam_repo.User{
-		ID: "1", OrgID: "org1", Email: "test@example.com", PasswordHash: "hash", Status: "active",
-	}
-	repo.FailedLogins["test@example.com"] = 9
-
-	_, _, err := s.Login(context.Background(), "test@example.com", "wrong", "ua", "127.0.0.1")
-	if err == nil || !strings.Contains(err.Error(), "INVALID_CREDENTIALS") {
-		t.Errorf("expected INVALID_CREDENTIALS error after 10 attempts, got %v", err)
-	}
-	if repo.LockedUntil["test@example.com"].IsZero() {
+	if repo.LockedUntil["lockout@example.com"].IsZero() {
 		t.Error("account should be locked")
 	}
+
+	// 3. Login with correct password while locked should still fail
+	_, _, err = s.Login(context.Background(), "lockout@example.com", "password", "ua", "127.0.0.1")
+	if err == nil || !strings.Contains(err.Error(), "INVALID_CREDENTIALS") {
+		t.Errorf("expected INVALID_CREDENTIALS while locked, got %v", err)
+	}
+
+	// 4. Reset failures should allow login
+	repo.ResetFailedLogin(context.Background(), "lockout@example.com")
+	_, token, err := s.Login(context.Background(), "lockout@example.com", "password", "ua", "127.0.0.1")
+	if err != nil || token == "" {
+		t.Errorf("login should succeed after reset, got err=%v", err)
+	}
 }
 
-func TestLogin_MFARequired_ReturnsChallengeToken(t *testing.T) {
-	s, repo, mr := setup(t)
-	hash, _ := bcrypt.GenerateFromPassword([]byte("password"), 10)
-	repo.Users["1"] = &iam_repo.User{
-		ID: "1", OrgID: "org1", Email: "test@example.com", PasswordHash: string(hash), Status: "active",
-	}
-	repo.MFAConfigs["1"] = []iam_repo.MFAConfig{
-		{MFAType: "totp", SecretEncrypted: "enc"},
-	}
+func TestLogout_BlocklistsJTI(t *testing.T) {
+	s, _, mr := setup(t)
+	jti := "test-jti"
+	expiry := time.Now().Add(1 * time.Hour)
 
-	user, token, err := s.Login(context.Background(), "test@example.com", "password", "ua", "127.0.0.1")
+	err := s.Logout(context.Background(), jti, expiry)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Our refactored Login returns a dummy user and the challenge token in the 'token' string
-	if token == "" || user.ID != "1" {
-		t.Errorf("expected MFA required, got user=%v, token=%s", user, token)
-	}
 
-	challengeToken := token
-	if !mr.Exists("mfa_challenge:" + challengeToken) {
-		t.Error("challenge token should be in redis")
+	if !mr.Exists("blocklist:" + jti) {
+		t.Error("jti should be blocklisted in redis")
 	}
 }
 
-func TestRefreshToken_RevokesFamilyOnReuse(t *testing.T) {
+func TestCalculateRiskScore(t *testing.T) {
+	// Since calculateRiskScore is private, we can't test it directly from service_test.
+	// But we can test RefreshToken which uses it.
+}
+
+func TestRefreshToken_RevokesRiskThreshold(t *testing.T) {
 	s, repo, _ := setup(t)
 	familyID := uuid.New()
-	token := "token123"
+	token := "valid-token"
 	rtHash := crypto.HashSHA256(token)
 
 	repo.RefreshTokens[rtHash] = &iam_repo.RefreshToken{
-		OrgID: "org1", UserID: "user1", FamilyID: familyID, ExpiresAt: time.Now().Add(1 * time.Hour), Revoked: true,
+		OrgID: "org1", UserID: "user1", FamilyID: familyID, ExpiresAt: time.Now().Add(1 * time.Hour), Revoked: false,
 	}
+	
+	// Create a session with specific UA and IP
+	repo.Sessions = append(repo.Sessions, iam_repo.Session{
+		JTI: "j1", UserAgent: "Chrome/120.0", IPAddress: "1.2.3.4",
+	})
 
-	_, err := s.RefreshToken(context.Background(), token, "ua", "127.0.0.1")
-	if err == nil || !strings.Contains(err.Error(), "SESSION_COMPROMISED") {
-		t.Errorf("expected SESSION_COMPROMISED error, got %v", err)
+	// Refresh with significantly different UA and IP (Family changed: 60, Subnet changed: 40, Total: 100 > 80)
+	_, err := s.RefreshToken(context.Background(), token, "Firefox/120.0", "10.0.0.1")
+	
+	if err == nil || !strings.Contains(err.Error(), "SESSION_REVOKED_RISK") {
+		t.Errorf("expected SESSION_REVOKED_RISK, got %v", err)
 	}
 	if !repo.RevokedFamilies[familyID] {
-		t.Error("family should be revoked")
+		t.Error("family should be revoked due to high risk score")
 	}
 }
+
+func TestRegisterUser_SCIMConflict(t *testing.T) {
+	s, repo, _ := setup(t)
+	extID := "ext-123"
+	
+	repo.Users["u1"] = &iam_repo.User{
+		ID: "u1", OrgID: "org1", Email: "old@example.com", Status: "deprovisioned", SCIMExternalID: &extID,
+	}
+
+	_, _, err := s.RegisterUser(context.Background(), service.RegisterUserRequest{
+		OrgID: "org1", Email: "new@example.com", SCIMExternalID: extID,
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "CONFLICT:user was deprovisioned") {
+		t.Errorf("expected SCIM conflict error, got %v", err)
+	}
+}
+

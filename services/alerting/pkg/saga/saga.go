@@ -14,10 +14,15 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
+type AlertRepository interface {
+	Create(ctx context.Context, alert *repository.Alert) error
+	UpdateSagaStep(ctx context.Context, alertID string, step repository.SagaStep) error
+}
+
 type AlertSaga struct {
 	reader    *kafka.Reader
 	publisher KafkaPublisher
-	repo      *repository.Repository
+	repo      AlertRepository
 	siem      *webhook.SIEMDeliverer
 	logger    *slog.Logger
 }
@@ -26,7 +31,7 @@ type KafkaPublisher interface {
 	Publish(ctx context.Context, topic, key string, payload []byte) error
 }
 
-func NewAlertSaga(brokers []string, groupID string, topic string, repo *repository.Repository, pub KafkaPublisher, siem *webhook.SIEMDeliverer, logger *slog.Logger) *AlertSaga {
+func NewAlertSaga(brokers []string, groupID string, topic string, repo AlertRepository, pub KafkaPublisher, siem *webhook.SIEMDeliverer, logger *slog.Logger) *AlertSaga {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: brokers,
 		GroupID: groupID,
