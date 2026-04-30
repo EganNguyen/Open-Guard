@@ -119,7 +119,7 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken, userAgent, ip 
 	rtHash := crypto.HashSHA256(refreshToken)
 	rt, err := s.repo.ClaimRefreshToken(ctx, rtHash)
 	if err != nil {
-		s.repo.RevokeRefreshTokenFamilyByHash(ctx, rtHash)
+		_ = s.repo.RevokeRefreshTokenFamilyByHash(ctx, rtHash)
 		return nil, ErrSessionCompromised
 	}
 
@@ -127,7 +127,7 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken, userAgent, ip 
 	if err == nil && session != nil {
 		score := calculateRiskScore(session.UserAgent, userAgent, session.IPAddress, ip)
 		if score >= riskThresholdRevoke {
-			s.repo.RevokeRefreshTokenFamily(ctx, rt.FamilyID)
+			_ = s.repo.RevokeRefreshTokenFamily(ctx, rt.FamilyID)
 			return nil, ErrSessionRevokedRisk
 		}
 	}

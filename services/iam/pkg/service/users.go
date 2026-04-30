@@ -40,7 +40,7 @@ func (s *Service) RegisterUser(ctx context.Context, req RegisterUserRequest) (st
 	if err != nil {
 		return "", false, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	userID, err := s.repo.CreateUser(ctx, req.OrgID, req.Email, string(hash), req.DisplayName, req.Role, "initializing")
 	if err != nil {
@@ -90,7 +90,7 @@ func (s *Service) ReprovisionUser(ctx context.Context, orgID, userID string) err
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := s.repo.UpdateUserStatus(ctx, userID, "initializing"); err != nil {
 		return err
@@ -117,7 +117,7 @@ func (s *Service) DeleteUser(ctx context.Context, userID string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	jtis, err := s.repo.GetActiveJTIs(ctx, userID)
 	if err != nil {
@@ -283,7 +283,7 @@ func (s *Service) OffboardOrg(ctx context.Context, orgID string) error {
 
 	tx, err := s.repo.BeginTx(ctx)
 	if err == nil {
-		defer tx.Rollback(ctx)
+		defer func() { _ = tx.Rollback(ctx) }()
 		if err := s.repo.CreateOutboxEvent(ctx, tx, orgID, "saga.orchestration", orgID, payload); err == nil {
 			_ = tx.Commit(ctx)
 		}

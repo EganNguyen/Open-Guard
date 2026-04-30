@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
@@ -242,14 +241,4 @@ func (h *Handler) OIDCDiscovery(w http.ResponseWriter, r *http.Request) {
 		"claims_supported":                      []string{"iss", "sub", "aud", "exp", "iat", "org_id"},
 		"code_challenge_methods_supported":      []string{"S256"},
 	})
-}
-
-// generateOAuthCode creates a random auth code, stores it in Redis with PKCE challenge,
-// and returns the code string. Used by the OAuthLogin handler.
-func generateOAuthCode(ctx context.Context, svc *service.Service, orgID, userID, codeChallenge string) (string, error) {
-	code := base64.RawURLEncoding.EncodeToString([]byte(uuid.New().String()))
-	if err := svc.StoreAuthCode(ctx, code, orgID, userID, codeChallenge); err != nil {
-		return "", err
-	}
-	return code, nil
 }

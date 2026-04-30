@@ -22,6 +22,7 @@ import (
 	"github.com/crewjam/saml/samlsp"
 	iam_repo "github.com/openguard/services/iam/pkg/repository"
 	shared_middleware "github.com/openguard/shared/middleware"
+	"github.com/redis/go-redis/v9"
 )
 
 // spBaseURL returns the SP base URL from env, e.g. https://auth.example.com
@@ -189,7 +190,8 @@ func (h *Handler) SAMLAssertionConsumerService(w http.ResponseWriter, r *http.Re
 
 	replayKey := fmt.Sprintf("saml:assertion:%s", assertionID)
 	// Atomic SetNX prevents replay within the assertion's validity window.
-	set, err := h.svc.Redis().SetNX(r.Context(), replayKey, "1", ttl).Result()
+	res, err := h.svc.Redis().SetArgs(r.Context(), replayKey, "1", redis.SetArgs{Mode: "NX", TTL: ttl}).Result()
+	set := res == "OK"
 	if err != nil || !set {
 		slog.Warn("saml: assertion replay detected", "assertion_id", assertionID, "org_id", orgID)
 		h.writeError(w, http.StatusUnauthorized, "assertion replay detected")
@@ -211,9 +213,13 @@ func (h *Handler) SAMLAssertionConsumerService(w http.ResponseWriter, r *http.Re
 		for _, attr := range stmt.Attributes {
 			switch attr.Name {
 			case "email", attrMap["email"]:
-				if len(attr.Values) > 0 { email = attr.Values[0].Value }
+				if len(attr.Values) > 0 {
+					email = attr.Values[0].Value
+				}
 			case "displayName", "name", attrMap["displayName"]:
-				if len(attr.Values) > 0 { displayName = attr.Values[0].Value }
+				if len(attr.Values) > 0 {
+					displayName = attr.Values[0].Value
+				}
 			}
 		}
 	}

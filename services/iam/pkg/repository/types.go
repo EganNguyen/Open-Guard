@@ -8,19 +8,19 @@ import (
 
 // User represents a user entity.
 type User struct {
-	ID                string     `json:"id"`
-	OrgID             string     `json:"org_id"`
-	Email             string     `json:"email"`
-	PasswordHash      string     `json:"-"`
-	DisplayName       string     `json:"display_name"`
-	Role              string     `json:"role"`
-	Status            string     `json:"status"`
-	FailedLoginCount  int        `json:"failed_login_count"`
-	LockedUntil       *time.Time `json:"locked_until"`
-	SCIMExternalID    *string    `json:"scim_external_id"`
-	Version           int        `json:"version"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID               string     `json:"id"`
+	OrgID            string     `json:"org_id"`
+	Email            string     `json:"email"`
+	PasswordHash     string     `json:"-"`
+	DisplayName      string     `json:"display_name"`
+	Role             string     `json:"role"`
+	Status           string     `json:"status"`
+	FailedLoginCount int        `json:"failed_login_count"`
+	LockedUntil      *time.Time `json:"locked_until"`
+	SCIMExternalID   *string    `json:"scim_external_id"`
+	Version          int        `json:"version"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 // Session represents an active user session.

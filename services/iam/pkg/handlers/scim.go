@@ -210,7 +210,7 @@ func (h *Handler) mapToScim(user *iam_repo.User) scimUser {
 func (h *Handler) writeScimError(w http.ResponseWriter, status int, scimType string, detail string) {
 	w.Header().Set("Content-Type", "application/scim+json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"schemas":  []string{"urn:ietf:params:scim:api:messages:2.0:Error"},
 		"scimType": scimType,
 		"detail":   detail,

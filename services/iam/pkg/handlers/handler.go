@@ -206,7 +206,7 @@ func (h *Handler) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(w, http.StatusOK, genericResponse{
-		ID:    code,
+		ID:     code,
 		Status: body.State, // Borrowing Status for state
 	})
 }
@@ -520,7 +520,7 @@ func (h *Handler) WebAuthnBeginRegistration(w http.ResponseWriter, r *http.Reque
 	}
 	h.writeJSON(w, http.StatusOK, webAuthnBeginResponse{
 		SessionID: sessionID,
-		Options:    options,
+		Options:   options,
 	})
 }
 
@@ -554,7 +554,7 @@ func (h *Handler) WebAuthnBeginLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	h.writeJSON(w, http.StatusOK, webAuthnBeginResponse{
 		SessionID: sessionID,
-		Options:    options,
+		Options:   options,
 	})
 }
 

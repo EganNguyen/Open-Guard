@@ -18,6 +18,7 @@ import (
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/resilience"
 	"github.com/pquerna/otp/totp"
+	"github.com/redis/go-redis/v9"
 )
 
 type WebAuthnUser struct {
@@ -75,7 +76,7 @@ func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID,
 		return fmt.Errorf("registration session expired or invalid")
 	}
 	var session webauthn.SessionData
-	json.Unmarshal([]byte(val), &session)
+	_ = json.Unmarshal([]byte(val), &session)
 
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
@@ -171,7 +172,7 @@ func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID stri
 		return nil, "", fmt.Errorf("login session expired or invalid")
 	}
 	var session webauthn.SessionData
-	json.Unmarshal([]byte(val), &session)
+	_ = json.Unmarshal([]byte(val), &session)
 
 	credentials, _ := s.repo.ListWebAuthnCredentials(ctx, userID)
 	wUser := &WebAuthnUser{
@@ -277,7 +278,8 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, code string) (bo
 
 func (s *Service) VerifyTOTP(ctx context.Context, userID, code string) (bool, error) {
 	nonceKey := fmt.Sprintf("totp:used:%s:%s", userID, code)
-	set, err := s.rdb.SetNX(ctx, nonceKey, "1", 90*time.Second).Result()
+	res, err := s.rdb.SetArgs(ctx, nonceKey, "1", redis.SetArgs{Mode: "NX", TTL: 90 * time.Second}).Result()
+	set := res == "OK"
 	if err != nil {
 		return false, err
 	}

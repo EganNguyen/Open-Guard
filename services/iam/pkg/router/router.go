@@ -100,10 +100,10 @@ func NewRouter(ctx context.Context, h *handlers.Handler, keyring []crypto.JWTKey
 		r.Get("/jwks", h.JWKS)
 		r.Get("/.well-known/openid-configuration", h.OIDCDiscovery)
 
-	scimTokens := shared_middleware.LoadSCIMTokensFromEnv()
-	scimMiddleware := shared_middleware.SCIMAuth(scimTokens)
+		scimTokens := shared_middleware.LoadSCIMTokensFromEnv()
+		scimMiddleware := shared_middleware.SCIMAuth(scimTokens)
 
-	r.Route("/scim/v2", func(r chi.Router) {
+		r.Route("/scim/v2", func(r chi.Router) {
 			r.Use(scimMiddleware)
 			r.Use(idemMiddleware)
 			r.Get("/Users", h.ListScimUsers)

@@ -712,7 +712,7 @@ func (r *Repository) CreateConnector(ctx context.Context, id, name, secret strin
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var orgID string
 	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-")) + "-" + id
@@ -893,4 +893,3 @@ func (r *Repository) ListWebAuthnCredentials(ctx context.Context, userID string)
 	})
 	return credentials, err
 }
-

@@ -20,13 +20,13 @@ func (m *MockRepository) GetMFAConfig(ctx context.Context, userID, mfaType strin
 
 func TestVerifyTOTP_ReplayProtection(t *testing.T) {
 	s, repo, _ := setup(t)
-	
+
 	userID := "user1"
-	
-	secret := "JBSWY3DPEHPK3PXP" // Base32
+
+	secret := "JBSWY3DPEHPK3PXP"                         // Base32
 	aesKey := []byte("01234567890123456789012345678901") // 32 bytes
 	aesKeyring := []crypto.EncryptionKey{{Kid: "a1", Key: string(aesKey), Status: "active"}}
-	
+
 	// Create a new service with AES keyring
 	pool := service.NewAuthWorkerPool(1, context.Background())
 	keyring := []crypto.JWTKey{{Kid: "k1", Secret: "test-secret-at-least-32-bytes!!", Algorithm: "HS256", Status: "active"}}
@@ -37,10 +37,10 @@ func TestVerifyTOTP_ReplayProtection(t *testing.T) {
 		{MFAType: "totp", SecretEncrypted: encrypted},
 	}
 
-	code := "123456" 
+	code := "123456"
 
 	ctx := context.Background()
-	
+
 	// 1. First attempt
 	_, err := s.VerifyTOTP(ctx, userID, code)
 	if err != nil && err.Error() == "totp code already used" {
