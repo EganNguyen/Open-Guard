@@ -128,14 +128,20 @@ func main() {
 	}()
 
 	// Start Detectors
-	go bfDetector.Start(ctx)
-	if itDetector != nil {
-		go itDetector.Run(ctx)
+	detectors := []detector.Detector{
+		bfDetector,
+		ohDetector,
+		deDetector,
+		atDetector,
+		peDetector,
 	}
-	go ohDetector.Run(ctx)
-	go deDetector.Run(ctx)
-	go atDetector.Run(ctx)
-	go peDetector.Run(ctx)
+	if itDetector != nil {
+		detectors = append(detectors, itDetector)
+	}
+
+	for _, d := range detectors {
+		go d.Run(ctx)
+	}
 
 	// Initialize Handlers & Router
 	h := handlers.NewHandler(store)

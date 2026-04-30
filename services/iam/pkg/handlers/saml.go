@@ -20,7 +20,7 @@ import (
 
 	"github.com/crewjam/saml"
 	"github.com/crewjam/saml/samlsp"
-	"github.com/openguard/services/iam/pkg/repository"
+	iam_repo "github.com/openguard/services/iam/pkg/repository"
 	shared_middleware "github.com/openguard/shared/middleware"
 )
 
@@ -71,7 +71,7 @@ func generateSPKeyPair(orgID string) (certPEM, keyPEM string, err error) {
 }
 
 // buildSAMLSP constructs a crewjam/saml ServiceProvider from a stored SAMLProvider record.
-func buildSAMLSP(p *repository.SAMLProvider) (*saml.ServiceProvider, error) {
+func buildSAMLSP(p *iam_repo.SAMLProvider) (*saml.ServiceProvider, error) {
 	base, err := url.Parse(spBaseURL())
 	if err != nil {
 		return nil, fmt.Errorf("parse sp base url: %w", err)
@@ -117,27 +117,27 @@ func buildSAMLSP(p *repository.SAMLProvider) (*saml.ServiceProvider, error) {
 func (h *Handler) SAMLMetadata(w http.ResponseWriter, r *http.Request) {
 	orgID := r.URL.Query().Get("org_id")
 	if orgID == "" {
-		http.Error(w, "org_id required", http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "org_id required")
 		return
 	}
 
 	provider, err := h.svc.GetSAMLProvider(r.Context(), orgID)
 	if err != nil {
 		slog.Error("saml: get provider for metadata", "org_id", orgID, "error", err)
-		http.Error(w, "SAML provider not configured", http.StatusNotFound)
+		h.writeError(w, http.StatusNotFound, "SAML provider not configured")
 		return
 	}
 
 	sp, err := buildSAMLSP(provider)
 	if err != nil {
 		slog.Error("saml: build sp for metadata", "org_id", orgID, "error", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	metadata, err := xml.MarshalIndent(sp.Metadata(), "", "  ")
 	if err != nil {
-		http.Error(w, "failed to generate metadata", http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, "failed to generate metadata")
 		return
 	}
 
@@ -150,31 +150,31 @@ func (h *Handler) SAMLMetadata(w http.ResponseWriter, r *http.Request) {
 // POST /auth/saml/acs
 func (h *Handler) SAMLAssertionConsumerService(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "bad request")
 		return
 	}
 
 	orgID := r.FormValue("RelayState")
 	if orgID == "" {
-		http.Error(w, "missing RelayState (org_id)", http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "missing RelayState (org_id)")
 		return
 	}
 
 	provider, err := h.svc.GetSAMLProvider(r.Context(), orgID)
 	if err != nil || !provider.Enabled {
-		http.Error(w, "SAML provider not configured or disabled", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "SAML provider not configured or disabled")
 		return
 	}
 
 	sp, err := buildSAMLSP(provider)
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	assertion, err := sp.ParseResponse(r, nil)
 	if err != nil {
-		http.Error(w, "invalid SAML response", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "invalid SAML response")
 		return
 	}
 
@@ -183,7 +183,7 @@ func (h *Handler) SAMLAssertionConsumerService(w http.ResponseWriter, r *http.Re
 	notOnOrAfter := assertion.Conditions.NotOnOrAfter
 	ttl := time.Until(notOnOrAfter)
 	if ttl <= 0 {
-		http.Error(w, "expired assertion", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "expired assertion")
 		return
 	}
 
@@ -192,13 +192,13 @@ func (h *Handler) SAMLAssertionConsumerService(w http.ResponseWriter, r *http.Re
 	set, err := h.svc.Redis().SetNX(r.Context(), replayKey, "1", ttl).Result()
 	if err != nil || !set {
 		slog.Warn("saml: assertion replay detected", "assertion_id", assertionID, "org_id", orgID)
-		http.Error(w, "assertion replay detected", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "assertion replay detected")
 		return
 	}
 
 	nameID := assertion.Subject.NameID.Value
 	if nameID == "" {
-		http.Error(w, "SAML assertion missing NameID", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "SAML assertion missing NameID")
 		return
 	}
 
@@ -220,15 +220,15 @@ func (h *Handler) SAMLAssertionConsumerService(w http.ResponseWriter, r *http.Re
 
 	user, err := h.svc.ProvisionOrGetSAMLUser(r.Context(), orgID, nameID, email, displayName)
 	if err != nil {
-		http.Error(w, "user provisioning failed", http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, "user provisioning failed")
 		return
 	}
 
-	userID, _ := user["id"].(string)
+	userID := user.ID
 	jti := fmt.Sprintf("saml-%d", time.Now().UnixNano())
 	token, err := h.svc.SignToken(orgID, userID, jti, 8*time.Hour)
 	if err != nil {
-		http.Error(w, "token issuance failed", http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, "token issuance failed")
 		return
 	}
 
@@ -253,7 +253,7 @@ func (h *Handler) SAMLAssertionConsumerService(w http.ResponseWriter, r *http.Re
 func (h *Handler) CreateSAMLProvider(w http.ResponseWriter, r *http.Request) {
 	orgID := shared_middleware.GetOrgID(r.Context())
 	if orgID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -265,17 +265,17 @@ func (h *Handler) CreateSAMLProvider(w http.ResponseWriter, r *http.Request) {
 		AttributeMap json.RawMessage `json:"attribute_map"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if body.MetadataXML == "" {
-		http.Error(w, "metadata_xml required", http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "metadata_xml required")
 		return
 	}
 
 	var idpMeta saml.EntityDescriptor
 	if err := xml.Unmarshal([]byte(body.MetadataXML), &idpMeta); err != nil {
-		http.Error(w, "invalid metadata_xml: "+err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid metadata_xml: "+err.Error())
 		return
 	}
 	if body.EntityID == "" {
@@ -292,7 +292,7 @@ func (h *Handler) CreateSAMLProvider(w http.ResponseWriter, r *http.Request) {
 
 	certPEM, keyPEM, err := generateSPKeyPair(orgID)
 	if err != nil {
-		http.Error(w, "failed to generate SP credentials", http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, "failed to generate SP credentials")
 		return
 	}
 
@@ -301,7 +301,7 @@ func (h *Handler) CreateSAMLProvider(w http.ResponseWriter, r *http.Request) {
 		attrMap = json.RawMessage("{}")
 	}
 
-	p := &repository.SAMLProvider{
+	p := &iam_repo.SAMLProvider{
 		OrgID:        orgID,
 		EntityID:     body.EntityID,
 		SSOURL:       body.SSOURL,
@@ -316,7 +316,7 @@ func (h *Handler) CreateSAMLProvider(w http.ResponseWriter, r *http.Request) {
 
 	saved, err := h.svc.UpsertSAMLProvider(r.Context(), orgID, p)
 	if err != nil {
-		http.Error(w, "failed to save SAML provider", http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, "failed to save SAML provider")
 		return
 	}
 
@@ -328,13 +328,13 @@ func (h *Handler) CreateSAMLProvider(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListSAMLProviders(w http.ResponseWriter, r *http.Request) {
 	orgID := shared_middleware.GetOrgID(r.Context())
 	if orgID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	providers, err := h.svc.ListSAMLProviders(r.Context(), orgID)
 	if err != nil {
-		http.Error(w, "failed to list SAML providers", http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, "failed to list SAML providers")
 		return
 	}
 
@@ -342,7 +342,7 @@ func (h *Handler) ListSAMLProviders(w http.ResponseWriter, r *http.Request) {
 		p.SPKeyPEM = ""
 	}
 	if providers == nil {
-		providers = []*repository.SAMLProvider{}
+		providers = []*iam_repo.SAMLProvider{}
 	}
 	h.writeJSON(w, http.StatusOK, providers)
 }

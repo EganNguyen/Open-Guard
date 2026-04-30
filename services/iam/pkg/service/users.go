@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	iam_repo "github.com/openguard/services/iam/pkg/repository"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -19,18 +20,18 @@ func (s *Service) RegisterOrg(ctx context.Context, name string) (string, error) 
 	return s.repo.CreateOrg(ctx, name)
 }
 
-func (s *Service) RegisterUser(ctx context.Context, orgID, email, password, displayName, role string, scimExternalID string) (string, bool, error) {
-	if scimExternalID != "" {
-		user, err := s.repo.GetUserByExternalID(ctx, orgID, scimExternalID)
+func (s *Service) RegisterUser(ctx context.Context, req RegisterUserRequest) (string, bool, error) {
+	if req.SCIMExternalID != "" {
+		user, err := s.repo.GetUserByExternalID(ctx, req.OrgID, req.SCIMExternalID)
 		if err == nil && user != nil {
-			if user["status"].(string) == "deprovisioned" {
+			if user.Status == "deprovisioned" {
 				return "", false, fmt.Errorf("CONFLICT:user was deprovisioned; create a new SCIM user or reprovision")
 			}
-			return user["id"].(string), false, nil
+			return user.ID, false, nil
 		}
 	}
 
-	hash, err := s.pool.Generate(ctx, password)
+	hash, err := s.pool.Generate(ctx, req.Password)
 	if err != nil {
 		return "", false, fmt.Errorf("hash password: %w", err)
 	}
@@ -41,27 +42,26 @@ func (s *Service) RegisterUser(ctx context.Context, orgID, email, password, disp
 	}
 	defer tx.Rollback(ctx)
 
-	userID, err := s.repo.CreateUser(ctx, orgID, email, string(hash), displayName, role, "initializing")
+	userID, err := s.repo.CreateUser(ctx, req.OrgID, req.Email, string(hash), req.DisplayName, req.Role, "initializing")
 	if err != nil {
 		return "", false, err
 	}
 
-	if scimExternalID != "" {
-		if err := s.repo.UpdateUserSCIM(ctx, userID, scimExternalID, "initializing"); err != nil {
+	if req.SCIMExternalID != "" {
+		if err := s.repo.UpdateUserSCIM(ctx, userID, req.SCIMExternalID, "initializing"); err != nil {
 			return "", false, err
 		}
 	}
 
-	event := map[string]interface{}{
+	payload, _ := json.Marshal(map[string]any{
 		"event":   "user.created",
 		"user_id": userID,
-		"org_id":  orgID,
-		"email":   email,
+		"org_id":  req.OrgID,
+		"email":   req.Email,
 		"status":  "initializing",
 		"ts":      time.Now().Unix(),
-	}
-	payload, _ := json.Marshal(event)
-	if err := s.repo.CreateOutboxEvent(ctx, tx, orgID, "saga.orchestration", userID, payload); err != nil {
+	})
+	if err := s.repo.CreateOutboxEvent(ctx, tx, req.OrgID, "saga.orchestration", userID, payload); err != nil {
 		return "", false, fmt.Errorf("outbox: %w", err)
 	}
 
@@ -100,7 +100,7 @@ func (s *Service) ReprovisionUser(ctx context.Context, orgID, userID string) err
 		"event":   "user.reprovision",
 		"user_id": userID,
 		"org_id":  orgID,
-		"email":   user["email"].(string),
+		"email":   user.Email,
 		"status":  "initializing",
 		"ts":      time.Now().Unix(),
 	}
@@ -158,7 +158,7 @@ func (s *Service) DeleteUser(ctx context.Context, userID string) error {
 	return tx.Commit(ctx)
 }
 
-func (s *Service) PatchUser(ctx context.Context, id string, ops []ScimPatchOp) (map[string]interface{}, error) {
+func (s *Service) PatchUser(ctx context.Context, id string, ops []ScimPatchOp) (*iam_repo.User, error) {
 	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
 		return nil, err
@@ -200,11 +200,11 @@ func (s *Service) PatchUser(ctx context.Context, id string, ops []ScimPatchOp) (
 	payload, _ := json.Marshal(map[string]any{
 		"event":   "user.updated",
 		"user_id": id,
-		"org_id":  user["org_id"],
-		"status":  user["status"],
+		"org_id":  user.OrgID,
+		"status":  user.Status,
 		"ts":      time.Now().Unix(),
 	})
-	if err := s.repo.CreateOutboxEvent(ctx, tx, user["org_id"].(string), "saga.orchestration", id, payload); err != nil {
+	if err := s.repo.CreateOutboxEvent(ctx, tx, user.OrgID, "saga.orchestration", id, payload); err != nil {
 		return nil, err
 	}
 
@@ -219,22 +219,22 @@ func (s *Service) UpdateUserStatus(ctx context.Context, userID, status string) e
 	return s.repo.UpdateUserStatus(ctx, userID, status)
 }
 
-func (s *Service) GetCurrentUser(ctx context.Context, userID string) (map[string]interface{}, error) {
+func (s *Service) GetCurrentUser(ctx context.Context, userID string) (*iam_repo.User, error) {
 	return s.repo.GetUserByID(ctx, userID)
 }
 
-func (s *Service) ListUsers(ctx context.Context, orgID string, filter string) ([]map[string]interface{}, error) {
+func (s *Service) ListUsers(ctx context.Context, orgID string, filter string) ([]iam_repo.User, error) {
 	return s.repo.ListUsers(ctx, orgID, filter)
 }
 
-func (s *Service) ListUsersPaginated(ctx context.Context, orgID string, filter string, offset, limit int) ([]map[string]interface{}, int, error) {
+func (s *Service) ListUsersPaginated(ctx context.Context, orgID string, filter string, offset, limit int) ([]iam_repo.User, int, error) {
 	return s.repo.ListUsersPaginated(ctx, orgID, filter, offset, limit)
 }
 
-func (s *Service) GetConnector(ctx context.Context, id string) (map[string]interface{}, error) {
+func (s *Service) GetConnector(ctx context.Context, id string) (*iam_repo.Connector, error) {
 	return s.repo.GetConnectorByID(ctx, id)
 }
-func (s *Service) ListConnectors(ctx context.Context) ([]map[string]interface{}, error) {
+func (s *Service) ListConnectors(ctx context.Context) ([]iam_repo.Connector, error) {
 	return s.repo.ListConnectors(ctx)
 }
 func (s *Service) CreateConnector(ctx context.Context, id, name, secret string, uris []string) (string, error) {
@@ -254,7 +254,7 @@ func (s *Service) OffboardOrg(ctx context.Context, orgID string) error {
 	}
 
 	for _, u := range users {
-		userID := u["id"].(string)
+		userID := u.ID
 		jtis, err := s.repo.GetActiveJTIs(ctx, userID)
 		if err == nil && s.rdb != nil {
 			pipe := s.rdb.Pipeline()

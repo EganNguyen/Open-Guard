@@ -4,14 +4,15 @@ import (
 	"context"
 	"testing"
 
+	iam_repo "github.com/openguard/services/iam/pkg/repository"
 	"github.com/openguard/services/iam/pkg/service"
 	"github.com/openguard/shared/crypto"
 )
 
-func (m *MockRepository) GetMFAConfig(ctx context.Context, userID, mfaType string) (map[string]interface{}, error) {
+func (m *MockRepository) GetMFAConfig(ctx context.Context, userID, mfaType string) (*iam_repo.MFAConfig, error) {
 	for _, config := range m.MFAConfigs[userID] {
-		if config["mfa_type"] == mfaType {
-			return config, nil
+		if config.MFAType == mfaType {
+			return &config, nil
 		}
 	}
 	return nil, nil
@@ -32,8 +33,8 @@ func TestVerifyTOTP_ReplayProtection(t *testing.T) {
 	s = service.NewService(repo, pool, keyring, aesKeyring, s.Redis())
 
 	encrypted, _ := crypto.Encrypt([]byte(secret), aesKeyring)
-	repo.MFAConfigs[userID] = []map[string]interface{}{
-		{"mfa_type": "totp", "secret_encrypted": encrypted},
+	repo.MFAConfigs[userID] = []iam_repo.MFAConfig{
+		{MFAType: "totp", SecretEncrypted: encrypted},
 	}
 
 	code := "123456" 

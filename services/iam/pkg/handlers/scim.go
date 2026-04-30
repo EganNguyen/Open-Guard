@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	iam_repo "github.com/openguard/services/iam/pkg/repository"
 	"github.com/openguard/services/iam/pkg/service"
 	"github.com/openguard/shared/crypto"
 	shared_middleware "github.com/openguard/shared/middleware"
@@ -65,7 +66,7 @@ func (h *Handler) ListScimUsers(w http.ResponseWriter, r *http.Request) {
 
 	scimUsers := []scimUser{}
 	for _, u := range users {
-		scimUsers = append(scimUsers, h.mapToScim(u))
+		scimUsers = append(scimUsers, h.mapToScim(&u))
 	}
 
 	h.writeJSON(w, http.StatusOK, scimListResponse{
@@ -107,7 +108,14 @@ func (h *Handler) PostScimUser(w http.ResponseWriter, r *http.Request) {
 	// but here we use a random one if not provided.
 	password := crypto.GenerateRandomString(32)
 
-	id, created, err := h.svc.RegisterUser(ctx, orgID, email, password, payload.DisplayName, "user", payload.ExternalID)
+	id, created, err := h.svc.RegisterUser(ctx, service.RegisterUserRequest{
+		OrgID:          orgID,
+		Email:          email,
+		Password:       password,
+		DisplayName:    payload.DisplayName,
+		Role:           "user",
+		SCIMExternalID: payload.ExternalID,
+	})
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "CONFLICT:") {
 			h.writeScimError(w, http.StatusConflict, "conflict", strings.TrimPrefix(err.Error(), "CONFLICT:"))
@@ -133,7 +141,7 @@ func (h *Handler) GetScimUser(w http.ResponseWriter, r *http.Request) {
 	ctx := rls.WithOrgID(r.Context(), orgID)
 	userID := chi.URLParam(r, "id")
 	user, err := h.svc.GetCurrentUser(ctx, userID)
-	if err != nil || user["status"].(string) == "deprovisioned" {
+	if err != nil || user.Status == "deprovisioned" {
 		h.writeScimError(w, http.StatusNotFound, "notFound", "User not found")
 		return
 	}
@@ -176,24 +184,24 @@ func (h *Handler) PatchScimUser(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, h.mapToScim(user))
 }
 
-func (h *Handler) mapToScim(user map[string]interface{}) scimUser {
+func (h *Handler) mapToScim(user *iam_repo.User) scimUser {
 	s := scimUser{
 		Schemas:     []string{"urn:ietf:params:scim:schemas:core:2.0:User"},
-		ID:          user["id"].(string),
-		UserName:    user["email"].(string),
-		DisplayName: user["display_name"].(string),
-		Active:      user["status"].(string) == "active",
+		ID:          user.ID,
+		UserName:    user.Email,
+		DisplayName: user.DisplayName,
+		Active:      user.Status == "active",
 	}
-	if extID, ok := user["scim_external_id"].(*string); ok && extID != nil {
-		s.ExternalID = *extID
+	if user.SCIMExternalID != nil {
+		s.ExternalID = *user.SCIMExternalID
 	}
 	s.Emails = append(s.Emails, struct {
 		Value   string `json:"value"`
 		Primary bool   `json:"primary"`
-	}{Value: user["email"].(string), Primary: true})
+	}{Value: user.Email, Primary: true})
 
 	s.Meta.ResourceType = "User"
-	s.Meta.Version = fmt.Sprintf("v%d", user["version"].(int))
+	s.Meta.Version = fmt.Sprintf("v%d", user.Version)
 	s.Meta.Location = fmt.Sprintf("/scim/v2/Users/%s", s.ID)
 
 	return s

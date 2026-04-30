@@ -62,7 +62,7 @@ func NewBruteForceDetector(redisAddr string, brokers string, groupID string, top
 	}, nil
 }
 
-func (d *BruteForceDetector) Start(ctx context.Context) error {
+func (d *BruteForceDetector) Run(ctx context.Context) error {
 	d.logger.Info("Starting BruteForceDetector", "max_attempts", d.maxAttempts)
 	for {
 		select {

@@ -119,7 +119,7 @@ func main() {
 
 	repo := repository.NewRepository(pool)
 	svc := service.NewService(repo, rdb, outboxWriter, logger)
-	h := handlers.NewHandler(svc, repo, logger)
+	h := handlers.NewHandler(svc, logger)
 
 	// ── Auth Configuration ───────────────────────────────────────────────────
 	secretProvider, err := secrets.GetProvider(ctx)
