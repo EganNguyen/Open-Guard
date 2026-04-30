@@ -14,9 +14,11 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
+	iam_repo "github.com/openguard/services/iam/pkg/repository"
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/resilience"
 	"github.com/pquerna/otp/totp"
+	"github.com/redis/go-redis/v9"
 )
 
 type WebAuthnUser struct {
@@ -44,8 +46,8 @@ func (s *Service) BeginWebAuthnRegistration(ctx context.Context, userID string) 
 
 	wUser := &WebAuthnUser{
 		id:          []byte(userID),
-		displayName: user["display_name"].(string),
-		name:        user["email"].(string),
+		displayName: user.DisplayName,
+		name:        user.Email,
 	}
 
 	options, session, err := s.webauthn.BeginRegistration(wUser)
@@ -74,7 +76,7 @@ func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID,
 		return fmt.Errorf("registration session expired or invalid")
 	}
 	var session webauthn.SessionData
-	json.Unmarshal([]byte(val), &session)
+	_ = json.Unmarshal([]byte(val), &session)
 
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
@@ -83,8 +85,8 @@ func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID,
 
 	wUser := &WebAuthnUser{
 		id:          []byte(userID),
-		displayName: user["display_name"].(string),
-		name:        user["email"].(string),
+		displayName: user.DisplayName,
+		name:        user.Email,
 	}
 
 	credential, err := s.webauthn.FinishRegistration(wUser, session, response)
@@ -92,14 +94,14 @@ func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID,
 		return err
 	}
 
-	credMap := map[string]interface{}{
-		"id":               hex.EncodeToString(credential.ID),
-		"public_key":       hex.EncodeToString(credential.PublicKey),
-		"attestation_type": credential.AttestationType,
-		"sign_count":       credential.Authenticator.SignCount,
+	cred := iam_repo.WebAuthnCredential{
+		CredentialID:    hex.EncodeToString(credential.ID),
+		PublicKey:       hex.EncodeToString(credential.PublicKey),
+		AttestationType: credential.AttestationType,
+		SignCount:       int32(credential.Authenticator.SignCount),
 	}
 
-	if err := s.repo.SaveWebAuthnCredential(ctx, orgID, userID, credMap); err != nil {
+	if err := s.repo.SaveWebAuthnCredential(ctx, orgID, userID, cred); err != nil {
 		return err
 	}
 
@@ -117,23 +119,23 @@ func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (string,
 		return "", nil, nil, err
 	}
 
-	userID := user["id"].(string)
+	userID := user.ID
 	credentials, _ := s.repo.ListWebAuthnCredentials(ctx, userID)
 
 	wUser := &WebAuthnUser{
 		id:          []byte(userID),
-		displayName: user["display_name"].(string),
-		name:        user["email"].(string),
+		displayName: user.DisplayName,
+		name:        user.Email,
 	}
 
 	for _, c := range credentials {
-		id, _ := hex.DecodeString(c["credential_id"].(string))
-		pubKey, _ := hex.DecodeString(c["public_key"].(string))
+		id, _ := hex.DecodeString(c.CredentialID)
+		pubKey, _ := hex.DecodeString(c.PublicKey)
 		wUser.credentials = append(wUser.credentials, webauthn.Credential{
 			ID:        id,
 			PublicKey: pubKey,
 			Authenticator: webauthn.Authenticator{
-				SignCount: uint32(c["sign_count"].(int32)),
+				SignCount: uint32(c.SignCount),
 			},
 		})
 	}
@@ -153,7 +155,7 @@ func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (string,
 	return sessionID, session, options, nil
 }
 
-func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID string, userAgent, ip string, response *http.Request) (map[string]interface{}, string, error) {
+func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID string, userAgent, ip string, response *http.Request) (*iam_repo.User, string, error) {
 	if s.webauthn == nil {
 		return nil, "", fmt.Errorf("webauthn not configured")
 	}
@@ -163,29 +165,29 @@ func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID stri
 		return nil, "", err
 	}
 
-	userID := user["id"].(string)
+	userID := user.ID
 	sessionKey := fmt.Sprintf("webauthn:login:%s:%s", userID, sessionID)
 	val, err := s.rdb.GetDel(ctx, sessionKey).Result()
 	if err != nil {
 		return nil, "", fmt.Errorf("login session expired or invalid")
 	}
 	var session webauthn.SessionData
-	json.Unmarshal([]byte(val), &session)
+	_ = json.Unmarshal([]byte(val), &session)
 
 	credentials, _ := s.repo.ListWebAuthnCredentials(ctx, userID)
 	wUser := &WebAuthnUser{
 		id:          []byte(userID),
-		displayName: user["display_name"].(string),
-		name:        user["email"].(string),
+		displayName: user.DisplayName,
+		name:        user.Email,
 	}
 	for _, c := range credentials {
-		id, _ := hex.DecodeString(c["credential_id"].(string))
-		pubKey, _ := hex.DecodeString(c["public_key"].(string))
+		id, _ := hex.DecodeString(c.CredentialID)
+		pubKey, _ := hex.DecodeString(c.PublicKey)
 		wUser.credentials = append(wUser.credentials, webauthn.Credential{
 			ID:        id,
 			PublicKey: pubKey,
 			Authenticator: webauthn.Authenticator{
-				SignCount: uint32(c["sign_count"].(int32)),
+				SignCount: uint32(c.SignCount),
 			},
 		})
 	}
@@ -197,12 +199,18 @@ func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID stri
 
 	s.rdb.Del(ctx, "webauthn:login:"+userID)
 
-	res, err := s.IssueTokens(ctx, user["org_id"].(string), userID, userAgent, ip, uuid.New())
+	res, err := s.IssueTokens(ctx, IssueTokensRequest{
+		OrgID:     user.OrgID,
+		UserID:    userID,
+		UserAgent: userAgent,
+		IPAddress: ip,
+		FamilyID:  uuid.New(),
+	})
 	if err != nil {
 		return nil, "", err
 	}
 
-	return user, res["access_token"].(string), nil
+	return user, res.AccessToken, nil
 }
 
 func (s *Service) GenerateTOTPSetup(ctx context.Context, userID, email string) (string, string, error) {
@@ -270,11 +278,11 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, code string) (bo
 
 func (s *Service) VerifyTOTP(ctx context.Context, userID, code string) (bool, error) {
 	nonceKey := fmt.Sprintf("totp:used:%s:%s", userID, code)
-	set, err := s.rdb.SetNX(ctx, nonceKey, "1", 90*time.Second).Result()
-	if err != nil {
+	res, err := s.rdb.SetArgs(ctx, nonceKey, "1", redis.SetArgs{Mode: "NX", TTL: 90 * time.Second}).Result()
+	if err != nil && err != redis.Nil {
 		return false, err
 	}
-	if !set {
+	if res != "OK" {
 		return false, fmt.Errorf("totp code already used")
 	}
 
@@ -283,7 +291,7 @@ func (s *Service) VerifyTOTP(ctx context.Context, userID, code string) (bool, er
 		return false, err
 	}
 
-	secretBytes, err := crypto.Decrypt(config["secret_encrypted"].(string), s.aesKeyring)
+	secretBytes, err := crypto.Decrypt(config.SecretEncrypted, s.aesKeyring)
 	if err != nil {
 		return false, fmt.Errorf("decrypt secret: %w", err)
 	}
@@ -291,7 +299,7 @@ func (s *Service) VerifyTOTP(ctx context.Context, userID, code string) (bool, er
 	return totp.Validate(code, string(secretBytes)), nil
 }
 
-func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (map[string]interface{}, string, error) {
+func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (*iam_repo.User, string, error) {
 	res, err := resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
 		return s.rdb.GetDel(ctx, "mfa_challenge:"+challengeToken).Result()
 	})
@@ -310,15 +318,21 @@ func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, u
 		return nil, "", err
 	}
 
-	resToken, err := s.IssueTokens(ctx, user["org_id"].(string), user["id"].(string), userAgent, ip, uuid.New())
+	resToken, err := s.IssueTokens(ctx, IssueTokensRequest{
+		OrgID:     user.OrgID,
+		UserID:    user.ID,
+		UserAgent: userAgent,
+		IPAddress: ip,
+		FamilyID:  uuid.New(),
+	})
 	if err != nil {
 		return nil, "", err
 	}
 
-	return user, resToken["access_token"].(string), nil
+	return user, resToken.AccessToken, nil
 }
 
-func (s *Service) VerifyBackupCodeAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (map[string]interface{}, string, error) {
+func (s *Service) VerifyBackupCodeAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (*iam_repo.User, string, error) {
 	res, err := resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
 		return s.rdb.GetDel(ctx, "mfa_challenge:"+challengeToken).Result()
 	})
@@ -337,10 +351,16 @@ func (s *Service) VerifyBackupCodeAndLogin(ctx context.Context, challengeToken, 
 		return nil, "", err
 	}
 
-	resToken, err := s.IssueTokens(ctx, user["org_id"].(string), user["id"].(string), userAgent, ip, uuid.New())
+	resToken, err := s.IssueTokens(ctx, IssueTokensRequest{
+		OrgID:     user.OrgID,
+		UserID:    user.ID,
+		UserAgent: userAgent,
+		IPAddress: ip,
+		FamilyID:  uuid.New(),
+	})
 	if err != nil {
 		return nil, "", err
 	}
 
-	return user, resToken["access_token"].(string), nil
+	return user, resToken.AccessToken, nil
 }

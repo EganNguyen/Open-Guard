@@ -39,6 +39,10 @@ func (h *Handler) writeJSON(w http.ResponseWriter, status int, data interface{})
 	_ = json.NewEncoder(w).Encode(data)
 }
 
+func (h *Handler) writeError(w http.ResponseWriter, status int, msg string) {
+	h.writeJSON(w, status, map[string]string{"error": msg})
+}
+
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"status": "OK"})
 }
@@ -49,7 +53,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -59,22 +63,23 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	user, token, err := h.svc.Login(r.Context(), body.Email, body.Password, userAgent, ip)
 	if err != nil {
 		slog.Error("login failed", "error", err, "email", body.Email)
-		if err.Error() == "ACCOUNT_SETUP_PENDING" {
-			h.writeJSON(w, http.StatusForbidden, map[string]interface{}{
-				"error": "Account setup in progress",
-				"code":  "ACCOUNT_SETUP_PENDING",
+		if errors.Is(err, service.ErrAccountSetup) {
+			h.writeJSON(w, http.StatusForbidden, errorResponse{
+				Error: "Account setup in progress",
+				Code:  "ACCOUNT_SETUP_PENDING",
 			})
 			return
 		}
-		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
 
 	// Handle MFA requirement (R-11)
-	if mfaRequired, ok := user["mfa_required"].(bool); ok && mfaRequired {
-		h.writeJSON(w, http.StatusAccepted, map[string]interface{}{
-			"mfa_required":  true,
-			"mfa_challenge": user["mfa_challenge"],
+	if token != "" && user.Email == "" && user.OrgID != "" {
+		// This is the challenge token return path from our refactored Login
+		h.writeJSON(w, http.StatusAccepted, mfaChallengeResponse{
+			MFARequired:  true,
+			MFAChallenge: token,
 		})
 		return
 	}
@@ -96,9 +101,9 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   3600, // 1 hour
 	})
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"user":         user,
-		"access_token": token,
+	h.writeJSON(w, http.StatusOK, loginResponse{
+		User:        user,
+		AccessToken: token,
 	})
 }
 
@@ -108,13 +113,13 @@ func (h *Handler) VerifyMFA(w http.ResponseWriter, r *http.Request) {
 		Code           string `json:"code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	user, token, err := h.svc.VerifyMFAAndLogin(r.Context(), body.ChallengeToken, body.Code, r.UserAgent(), r.RemoteAddr)
 	if err != nil {
-		http.Error(w, "Invalid MFA code", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "Invalid MFA code")
 		return
 	}
 
@@ -129,9 +134,9 @@ func (h *Handler) VerifyMFA(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   3600,
 	})
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"user":         user,
-		"access_token": token,
+	h.writeJSON(w, http.StatusOK, loginResponse{
+		User:        user,
+		AccessToken: token,
 	})
 }
 
@@ -140,7 +145,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refresh_token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -160,7 +165,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		http.Error(w, "Invalid or expired refresh token", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "Invalid or expired refresh token")
 		return
 	}
 
@@ -177,50 +182,50 @@ func (h *Handler) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 		CodeChallenge string `json:"code_challenge"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	user, _, err := h.svc.Login(r.Context(), body.Email, body.Password, r.UserAgent(), r.RemoteAddr)
 	if err != nil {
-		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
 
 	if body.CodeChallenge == "" {
-		http.Error(w, "code_challenge is required for OAuth login", http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "code_challenge is required for OAuth login")
 		return
 	}
 
 	// Generate auth code (R-03)
 	code := uuid.New().String()
-	err = h.svc.StoreAuthCode(r.Context(), code, user["org_id"].(string), user["id"].(string), body.CodeChallenge)
+	err = h.svc.StoreAuthCode(r.Context(), code, user.OrgID, user.ID, body.CodeChallenge)
 	if err != nil {
-		http.Error(w, "failed to store auth code", http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, "failed to store auth code")
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"code":  code,
-		"state": body.State,
+	h.writeJSON(w, http.StatusOK, genericResponse{
+		ID:     code,
+		Status: body.State, // Borrowing Status for state
 	})
 }
 
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	userID := shared_middleware.GetUserID(r.Context())
 	if userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	user, err := h.svc.GetCurrentUser(r.Context(), userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"user": user,
+	h.writeJSON(w, http.StatusOK, loginResponse{
+		User: user,
 	})
 }
 
@@ -230,14 +235,14 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	expiresAt := shared_middleware.GetExpiresAt(r.Context())
 
 	if jti == "" {
-		http.Error(w, "invalid session: missing jti", http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid session: missing jti")
 		return
 	}
 
 	if err := h.svc.Logout(r.Context(), jti, expiresAt); err != nil {
 		log := iam_middleware.GetLogger(r.Context())
 		log.Error("logout failed", "error", err)
-		http.Error(w, "logout failed", http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, "logout failed")
 		return
 	}
 
@@ -261,13 +266,13 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	id, err := h.svc.RegisterOrg(r.Context(), body.Name)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -283,14 +288,14 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Role        string `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	// Pull org_id from context per spec §5
 	ctxOrgID := shared_middleware.GetOrgID(r.Context())
 	if ctxOrgID == "" {
-		http.Error(w, "Unauthorized: missing org_id", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "Unauthorized: missing org_id")
 		return
 	}
 
@@ -305,11 +310,18 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	ctx, span := tr.Start(r.Context(), "CreateUser")
 	defer span.End()
 
-	id, _, err := h.svc.RegisterUser(ctx, targetOrgID, body.Email, body.Password, body.DisplayName, body.Role, "")
+	id, _, err := h.svc.RegisterUser(ctx, service.RegisterUserRequest{
+		OrgID:          targetOrgID,
+		Email:          body.Email,
+		Password:       body.Password,
+		DisplayName:    body.DisplayName,
+		Role:           body.Role,
+		SCIMExternalID: "",
+	})
 	if err != nil {
 		log := iam_middleware.GetLogger(ctx)
 		log.Error("CreateUser failed", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -319,7 +331,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListConnectors(w http.ResponseWriter, r *http.Request) {
 	connectors, err := h.svc.ListConnectors(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	h.writeJSON(w, http.StatusOK, connectors)
@@ -330,7 +342,7 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	filter := r.URL.Query().Get("filter")
 	users, err := h.svc.ListUsers(r.Context(), orgID, filter)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	h.writeJSON(w, http.StatusOK, users)
@@ -344,7 +356,7 @@ func (h *Handler) CreateConnector(w http.ResponseWriter, r *http.Request) {
 		RedirectURIs []string `json:"redirect_uris"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -352,7 +364,7 @@ func (h *Handler) CreateConnector(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log := iam_middleware.GetLogger(r.Context())
 		log.Error("CreateConnector failed", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -364,13 +376,13 @@ func (h *Handler) TOTPSetup(w http.ResponseWriter, r *http.Request) {
 	// Get user email for TOTP label
 	user, err := h.svc.GetCurrentUser(r.Context(), userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	secret, url, err := h.svc.GenerateTOTPSetup(r.Context(), userID, user["email"].(string))
+	secret, url, err := h.svc.GenerateTOTPSetup(r.Context(), userID, user.Email)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -386,7 +398,7 @@ func (h *Handler) TOTPEnable(w http.ResponseWriter, r *http.Request) {
 		Secret string `json:"secret"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -395,11 +407,11 @@ func (h *Handler) TOTPEnable(w http.ResponseWriter, r *http.Request) {
 
 	backupCodes, err := h.svc.EnableTOTP(r.Context(), orgID, userID, body.Code, body.Secret)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+	h.writeJSON(w, http.StatusOK, map[string]any{
 		"status":       "mfa_enabled",
 		"backup_codes": backupCodes,
 	})
@@ -411,7 +423,7 @@ func (h *Handler) VerifyBackupCode(w http.ResponseWriter, r *http.Request) {
 		Code           string `json:"code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -433,7 +445,7 @@ func (h *Handler) VerifyBackupCode(w http.ResponseWriter, r *http.Request) {
 
 	user, token, err := h.svc.VerifyBackupCodeAndLogin(r.Context(), body.ChallengeToken, body.Code, r.UserAgent(), r.RemoteAddr)
 	if err != nil {
-		http.Error(w, "Invalid backup code", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "Invalid backup code")
 		return
 	}
 
@@ -448,9 +460,9 @@ func (h *Handler) VerifyBackupCode(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   3600,
 	})
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"user":         user,
-		"access_token": token,
+	h.writeJSON(w, http.StatusOK, loginResponse{
+		User:        user,
+		AccessToken: token,
 	})
 }
 
@@ -461,12 +473,12 @@ func (h *Handler) UpdateConnector(w http.ResponseWriter, r *http.Request) {
 		RedirectURIs []string `json:"redirect_uris"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if err := h.svc.UpdateConnector(r.Context(), id, body.Name, body.RedirectURIs); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -476,7 +488,7 @@ func (h *Handler) UpdateConnector(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteConnector(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.svc.DeleteConnector(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -487,12 +499,12 @@ func (h *Handler) ReprovisionUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	orgID := shared_middleware.GetOrgID(r.Context())
 	if orgID == "" {
-		http.Error(w, "Unauthorized: missing org_id", http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, "Unauthorized: missing org_id")
 		return
 	}
 
 	if err := h.svc.ReprovisionUser(r.Context(), orgID, id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -503,12 +515,12 @@ func (h *Handler) WebAuthnBeginRegistration(w http.ResponseWriter, r *http.Reque
 	userID := shared_middleware.GetUserID(r.Context())
 	sessionID, _, options, err := h.svc.BeginWebAuthnRegistration(r.Context(), userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"session_id": sessionID,
-		"options":    options,
+	h.writeJSON(w, http.StatusOK, webAuthnBeginResponse{
+		SessionID: sessionID,
+		Options:   options,
 	})
 }
 
@@ -517,11 +529,11 @@ func (h *Handler) WebAuthnFinishRegistration(w http.ResponseWriter, r *http.Requ
 	orgID := shared_middleware.GetOrgID(r.Context())
 	sessionID := r.URL.Query().Get("session_id")
 	if sessionID == "" {
-		http.Error(w, "missing session_id", http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "missing session_id")
 		return
 	}
 	if err := h.svc.FinishWebAuthnRegistration(r.Context(), orgID, userID, sessionID, r); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"status": "registered"})
@@ -532,17 +544,17 @@ func (h *Handler) WebAuthnBeginLogin(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	sessionID, _, options, err := h.svc.BeginWebAuthnLogin(r.Context(), body.Email)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"session_id": sessionID,
-		"options":    options,
+	h.writeJSON(w, http.StatusOK, webAuthnBeginResponse{
+		SessionID: sessionID,
+		Options:   options,
 	})
 }
 
@@ -550,12 +562,12 @@ func (h *Handler) WebAuthnFinishLogin(w http.ResponseWriter, r *http.Request) {
 	email := r.URL.Query().Get("email")
 	sessionID := r.URL.Query().Get("session_id")
 	if sessionID == "" {
-		http.Error(w, "missing session_id", http.StatusBadRequest)
+		h.writeError(w, http.StatusBadRequest, "missing session_id")
 		return
 	}
 	user, token, err := h.svc.FinishWebAuthnLogin(r.Context(), email, sessionID, r.UserAgent(), r.RemoteAddr, r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		h.writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
@@ -569,8 +581,8 @@ func (h *Handler) WebAuthnFinishLogin(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   3600,
 	})
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"user":         user,
-		"access_token": token,
+	h.writeJSON(w, http.StatusOK, loginResponse{
+		User:        user,
+		AccessToken: token,
 	})
 }

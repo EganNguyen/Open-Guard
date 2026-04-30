@@ -11,19 +11,19 @@ import (
 
 // SAMLProvider represents a stored SAML IdP configuration for an org.
 type SAMLProvider struct {
-	ID            string          `json:"id"`
-	OrgID         string          `json:"org_id"`
-	EntityID      string          `json:"entity_id"`
-	SSOURL        string          `json:"sso_url"`
-	SLOURL        string          `json:"slo_url,omitempty"`
-	MetadataXML   string          `json:"metadata_xml"`
-	SPCertPEM     string          `json:"sp_cert_pem"`
-	SPKeyPEM      string          `json:"sp_key_pem"`
-	NameIDFormat  string          `json:"name_id_format"`
-	AttributeMap  json.RawMessage `json:"attribute_map"`
-	Enabled       bool            `json:"enabled"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
+	ID           string          `json:"id"`
+	OrgID        string          `json:"org_id"`
+	EntityID     string          `json:"entity_id"`
+	SSOURL       string          `json:"sso_url"`
+	SLOURL       string          `json:"slo_url,omitempty"`
+	MetadataXML  string          `json:"metadata_xml"`
+	SPCertPEM    string          `json:"sp_cert_pem"`
+	SPKeyPEM     string          `json:"sp_key_pem"`
+	NameIDFormat string          `json:"name_id_format"`
+	AttributeMap json.RawMessage `json:"attribute_map"`
+	Enabled      bool            `json:"enabled"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
 // UpsertSAMLProvider creates or replaces the SAML provider for an org (one per org).

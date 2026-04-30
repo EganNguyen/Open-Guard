@@ -9,36 +9,36 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	iam_repo "github.com/openguard/services/iam/pkg/repository"
 	"github.com/openguard/shared/crypto"
 	"github.com/openguard/shared/resilience"
 )
 
-func (s *Service) Login(ctx context.Context, email, password, userAgent, ip string) (map[string]interface{}, string, error) {
+func (s *Service) Login(ctx context.Context, email, password, userAgent, ip string) (*iam_repo.User, string, error) {
 	user, userErr := s.repo.GetUserByEmail(ctx, email)
-	
+
 	// Rationale: constant-time comparison to prevent account enumeration.
 	// Use a pre-generated dummy hash for cost 12 to equalize timing.
-	hashToCompare := "$2a$12$R9h/cIPz0gi.URQHeNH5OuLzBeGPWbS6vS6vS6vS6vS6vS6vS6vS6" 
+	hashToCompare := "$2a$12$R9h/cIPz0gi.URQHeNH5OuLzBeGPWbS6vS6vS6vS6vS6vS6vS6vS6"
 	if userErr == nil {
-		hashToCompare = user["password_hash"].(string)
+		hashToCompare = user.PasswordHash
 	}
 
 	// Always run bcrypt comparison to equalize timing (~350ms)
 	bcryptErr := s.pool.Compare(ctx, password, hashToCompare)
 
 	if userErr != nil {
-		return nil, "", fmt.Errorf("INVALID_CREDENTIALS")
+		return nil, "", ErrInvalidCredentials
 	}
 
 	// Status and lockout checks happen AFTER bcrypt to prevent state enumeration
-	if user["status"].(string) == "initializing" {
-		return nil, "", fmt.Errorf("ACCOUNT_SETUP_PENDING")
+	if user.Status == "initializing" {
+		return nil, "", ErrAccountSetup
 	}
 
-	if user["locked_until"] != nil {
-		until := user["locked_until"].(*time.Time)
-		if until != nil && time.Now().Before(*until) {
-			return nil, "", fmt.Errorf("INVALID_CREDENTIALS")
+	if user.LockedUntil != nil {
+		if time.Now().Before(*user.LockedUntil) {
+			return nil, "", ErrInvalidCredentials
 		}
 	}
 
@@ -48,49 +48,52 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 			until := time.Now().Add(lockoutDuration(count))
 			_ = s.repo.LockAccount(ctx, email, until)
 		}
-		return nil, "", fmt.Errorf("INVALID_CREDENTIALS")
+		return nil, "", ErrInvalidCredentials
 	}
 
 	_ = s.repo.ResetFailedLogin(ctx, email)
 
-	mfaConfigs, _ := s.repo.ListMFAConfigs(ctx, user["id"].(string))
+	mfaConfigs, _ := s.repo.ListMFAConfigs(ctx, user.ID)
 	if len(mfaConfigs) > 0 {
 		challengeToken := uuid.New().String()
 		_, _ = resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
-			return nil, s.rdb.Set(ctx, "mfa_challenge:"+challengeToken, user["id"].(string), 5*time.Minute).Err()
+			return nil, s.rdb.Set(ctx, "mfa_challenge:"+challengeToken, user.ID, 5*time.Minute).Err()
 		})
-		return map[string]interface{}{
-			"mfa_required":  true,
-			"mfa_challenge": challengeToken,
-			"user_id":       user["id"].(string),
-		}, "", nil
+		// We return a partially populated user for MFA redirection
+		return &iam_repo.User{
+			ID:    user.ID,
+			OrgID: user.OrgID,
+		}, challengeToken, nil
 	}
 
-	delete(user, "password_hash")
-	delete(user, "failed_login_count")
-	delete(user, "locked_until")
-
-	res, err := s.IssueTokens(ctx, user["org_id"].(string), user["id"].(string), userAgent, ip, uuid.New())
+	res, err := s.IssueTokens(ctx, IssueTokensRequest{
+		OrgID:     user.OrgID,
+		UserID:    user.ID,
+		UserAgent: userAgent,
+		IPAddress: ip,
+		FamilyID:  uuid.New(),
+	})
 	if err != nil {
 		return nil, "", err
 	}
 
-	return user, res["access_token"].(string), nil
+	return user, res.AccessToken, nil
 }
 
-func (s *Service) IssueTokens(ctx context.Context, orgID, userID, userAgent, ip string, familyID uuid.UUID) (map[string]interface{}, error) {
+func (s *Service) IssueTokens(ctx context.Context, req IssueTokensRequest) (*TokenResponse, error) {
+	ip := req.IPAddress
 	if host, _, err := net.SplitHostPort(ip); err == nil {
 		ip = host
 	}
 
 	jti := uuid.New().String()
 	ttl := 1 * time.Hour
-	accessToken, err := s.SignToken(orgID, userID, jti, ttl)
+	accessToken, err := s.SignToken(req.OrgID, req.UserID, jti, ttl)
 	if err != nil {
 		return nil, err
 	}
 
-	err = s.repo.CreateSession(ctx, orgID, userID, jti, userAgent, ip, time.Now().Add(ttl))
+	err = s.repo.CreateSession(ctx, req.OrgID, req.UserID, jti, req.UserAgent, ip, time.Now().Add(ttl))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
@@ -99,38 +102,43 @@ func (s *Service) IssueTokens(ctx context.Context, orgID, userID, userAgent, ip 
 	rtHash := crypto.HashSHA256(refreshToken)
 	rtTTL := 7 * 24 * time.Hour
 
-	err = s.repo.CreateRefreshToken(ctx, orgID, userID, rtHash, familyID, time.Now().Add(rtTTL))
+	err = s.repo.CreateRefreshToken(ctx, req.OrgID, req.UserID, rtHash, req.FamilyID, time.Now().Add(rtTTL))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create refresh token: %w", err)
 	}
 
-	return map[string]interface{}{
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"expires_in":    int(ttl.Seconds()),
+	return &TokenResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    int(ttl.Seconds()),
+		TokenType:    "Bearer",
 	}, nil
 }
 
-func (s *Service) RefreshToken(ctx context.Context, refreshToken, userAgent, ip string) (map[string]interface{}, error) {
+func (s *Service) RefreshToken(ctx context.Context, refreshToken, userAgent, ip string) (*TokenResponse, error) {
 	rtHash := crypto.HashSHA256(refreshToken)
 	rt, err := s.repo.ClaimRefreshToken(ctx, rtHash)
 	if err != nil {
-		s.repo.RevokeRefreshTokenFamilyByHash(ctx, rtHash)
-		return nil, fmt.Errorf("SESSION_COMPROMISED")
+		_ = s.repo.RevokeRefreshTokenFamilyByHash(ctx, rtHash)
+		return nil, ErrSessionCompromised
 	}
 
-	session, err := s.repo.GetSessionByUserID(ctx, rt["user_id"].(string))
+	session, err := s.repo.GetSessionByUserID(ctx, rt.UserID)
 	if err == nil && session != nil {
-		storedUA, _ := session["user_agent"].(string)
-		storedIP, _ := session["ip_address"].(string)
-		score := calculateRiskScore(storedUA, userAgent, storedIP, ip)
+		score := calculateRiskScore(session.UserAgent, userAgent, session.IPAddress, ip)
 		if score >= riskThresholdRevoke {
-			s.repo.RevokeRefreshTokenFamily(ctx, rt["family_id"].(uuid.UUID))
-			return nil, fmt.Errorf("SESSION_REVOKED_RISK")
+			_ = s.repo.RevokeRefreshTokenFamily(ctx, rt.FamilyID)
+			return nil, ErrSessionRevokedRisk
 		}
 	}
 
-	return s.IssueTokens(ctx, rt["org_id"].(string), rt["user_id"].(string), userAgent, ip, rt["family_id"].(uuid.UUID))
+	return s.IssueTokens(ctx, IssueTokensRequest{
+		OrgID:     rt.OrgID,
+		UserID:    rt.UserID,
+		UserAgent: userAgent,
+		IPAddress: ip,
+		FamilyID:  rt.FamilyID,
+	})
 }
 
 func (s *Service) SignToken(orgID, userID, jti string, ttl time.Duration) (string, error) {

@@ -33,7 +33,7 @@ func main() {
 	if err != nil {
 		logger.Error("failed to initialize tracer", "error", err)
 	} else {
-		defer tp.Shutdown(context.Background())
+		defer func() { _ = tp.Shutdown(context.Background()) }()
 	}
 
 	redisAddr := os.Getenv("REDIS_ADDR")
@@ -51,7 +51,7 @@ func main() {
 		os.Exit(1)
 	}
 	rdb := redis.NewClient(rOptions)
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	kafkaBrokersStr := os.Getenv("KAFKA_BROKERS")
 	if kafkaBrokersStr == "" {
@@ -97,7 +97,7 @@ func main() {
 
 	// Initialize Kafka Publisher for emitting threat.alerts
 	publisher := sharedkafka.NewPublisher(kafkaBrokersList)
-	defer publisher.Close()
+	defer func() { _ = publisher.Close() }()
 
 	// Initialize Detectors
 	bfDetector, err := detector.NewBruteForceDetector(redisAddr, kafkaBrokersStr, groupID, topicAuth, store, publisher, logger)
@@ -128,14 +128,20 @@ func main() {
 	}()
 
 	// Start Detectors
-	go bfDetector.Start(ctx)
-	if itDetector != nil {
-		go itDetector.Run(ctx)
+	detectors := []detector.Detector{
+		bfDetector,
+		ohDetector,
+		deDetector,
+		atDetector,
+		peDetector,
 	}
-	go ohDetector.Run(ctx)
-	go deDetector.Run(ctx)
-	go atDetector.Run(ctx)
-	go peDetector.Run(ctx)
+	if itDetector != nil {
+		detectors = append(detectors, itDetector)
+	}
+
+	for _, d := range detectors {
+		go func(det detector.Detector) { _ = det.Run(ctx) }(d)
+	}
 
 	// Initialize Handlers & Router
 	h := handlers.NewHandler(store)
@@ -206,5 +212,5 @@ func main() {
 	}()
 
 	<-ctx.Done()
-	server.Shutdown(context.Background())
+	_ = server.Shutdown(context.Background())
 }

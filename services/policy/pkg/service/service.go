@@ -161,7 +161,9 @@ func (s *Service) Evaluate(ctx context.Context, req EvaluateRequest) (*EvaluateR
 			if json.Unmarshal(cached, &decision) == nil {
 				latency := int(time.Since(start).Milliseconds())
 
-				// GAP-SCALE-01: Stale-While-Revalidate logic
+				// @AI-INTENT: [Pattern: Stale-While-Revalidate] Entry is within the grace period
+				// (handled by Redis TTL) but past its ideal expiry. Return stale data
+				// immediately and refresh in background.
 				isStale := time.Now().After(decision.ExpiresAt)
 				if isStale {
 					// Entry is within the grace period (handled by Redis TTL) but past its ideal expiry
@@ -188,7 +190,9 @@ func (s *Service) Evaluate(ctx context.Context, req EvaluateRequest) (*EvaluateR
 		}
 	}
 
-	// Tier 2: Postgres evaluation with singleflight (one DB query per unique cache key)
+	// @AI-INTENT: [Pattern: Singleflight] Tier 2: Postgres evaluation with singleflight
+	// Ensures only one DB query per unique cache key if multiple concurrent requests
+	// miss the cache at the same time.
 	type sfResult struct {
 		resp *EvaluateResponse
 		err  error
@@ -227,7 +231,7 @@ func (s *Service) evaluateFromDB(ctx context.Context, req EvaluateRequest, key s
 		return s.repo.GetMatchingPolicies(ctx, req.OrgID, req.SubjectID, req.UserGroups)
 	})
 	if err != nil {
-		// Fail-closed: if we can't read policies, deny
+		// @AI-INTENT: [Pattern: Fail-Closed] If we can't read policies, deny access.
 		s.logger.Error("failed to fetch policies, failing closed", "error", err, "org_id", req.OrgID)
 		return &EvaluateResponse{
 			Effect:           "deny",
@@ -403,7 +407,7 @@ func (s *Service) backgroundRefresh(req EvaluateRequest, key string) {
 		maxRetryDelay,
 	)
 	defer cancel()
-	s.evaluateFromDB(ctx, req, key)
+	_, _ = s.evaluateFromDB(ctx, req, key)
 }
 
 // CreatePolicy creates a new policy and publishes a change event.
@@ -412,7 +416,7 @@ func (s *Service) CreatePolicy(ctx context.Context, orgID, name, description str
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	p, err := s.repo.CreatePolicyTx(ctx, tx, orgID, name, description, logic)
 	if err != nil {
@@ -436,7 +440,7 @@ func (s *Service) UpdatePolicy(ctx context.Context, orgID, policyID, name, descr
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	p, err := s.repo.UpdatePolicyTx(ctx, tx, orgID, policyID, name, description, logic)
 	if err != nil {
@@ -460,7 +464,7 @@ func (s *Service) DeletePolicy(ctx context.Context, orgID, policyID string) erro
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := s.repo.DeletePolicyTx(ctx, tx, orgID, policyID); err != nil {
 		return err
@@ -542,7 +546,7 @@ func (s *Service) CreateAssignment(ctx context.Context, orgID, policyID, subject
 	}
 
 	// Invalidate cache for the org (R-14)
-	go s.InvalidateOrgCache(context.Background(), orgID)
+	go func() { _ = s.InvalidateOrgCache(context.Background(), orgID) }()
 
 	return a, nil
 }
@@ -554,7 +558,23 @@ func (s *Service) DeleteAssignment(ctx context.Context, orgID, assignmentID stri
 	}
 
 	// Invalidate cache for the org (R-14)
-	go s.InvalidateOrgCache(context.Background(), orgID)
+	go func() { _ = s.InvalidateOrgCache(context.Background(), orgID) }()
 
 	return nil
+}
+
+func (s *Service) ListPolicies(ctx context.Context, orgID string) ([]repository.Policy, error) {
+	return s.repo.ListPolicies(ctx, orgID)
+}
+
+func (s *Service) GetPolicy(ctx context.Context, orgID, policyID string) (*repository.Policy, error) {
+	return s.repo.GetPolicy(ctx, orgID, policyID)
+}
+
+func (s *Service) ListEvalLogs(ctx context.Context, orgID string, limit int) ([]repository.EvalLog, error) {
+	return s.repo.ListEvalLogs(ctx, orgID, limit)
+}
+
+func (s *Service) ListAssignments(ctx context.Context, orgID string) ([]repository.Assignment, error) {
+	return s.repo.ListAssignments(ctx, orgID)
 }
