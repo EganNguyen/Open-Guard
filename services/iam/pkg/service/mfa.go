@@ -279,11 +279,10 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, code string) (bo
 func (s *Service) VerifyTOTP(ctx context.Context, userID, code string) (bool, error) {
 	nonceKey := fmt.Sprintf("totp:used:%s:%s", userID, code)
 	res, err := s.rdb.SetArgs(ctx, nonceKey, "1", redis.SetArgs{Mode: "NX", TTL: 90 * time.Second}).Result()
-	set := res == "OK"
-	if err != nil {
+	if err != nil && err != redis.Nil {
 		return false, err
 	}
-	if !set {
+	if res != "OK" {
 		return false, fmt.Errorf("totp code already used")
 	}
 

@@ -163,7 +163,7 @@ func (s *Service) PatchUser(ctx context.Context, id string, ops []ScimPatchOp) (
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	for _, op := range ops {
 		if op.Op != "replace" {

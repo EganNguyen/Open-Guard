@@ -191,8 +191,7 @@ func (h *Handler) SAMLAssertionConsumerService(w http.ResponseWriter, r *http.Re
 	replayKey := fmt.Sprintf("saml:assertion:%s", assertionID)
 	// Atomic SetNX prevents replay within the assertion's validity window.
 	res, err := h.svc.Redis().SetArgs(r.Context(), replayKey, "1", redis.SetArgs{Mode: "NX", TTL: ttl}).Result()
-	set := res == "OK"
-	if err != nil || !set {
+	if (err != nil && err != redis.Nil) || res != "OK" {
 		slog.Warn("saml: assertion replay detected", "assertion_id", assertionID, "org_id", orgID)
 		h.writeError(w, http.StatusUnauthorized, "assertion replay detected")
 		return
