@@ -6,7 +6,8 @@ COPY shared/ ./
 
 # Build service
 WORKDIR /app
-COPY services/policy/go.mod ./
+COPY services/policy/go.mod services/policy/go.sum ./
+RUN go mod download
 COPY services/policy/ .
 RUN go mod tidy && go build -o service .
 

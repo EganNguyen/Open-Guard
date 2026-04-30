@@ -6,7 +6,8 @@ COPY shared/ ./
 
 # Build service
 WORKDIR /app
-COPY services/threat/go.mod ./
+COPY services/threat/go.mod services/threat/go.sum ./
+RUN go mod download
 COPY services/threat/ .
 RUN go mod tidy && go build -o service .
 

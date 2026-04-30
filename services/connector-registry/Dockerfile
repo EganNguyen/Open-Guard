@@ -6,7 +6,8 @@ COPY shared/ ./
 
 # Build service
 WORKDIR /app
-COPY services/connector-registry/go.mod ./
+COPY services/connector-registry/go.mod services/connector-registry/go.sum ./
+RUN go mod download
 COPY services/connector-registry/ .
 RUN go mod tidy && go build -o service .
 

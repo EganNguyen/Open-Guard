@@ -6,7 +6,8 @@ COPY shared/ ./
 
 # Build service
 WORKDIR /app
-COPY services/dlp/go.mod ./
+COPY services/dlp/go.mod services/dlp/go.sum ./
+RUN go mod download
 COPY services/dlp/ .
 RUN go mod tidy && go build -o service .
 

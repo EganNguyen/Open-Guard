@@ -8,8 +8,8 @@ COPY sdk/ ./
 
 # Build service
 WORKDIR /app
-COPY examples/task-management-app/backend/go.mod ./
-# No go.sum yet, or copy it if it exists
+COPY examples/task-management-app/backend/go.mod examples/task-management-app/backend/go.su[m] ./
+RUN go mod download
 COPY examples/task-management-app/backend/ .
 RUN go mod tidy && go build -o service .
 

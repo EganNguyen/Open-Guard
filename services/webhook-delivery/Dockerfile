@@ -6,7 +6,8 @@ COPY shared/ ./
 
 # Build service
 WORKDIR /app
-COPY services/webhook-delivery/go.mod ./
+COPY services/webhook-delivery/go.mod services/webhook-delivery/go.sum ./
+RUN go mod download
 COPY services/webhook-delivery/ .
 RUN go mod tidy && go build -o service .
 

@@ -6,7 +6,8 @@ COPY shared/ ./
 
 # Build service
 WORKDIR /app
-COPY services/alerting/go.mod ./
+COPY services/alerting/go.mod services/alerting/go.sum ./
+RUN go mod download
 COPY services/alerting/ .
 RUN go mod tidy && go build -o service .
 
