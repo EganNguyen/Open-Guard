@@ -56,7 +56,7 @@ func main() {
 
 	pgConfig.AfterRelease = func(conn *pgx.Conn) bool {
 		ctx := context.Background()
-		conn.Exec(ctx, "SELECT set_config('app.org_id', '', false)")
+		_, _ = conn.Exec(ctx, "SELECT set_config('app.org_id', '', false)")
 		return true
 	}
 
@@ -86,7 +86,7 @@ func main() {
 		os.Exit(1)
 	}
 	rdb := redis.NewClient(rOptions)
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		logger.Error("redis connection check failed — migrations cannot run", "error", err)
@@ -111,7 +111,7 @@ func main() {
 	}
 	brokers := strings.Split(brokersEnv, ",")
 	kp := kafka.NewPublisher(brokers)
-	defer kp.Close()
+	defer func() { _ = kp.Close() }()
 
 	outboxWriter := outbox.NewWriter("outbox_records")
 	relay := outbox.NewRelay(pool, kp, "outbox_records", 5*time.Second, logger)

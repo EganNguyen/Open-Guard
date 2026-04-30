@@ -407,7 +407,7 @@ func (s *Service) backgroundRefresh(req EvaluateRequest, key string) {
 		maxRetryDelay,
 	)
 	defer cancel()
-	s.evaluateFromDB(ctx, req, key)
+	_, _ = s.evaluateFromDB(ctx, req, key)
 }
 
 // CreatePolicy creates a new policy and publishes a change event.
