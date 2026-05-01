@@ -207,7 +207,12 @@ func (m *MockRepository) UpdateUserSCIM(ctx context.Context, userID, externalID,
 }
 
 func (m *MockRepository) GetUserByExternalID(ctx context.Context, orgID, externalID string) (*iam_repo.User, error) {
-	return nil, nil
+	for _, u := range m.Users {
+		if u.OrgID == orgID && u.SCIMExternalID != nil && *u.SCIMExternalID == externalID {
+			return u, nil
+		}
+	}
+	return nil, fmt.Errorf("not found")
 }
 
 func (m *MockRepository) StoreBackupCodes(ctx context.Context, userID string, hashes []string) error {
@@ -273,7 +278,7 @@ func setup(_ *testing.T) (*service.Service, *MockRepository, *miniredis.Miniredi
 	aesKeyring := []crypto.EncryptionKey{{Kid: "a1", Key: aesKey, Status: "active"}}
 	pool := service.NewAuthWorkerPool(1, context.Background())
 	keyring := []crypto.JWTKey{{Kid: "k1", Secret: "test-secret-at-least-32-bytes!!", Algorithm: "HS256", Status: "active"}}
-	s := service.NewService(repo, pool, keyring, aesKeyring, rdb)
+	s := service.NewService(repo, repo, repo, repo, repo, repo, repo, repo, repo, pool, keyring, aesKeyring, rdb)
 	return s, repo, mr
 }
 
