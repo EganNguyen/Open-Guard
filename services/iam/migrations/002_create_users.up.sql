@@ -34,7 +34,7 @@ ALTER TABLE users FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY users_org_isolation ON users
 FOR ALL
-USING (org_id = nullif(current_setting('app.org_id', true), '')::UUID)
-WITH CHECK (org_id = nullif(current_setting('app.org_id', true), '')::UUID);
+USING (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID)
+WITH CHECK (org_id = NULLIF(CURRENT_SETTING('app.org_id', TRUE), '')::UUID);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON users TO openguard_app;
