@@ -207,7 +207,12 @@ func (m *MockRepository) UpdateUserSCIM(ctx context.Context, userID, externalID,
 }
 
 func (m *MockRepository) GetUserByExternalID(ctx context.Context, orgID, externalID string) (*iam_repo.User, error) {
-	return nil, nil
+	for _, u := range m.Users {
+		if u.OrgID == orgID && u.SCIMExternalID != nil && *u.SCIMExternalID == externalID {
+			return u, nil
+		}
+	}
+	return nil, fmt.Errorf("not found")
 }
 
 func (m *MockRepository) StoreBackupCodes(ctx context.Context, userID string, hashes []string) error {
@@ -273,7 +278,7 @@ func setup(_ *testing.T) (*service.Service, *MockRepository, *miniredis.Miniredi
 	aesKeyring := []crypto.EncryptionKey{{Kid: "a1", Key: aesKey, Status: "active"}}
 	pool := service.NewAuthWorkerPool(1, context.Background())
 	keyring := []crypto.JWTKey{{Kid: "k1", Secret: "test-secret-at-least-32-bytes!!", Algorithm: "HS256", Status: "active"}}
-	s := service.NewService(repo, pool, keyring, aesKeyring, rdb)
+	s := service.NewService(repo, repo, repo, repo, repo, repo, repo, repo, repo, pool, keyring, aesKeyring, rdb)
 	return s, repo, mr
 }
 
@@ -614,4 +619,62 @@ func TestSCIM_Deprovisioning_RevokesSessions(t *testing.T) {
 	// 3. Verify JTIs blocklisted in Redis
 	assert.True(t, mr.Exists("blocklist:jti-1"))
 	assert.True(t, mr.Exists("blocklist:jti-2"))
+}
+
+func TestRegisterUser_SCIMConflict(t *testing.T) {
+	s, repo, _ := setup(t)
+	extID := "ext-123"
+	
+	repo.Users["u1"] = &iam_repo.User{
+		ID: "u1", OrgID: "org1", Email: "old@example.com", Status: "deprovisioned", SCIMExternalID: &extID,
+	}
+
+	_, _, err := s.RegisterUser(context.Background(), service.RegisterUserRequest{
+		OrgID: "org1", Email: "new@example.com", SCIMExternalID: extID,
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "CONFLICT:user was deprovisioned") {
+		t.Errorf("expected SCIM conflict error, got %v", err)
+	}
+}
+
+func TestLogin_AccountLockoutFlow_Detailed(t *testing.T) {
+	s, repo, _ := setup(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("password"), 10)
+	repo.Users["1"] = &iam_repo.User{
+		ID: "1", OrgID: "org1", Email: "lockout@example.com", PasswordHash: string(hash), Status: "active",
+	}
+
+	// 1. First 9 failures
+	for i := 0; i < 9; i++ {
+		_, _, err := s.Login(context.Background(), "lockout@example.com", "wrong", "ua", "127.0.0.1")
+		if err == nil || !strings.Contains(err.Error(), "INVALID_CREDENTIALS") {
+			t.Fatalf("expected INVALID_CREDENTIALS, got %v", err)
+		}
+	}
+	if repo.FailedLogins["lockout@example.com"] != 9 {
+		t.Errorf("expected 9 failures, got %d", repo.FailedLogins["lockout@example.com"])
+	}
+
+	// 2. 10th failure triggers lockout
+	_, _, err := s.Login(context.Background(), "lockout@example.com", "wrong", "ua", "127.0.0.1")
+	if err == nil || !strings.Contains(err.Error(), "INVALID_CREDENTIALS") {
+		t.Fatalf("expected INVALID_CREDENTIALS, got %v", err)
+	}
+	if repo.LockedUntil["lockout@example.com"].IsZero() {
+		t.Error("account should be locked")
+	}
+
+	// 3. Login with correct password while locked should still fail
+	_, _, err = s.Login(context.Background(), "lockout@example.com", "password", "ua", "127.0.0.1")
+	if err == nil || !strings.Contains(err.Error(), "INVALID_CREDENTIALS") {
+		t.Errorf("expected INVALID_CREDENTIALS while locked, got %v", err)
+	}
+
+	// 4. Reset failures should allow login
+	repo.ResetFailedLogin(context.Background(), "lockout@example.com")
+	_, token, err := s.Login(context.Background(), "lockout@example.com", "password", "ua", "127.0.0.1")
+	if err != nil || token == nil {
+		t.Errorf("login should succeed after reset, got err=%v", err)
+	}
 }

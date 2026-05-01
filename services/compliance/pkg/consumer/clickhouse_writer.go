@@ -14,21 +14,34 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
+type ComplianceRepository interface {
+	IngestEvents(ctx context.Context, events []repository.Event) error
+}
+
+type KafkaReader interface {
+	FetchMessage(ctx context.Context) (kafka.Message, error)
+	CommitMessages(ctx context.Context, msgs ...kafka.Message) error
+	Close() error
+}
+
 type ClickHouseWriter struct {
-	reader *kafka.Reader
-	repo   *repository.Repository
+	reader KafkaReader
+	repo   ComplianceRepository
 	logger *slog.Logger
 }
 
-func NewClickHouseWriter(brokers string, groupID string, topic string, repo *repository.Repository, logger *slog.Logger) *ClickHouseWriter {
+func NewClickHouseWriter(brokers string, groupID string, topic string, repo ComplianceRepository, logger *slog.Logger) *ClickHouseWriter {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: strings.Split(brokers, ","),
 		GroupID: groupID,
 		Topic:   topic,
 	})
+	return NewClickHouseWriterWithReader(r, repo, logger)
+}
 
+func NewClickHouseWriterWithReader(reader KafkaReader, repo ComplianceRepository, logger *slog.Logger) *ClickHouseWriter {
 	return &ClickHouseWriter{
-		reader: r,
+		reader: reader,
 		repo:   repo,
 		logger: logger,
 	}
