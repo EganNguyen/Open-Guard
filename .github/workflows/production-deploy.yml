@@ -139,7 +139,7 @@ jobs:
       - name: Build Docker Image
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.service == 'dashboard' && 'web' || '.' }}
           file: ${{ matrix.path }}
           push: false
           tags: openguard/${{ matrix.service }}:${{ github.sha }},openguard/${{ matrix.service }}:latest
