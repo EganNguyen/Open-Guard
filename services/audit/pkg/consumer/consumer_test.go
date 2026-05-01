@@ -54,8 +54,8 @@ func (m *MockRepository) UpdateHashChainCAS(ctx context.Context, orgID, prevHash
 }
 
 func TestFlush_Success(t *testing.T) {
-	os.Setenv("AUDIT_SECRET_KEY", "test-secret")
-	defer os.Unsetenv("AUDIT_SECRET_KEY")
+	_ = os.Setenv("AUDIT_SECRET_KEY", "test-secret")
+	defer func() { _ = os.Unsetenv("AUDIT_SECRET_KEY") }()
 
 	mockReader := new(MockReader)
 	mockRepo := new(MockRepository)
@@ -120,8 +120,8 @@ func TestFlush_MissingOrgID(t *testing.T) {
 }
 
 func TestFlush_HashChainIntegrity(t *testing.T) {
-	os.Setenv("AUDIT_SECRET_KEY", "test-secret")
-	defer os.Unsetenv("AUDIT_SECRET_KEY")
+	_ = os.Setenv("AUDIT_SECRET_KEY", "test-secret")
+	defer func() { _ = os.Unsetenv("AUDIT_SECRET_KEY") }()
 
 	mockReader := new(MockReader)
 	mockRepo := new(MockRepository)
@@ -186,8 +186,8 @@ func TestFlush_HashChainIntegrity(t *testing.T) {
 }
 
 func TestFlush_CASRetryOnConflict(t *testing.T) {
-	os.Setenv("AUDIT_SECRET_KEY", "test-secret")
-	defer os.Unsetenv("AUDIT_SECRET_KEY")
+	_ = os.Setenv("AUDIT_SECRET_KEY", "test-secret")
+	defer func() { _ = os.Unsetenv("AUDIT_SECRET_KEY") }()
 
 	mockReader := new(MockReader)
 	mockRepo := new(MockRepository)

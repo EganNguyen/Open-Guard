@@ -46,7 +46,7 @@ func (h *IngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	// Ensure org_id matches authenticated tenant
 	event["org_id"] = orgID
 	if event["event_id"] == nil {
-		// Generate event_id if missing (though SDK should provide it)
+		event["event_id"] = fmt.Sprintf("evt-%d", time.Now().UnixNano())
 	}
 
 	// ── Synchronous DLP Check (TC-NEW-DLP-001) ──────────────────────────────
