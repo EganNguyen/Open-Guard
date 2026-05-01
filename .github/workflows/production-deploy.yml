@@ -143,7 +143,7 @@ jobs:
           file: ${{ matrix.path }}
           push: false
           tags: openguard/${{ matrix.service }}:${{ github.sha }},openguard/${{ matrix.service }}:latest
-          cache-from: type=gha,mode=max
+          cache-from: type=gha,source=openguard/${{ matrix.service }}:main
           cache-to: type=gha,mode=max
           load: true
 
