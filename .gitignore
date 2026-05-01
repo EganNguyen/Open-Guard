@@ -66,4 +66,7 @@ Desktop.ini
 *.log
 *.txt
 
+# Worktrees
+.worktrees/
+
 
