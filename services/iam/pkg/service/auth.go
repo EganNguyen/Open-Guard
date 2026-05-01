@@ -14,7 +14,7 @@ import (
 	"github.com/openguard/shared/resilience"
 )
 
-func (s *Service) Login(ctx context.Context, email, password, userAgent, ip string) (*iam_repo.User, string, error) {
+func (s *Service) Login(ctx context.Context, email, password, userAgent, ip string) (*iam_repo.User, *TokenResponse, error) {
 	user, userErr := s.userRepo.GetUserByEmail(ctx, email)
 
 	// Rationale: constant-time comparison to prevent account enumeration.
@@ -28,17 +28,17 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 	bcryptErr := s.pool.Compare(ctx, password, hashToCompare)
 
 	if userErr != nil {
-		return nil, "", ErrInvalidCredentials
+		return nil, nil, ErrInvalidCredentials
 	}
 
 	// Status and lockout checks happen AFTER bcrypt to prevent state enumeration
 	if user.Status == "initializing" {
-		return nil, "", ErrAccountSetup
+		return nil, nil, ErrAccountSetup
 	}
 
 	if user.LockedUntil != nil {
 		if time.Now().Before(*user.LockedUntil) {
-			return nil, "", ErrInvalidCredentials
+			return nil, nil, ErrInvalidCredentials
 		}
 	}
 
@@ -48,7 +48,7 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 			until := time.Now().Add(lockoutDuration(count))
 			_ = s.userRepo.LockAccount(ctx, email, until)
 		}
-		return nil, "", ErrInvalidCredentials
+		return nil, nil, ErrInvalidCredentials
 	}
 
 	_ = s.userRepo.ResetFailedLogin(ctx, email)
@@ -63,7 +63,7 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 		return &iam_repo.User{
 			ID:    user.ID,
 			OrgID: user.OrgID,
-		}, challengeToken, nil
+		}, &TokenResponse{AccessToken: challengeToken}, nil
 	}
 
 	res, err := s.IssueTokens(ctx, IssueTokensRequest{
@@ -74,10 +74,10 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 		FamilyID:  uuid.New(),
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
-	return user, res.AccessToken, nil
+	return user, res, nil
 }
 
 func (s *Service) IssueTokens(ctx context.Context, req IssueTokensRequest) (*TokenResponse, error) {

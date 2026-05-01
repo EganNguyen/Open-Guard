@@ -50,6 +50,13 @@ This module covers all authentication and identity lifecycle journeys in OpenGua
 - **Steps:** 1. `POST /auth/login`. 2. `POST /auth/mfa/verify` with challenge.
 - **Expected Results:** 1. 403 Forbidden (`mfa_required`). 2. 200 OK with tokens.
 
+### TC-MFA-003: TOTP Verification (Success and Failure)
+- **User Flow:** User submits 6-digit code to complete login.
+- **Verification:**
+  - `[UNIT]`: Correct 6-digit code returns full JWT pair; Redis challenge key deleted.
+  - `[UNIT]`: Incorrect 6-digit code returns `INVALID_TOTP_CODE`; challenge key preserved.
+  - `[UNIT]`: Expired challenge token (T > 5m) returns `CHALLENGE_EXPIRED`.
+
 ## 4. OAuth 2.0 / PKCE
 
 ### TC-OAUTH-001: Authorization Code Flow with PKCE

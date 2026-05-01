@@ -14,6 +14,19 @@ This module covers Data Loss Prevention (DLP) and automated compliance reporting
 - **Steps:** Create policy to block `ssn` and `api_key`.
 - **System Verifications:** RLS-scoped policy persistence.
 
+### TC-DLP-003: Sync Block Mode Ingestion
+- **Config:** `dlp_mode=block`.
+- **User Flow:** Connector ingests event containing credit card number.
+- **Expected Results:** 422 Unprocessable Entity (`DLP_POLICY_VIOLATION`).
+- **System Verifications:** Event NOT written to outbox or Postgres; DLP finding persisted.
+
+### TC-DLP-004: Fail-Closed on DLP Service Outage
+- **Config:** `dlp_mode=block`.
+- **Preconditions:** DLP service is unreachable.
+- **User Flow:** Connector ingests any event.
+- **Expected Results:** 503 Service Unavailable or 422 (`DLP_UNAVAILABLE`).
+- **System Verifications:** High-assurance "fail-closed" logic blocks all ingestion until DLP is restored.
+
 ## 3. Compliance Reporting
 
 ### TC-CMP-001: Generate and Download Compliance Report

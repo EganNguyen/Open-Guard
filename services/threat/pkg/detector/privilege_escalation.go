@@ -18,11 +18,11 @@ type PrivilegeEscalationDetector struct {
 	authReader   *kafka.Reader // TopicAuthEvents
 	policyReader *kafka.Reader // TopicPolicyChanges
 	logger       *slog.Logger
-	store        *alert.Store
+	store        alert.Persister
 	pub          *sharedkafka.Publisher
 }
 
-func NewPrivilegeEscalationDetector(redisAddr string, brokers string, groupID string, authTopic, policyTopic string, store *alert.Store, pub *sharedkafka.Publisher, logger *slog.Logger) *PrivilegeEscalationDetector {
+func NewPrivilegeEscalationDetector(redisAddr string, brokers string, groupID string, authTopic, policyTopic string, store alert.Persister, pub *sharedkafka.Publisher, logger *slog.Logger) *PrivilegeEscalationDetector {
 	rdb := redis.NewClient(&redis.Options{
 		Addr: redisAddr,
 	})
@@ -177,11 +177,13 @@ func (d *PrivilegeEscalationDetector) publishThreatEvent(ctx context.Context, ac
 		}
 	}
 
-	d.rdb.Set(ctx, "threat:privesc:"+actorID, payload, 24*time.Hour)
+	if err := d.rdb.Set(ctx, "threat:privesc:"+actorID, payload, 24*time.Hour).Err(); err != nil {
+		d.logger.Error("failed to set threat cache", "error", err)
+	}
 }
 
 func (d *PrivilegeEscalationDetector) Close() {
-	d.authReader.Close()
-	d.policyReader.Close()
-	d.rdb.Close()
+	_ = d.authReader.Close()
+	_ = d.policyReader.Close()
+	_ = d.rdb.Close()
 }

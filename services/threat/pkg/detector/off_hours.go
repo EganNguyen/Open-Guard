@@ -22,11 +22,12 @@ type OffHoursDetector struct {
 	offStart int // THREAT_OFF_HOURS_START, default 22 (UTC hour)
 	offEnd   int // THREAT_OFF_HOURS_END, default 6 (UTC hour)
 	logger   *slog.Logger
-	store    *alert.Store
+	store    alert.Persister
 	pub      *sharedkafka.Publisher
+	now      func() time.Time // for testing
 }
 
-func NewOffHoursDetector(redisAddr string, brokers string, groupID string, topic string, store *alert.Store, pub *sharedkafka.Publisher, logger *slog.Logger) *OffHoursDetector {
+func NewOffHoursDetector(redisAddr string, brokers string, groupID string, topic string, store alert.Persister, pub *sharedkafka.Publisher, logger *slog.Logger) *OffHoursDetector {
 	rdb := redis.NewClient(&redis.Options{
 		Addr: redisAddr,
 	})
@@ -62,6 +63,7 @@ func NewOffHoursDetector(redisAddr string, brokers string, groupID string, topic
 		logger:   logger,
 		store:    store,
 		pub:      pub,
+		now:      time.Now,
 	}
 }
 
@@ -110,7 +112,7 @@ func (d *OffHoursDetector) processEvent(ctx context.Context, m kafka.Message) er
 		return nil
 	}
 
-	now := time.Now().UTC()
+	now := d.now().UTC()
 	hour := now.Hour()
 	date := now.Format("2006-01-02")
 
@@ -188,10 +190,12 @@ func (d *OffHoursDetector) publishThreatEvent(ctx context.Context, orgID, userID
 		}
 	}
 
-	d.rdb.Set(ctx, fmt.Sprintf("threat:offhours:%s:%s", orgID, userID), payload, 24*time.Hour)
+	if err := d.rdb.Set(ctx, fmt.Sprintf("threat:offhours:%s:%s", orgID, userID), payload, 24*time.Hour).Err(); err != nil {
+		d.logger.Error("failed to set threat cache", "error", err)
+	}
 }
 
 func (d *OffHoursDetector) Close() {
-	d.reader.Close()
-	d.rdb.Close()
+	_ = d.reader.Close()
+	_ = d.rdb.Close()
 }

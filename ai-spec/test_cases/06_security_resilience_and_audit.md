@@ -30,6 +30,12 @@ This module covers cross-cutting security concerns, multi-tenancy enforcement, a
 - **System Verifications:** Each event's `prev_hash` = SHA-256 of prior event.
 - **Persistence:** MongoDB `writeconcern.Majority` and CAS on chain head document.
 
+### TC-AUD-002: Audit Chain Gap Detection
+- **Preconditions:** A sequence of 5 valid events exists.
+- **Steps:** Manually delete event #3 from the database or tamper with its `prev_hash`.
+- **Expected Results:** `GET /v1/audit/integrity` returns `ok: false` and identifies the break at sequence #3.
+- **System Verifications:** Background worker or on-demand query validates the cryptographic chain integrity.
+
 ## 4. Negative Scenarios
 
 ### TC-NEG-001: Unauthenticated Access

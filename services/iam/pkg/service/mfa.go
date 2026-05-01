@@ -155,21 +155,21 @@ func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (string,
 	return sessionID, session, options, nil
 }
 
-func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID string, userAgent, ip string, response *http.Request) (*iam_repo.User, string, error) {
+func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID string, userAgent, ip string, response *http.Request) (*iam_repo.User, *TokenResponse, error) {
 	if s.webauthn == nil {
-		return nil, "", fmt.Errorf("webauthn not configured")
+		return nil, nil, fmt.Errorf("webauthn not configured")
 	}
 
 	user, err := s.userRepo.GetUserByEmail(ctx, email)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
 	userID := user.ID
 	sessionKey := fmt.Sprintf("webauthn:login:%s:%s", userID, sessionID)
 	val, err := s.rdb.GetDel(ctx, sessionKey).Result()
 	if err != nil {
-		return nil, "", fmt.Errorf("login session expired or invalid")
+		return nil, nil, fmt.Errorf("login session expired or invalid")
 	}
 	var session webauthn.SessionData
 	_ = json.Unmarshal([]byte(val), &session)
@@ -194,7 +194,7 @@ func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID stri
 
 	_, err = s.webauthn.FinishLogin(wUser, session, response)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
 	s.rdb.Del(ctx, "webauthn:login:"+userID)
@@ -207,10 +207,9 @@ func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID stri
 		FamilyID:  uuid.New(),
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-
-	return user, res.AccessToken, nil
+	return user, res, nil
 }
 
 func (s *Service) GenerateTOTPSetup(ctx context.Context, userID, email string) (string, string, error) {
@@ -299,23 +298,23 @@ func (s *Service) VerifyTOTP(ctx context.Context, userID, code string) (bool, er
 	return totp.Validate(code, string(secretBytes)), nil
 }
 
-func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (*iam_repo.User, string, error) {
+func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (*iam_repo.User, *TokenResponse, error) {
 	res, err := resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
 		return s.rdb.GetDel(ctx, "mfa_challenge:"+challengeToken).Result()
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid or expired challenge")
+		return nil, nil, fmt.Errorf("invalid or expired challenge")
 	}
 	userID := res.(string)
 
 	ok, err := s.VerifyTOTP(ctx, userID, code)
 	if err != nil || !ok {
-		return nil, "", fmt.Errorf("invalid mfa code")
+		return nil, nil, fmt.Errorf("invalid mfa code")
 	}
 
 	user, err := s.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
 	resToken, err := s.IssueTokens(ctx, IssueTokensRequest{
@@ -326,29 +325,29 @@ func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, u
 		FamilyID:  uuid.New(),
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
-	return user, resToken.AccessToken, nil
+	return user, resToken, nil
 }
 
-func (s *Service) VerifyBackupCodeAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (*iam_repo.User, string, error) {
+func (s *Service) VerifyBackupCodeAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (*iam_repo.User, *TokenResponse, error) {
 	res, err := resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
 		return s.rdb.GetDel(ctx, "mfa_challenge:"+challengeToken).Result()
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid or expired challenge")
+		return nil, nil, fmt.Errorf("invalid or expired challenge")
 	}
 	userID := res.(string)
 
 	ok, err := s.VerifyBackupCode(ctx, userID, code)
 	if err != nil || !ok {
-		return nil, "", fmt.Errorf("invalid backup code")
+		return nil, nil, fmt.Errorf("invalid backup code")
 	}
 
 	user, err := s.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
 	resToken, err := s.IssueTokens(ctx, IssueTokensRequest{
@@ -359,8 +358,8 @@ func (s *Service) VerifyBackupCodeAndLogin(ctx context.Context, challengeToken, 
 		FamilyID:  uuid.New(),
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
-	return user, resToken.AccessToken, nil
+	return user, resToken, nil
 }

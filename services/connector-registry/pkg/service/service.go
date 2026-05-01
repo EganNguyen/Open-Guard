@@ -18,6 +18,7 @@ type Repository interface {
 	FindByPrefix(ctx context.Context, prefix string) (map[string]interface{}, error)
 	GetConnectorByID(ctx context.Context, id string) (map[string]interface{}, error)
 	DeleteConnector(ctx context.Context, id string) error
+	UpdateStatus(ctx context.Context, id string, status string) error
 }
 
 type Service struct {
@@ -76,6 +77,9 @@ func (s *Service) ValidateAPIKey(ctx context.Context, apiKey string) (map[string
 				if err == nil {
 					var connector map[string]interface{}
 					if json.Unmarshal([]byte(cachedData), &connector) == nil {
+						if status, ok := connector["status"].(string); ok && status == "suspended" {
+							return nil, fmt.Errorf("connector is suspended")
+						}
 						return connector, nil
 					}
 				}
@@ -94,6 +98,10 @@ func (s *Service) ValidateAPIKey(ctx context.Context, apiKey string) (map[string
 	// 3. Verify PBKDF2 Hash
 	if !crypto.VerifyPBKDF2(apiKey, connector["api_key_hash"].(string)) {
 		return nil, fmt.Errorf("invalid api key")
+	}
+
+	if status, ok := connector["status"].(string); ok && status == "suspended" {
+		return nil, fmt.Errorf("connector is suspended")
 	}
 
 	// 4. Cache Result (5-min TTL per spec)
@@ -125,8 +133,33 @@ func (s *Service) DeleteConnector(ctx context.Context, id string) error {
 	return s.repo.DeleteConnector(ctx, id)
 }
 
+func (s *Service) SuspendConnector(ctx context.Context, id string) error {
+	// 1. Get prefix to invalidate cache
+	connector, err := s.repo.GetConnectorByID(ctx, id)
+	if err == nil {
+		prefix := connector["api_key_prefix"].(string)
+		if s.rdb != nil {
+			// Instead of deleting, we could cache a 'suspended' sentinel,
+			// but for now deleting and letting next call fetch from DB is fine.
+			pipe := s.rdb.Pipeline()
+			pipe.Del(ctx, "apikey:hash:"+prefix)
+			pipe.Del(ctx, "apikey:data:"+prefix)
+			_, _ = pipe.Exec(ctx)
+		}
+	}
+
+	// 2. Update status in DB
+	return s.repo.UpdateStatus(ctx, id, "suspended")
+}
+
 func (s *Service) generateAPIKey() string {
 	b := make([]byte, 24)
-	rand.Read(b)
+	_, err := rand.Read(b)
+	if err != nil {
+		// Fallback to a less secure but non-failing method if CSPRNG fails,
+		// though in practice rand.Read should not fail on modern systems.
+		// For high-assurance, we could panic, but returning a semi-random string is safer for availability.
+		return "ogk_err_" + crypto.GenerateRandomString(32)
+	}
 	return "ogk_" + base64.URLEncoding.EncodeToString(b)
 }

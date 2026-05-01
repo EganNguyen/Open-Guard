@@ -33,11 +33,11 @@ type ImpossibleTravelDetector struct {
 	threshold  float64 // THREAT_GEO_CHANGE_THRESHOLD_KM, default 500
 	windowSecs int     // 3600 (1 hour, hardcoded per spec)
 	logger     *slog.Logger
-	store      *alert.Store
+	store      alert.Persister
 	pub        *sharedkafka.Publisher
 }
 
-func NewImpossibleTravelDetector(dbPath string, redisAddr string, brokers string, groupID string, topic string, store *alert.Store, pub *sharedkafka.Publisher, logger *slog.Logger) (*ImpossibleTravelDetector, error) {
+func NewImpossibleTravelDetector(dbPath string, redisAddr string, brokers string, groupID string, topic string, store alert.Persister, pub *sharedkafka.Publisher, logger *slog.Logger) (*ImpossibleTravelDetector, error) {
 	db, err := geoip2.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open GeoLite2 DB: %w", err)
@@ -205,7 +205,9 @@ func (d *ImpossibleTravelDetector) publishThreatEvent(ctx context.Context, userI
 		}
 	}
 
-	d.rdb.Set(ctx, "threat:travel:"+userID, payload, 24*time.Hour)
+	if err := d.rdb.Set(ctx, "threat:travel:"+userID, payload, 24*time.Hour).Err(); err != nil {
+		d.logger.Error("failed to set threat cache", "error", err)
+	}
 }
 
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {
@@ -222,7 +224,7 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 }
 
 func (d *ImpossibleTravelDetector) Close() {
-	d.db.Close()
-	d.reader.Close()
-	d.rdb.Close()
+	_ = d.db.Close()
+	_ = d.reader.Close()
+	_ = d.rdb.Close()
 }

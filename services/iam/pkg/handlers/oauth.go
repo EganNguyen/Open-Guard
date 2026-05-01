@@ -175,10 +175,10 @@ func (h *Handler) handlePasswordGrant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if this was an MFA challenge
-	if token != "" && user.Email == "" && user.OrgID != "" {
+	if token != nil && user.Email == "" && user.OrgID != "" {
 		h.writeJSON(w, http.StatusForbidden, map[string]interface{}{
 			"error":         "mfa_required",
-			"mfa_challenge": token,
+			"mfa_challenge": token.AccessToken,
 		})
 		return
 	}

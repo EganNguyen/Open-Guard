@@ -19,6 +19,12 @@ This module covers the management and real-time evaluation of Attribute-Based Ac
 - **User Flow:** Admin deletes policy.
 - **System Verifications:** `ON DELETE CASCADE` removes all subject assignments.
 
+### TC-POL-004: Create Policy with Invalid CEL Expression
+- **User Flow:** Admin attempts to create policy with syntactically incorrect CEL.
+- **Steps:** `POST /v1/policies` with `logic: { "expression": "subject == " }`.
+- **Expected Results:** 400 Bad Request with specific CEL compilation error.
+- **System Verifications:** No outbox record created; Transaction rolled back in Postgres.
+
 ## 3. Policy Evaluation
 
 ### TC-EVAL-001: Policy Evaluation – Allow Decision (Cache Miss)

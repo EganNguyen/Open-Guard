@@ -15,8 +15,8 @@ import (
 	"log/slog"
 
 	"github.com/openguard/services/audit/pkg/telemetry"
-	"github.com/segmentio/kafka-go"
 	sharedkafka "github.com/openguard/shared/kafka"
+	"github.com/segmentio/kafka-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -110,31 +110,6 @@ func (c *AuditConsumer) Start(ctx context.Context) error {
 	}
 }
 
-// kafkaHeaderCarrier adapts kafka.Header array to the TextMapCarrier interface
-type kafkaHeaderCarrier struct {
-	headers []kafka.Header
-}
-
-func (c kafkaHeaderCarrier) Get(key string) string {
-	for _, h := range c.headers {
-		if h.Key == key {
-			return string(h.Value)
-		}
-	}
-	return ""
-}
-
-func (c kafkaHeaderCarrier) Set(key string, value string) {
-	// Not needed for extraction
-}
-
-func (c kafkaHeaderCarrier) Keys() []string {
-	keys := make([]string, 0, len(c.headers))
-	for _, h := range c.headers {
-		keys = append(keys, h.Key)
-	}
-	return keys
-}
 
 // @AI-INTENT: [Pattern: Exactly-Once Bulk Write with Offset Commit]
 // [Rationale: To prevent data loss and duplicate audit logs, we use a strict ordering:
@@ -162,7 +137,7 @@ func (c *AuditConsumer) flush(ctx context.Context, batch []kafka.Message) {
 		prop := otel.GetTextMapPropagator()
 		msgCtx := prop.Extract(ctx, propagation.MapCarrier(headerMap))
 
-		msgCtx, span := otel.Tracer("audit-consumer").Start(msgCtx, "consume-audit-event", trace.WithSpanKind(trace.SpanKindConsumer))
+		_, span := otel.Tracer("audit-consumer").Start(msgCtx, "consume-audit-event", trace.WithSpanKind(trace.SpanKindConsumer))
 
 		var event map[string]interface{}
 		if err := json.Unmarshal(m.Value, &event); err != nil {

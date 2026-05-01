@@ -19,11 +19,11 @@ type AuditReadRepository struct {
 
 func NewAuditWriteRepository(client *mongo.Client, dbName string) *AuditWriteRepository {
 	db := client.Database(dbName)
-	
+
 	// Ensure unique index on event_id (REC-17)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	_, _ = db.Collection("audit_events").Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "event_id", Value: 1}},
 		Options: options.Index().SetUnique(true).SetSparse(true),
@@ -102,7 +102,7 @@ func (r *AuditReadRepository) FindEvents(ctx context.Context, filter bson.M, lim
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var events []map[string]interface{}
 	if err = cursor.All(ctx, &events); err != nil {

@@ -14,7 +14,8 @@ ALTER TABLE orgs FORCE ROW LEVEL SECURITY;
 
 -- Self-read policy
 CREATE POLICY orgs_self_isolation ON orgs
-USING (id = NULLIF(current_setting('app.org_id', true), '')::UUID)
-WITH CHECK (id = NULLIF(current_setting('app.org_id', true), '')::UUID);
+FOR ALL
+USING (id = nullif(current_setting('app.org_id', true), '')::UUID)
+WITH CHECK (id = nullif(current_setting('app.org_id', true), '')::UUID);
 
 GRANT SELECT, UPDATE ON orgs TO openguard_app;

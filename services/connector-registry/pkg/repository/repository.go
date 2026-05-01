@@ -55,14 +55,14 @@ func (r *Repository) CreateConnector(ctx context.Context, id, orgID, name, secre
 func (r *Repository) GetConnectorByID(ctx context.Context, id string) (map[string]interface{}, error) {
 	var result map[string]interface{}
 	err := r.withConn(ctx, func(conn *pgxpool.Conn) error {
-		var idStr, orgID, name, secret, prefix, hash string
+		var idStr, orgID, name, secret, prefix, hash, status string
 		var uris []string
 		var createdAt, updatedAt time.Time
 
 		err := conn.QueryRow(ctx, `
-			SELECT id, org_id, name, client_secret, redirect_uris, api_key_prefix, api_key_hash, created_at, updated_at
+			SELECT id, org_id, name, client_secret, redirect_uris, api_key_prefix, api_key_hash, status, created_at, updated_at
 			FROM connectors WHERE id = $1
-		`, id).Scan(&idStr, &orgID, &name, &secret, &uris, &prefix, &hash, &createdAt, &updatedAt)
+		`, id).Scan(&idStr, &orgID, &name, &secret, &uris, &prefix, &hash, &status, &createdAt, &updatedAt)
 
 		if err != nil {
 			return err
@@ -76,6 +76,7 @@ func (r *Repository) GetConnectorByID(ctx context.Context, id string) (map[strin
 			"redirect_uris":  uris,
 			"api_key_prefix": prefix,
 			"api_key_hash":   hash,
+			"status":         status,
 			"created_at":     createdAt,
 			"updated_at":     updatedAt,
 		}
@@ -94,13 +95,13 @@ func (r *Repository) GetConnectorByID(ctx context.Context, id string) (map[strin
 func (r *Repository) FindByPrefix(ctx context.Context, prefix string) (map[string]interface{}, error) {
 	var result map[string]interface{}
 	err := r.withConn(ctx, func(conn *pgxpool.Conn) error {
-		var idStr, orgID, name, secret, hash string
+		var idStr, orgID, name, secret, hash, status string
 		var uris []string
 
 		err := conn.QueryRow(ctx, `
-			SELECT id, org_id, name, client_secret, redirect_uris, api_key_hash
+			SELECT id, org_id, name, client_secret, redirect_uris, api_key_hash, status
 			FROM connectors WHERE api_key_prefix = $1
-		`, prefix).Scan(&idStr, &orgID, &name, &secret, &uris, &hash)
+		`, prefix).Scan(&idStr, &orgID, &name, &secret, &uris, &hash, &status)
 
 		if err != nil {
 			return err
@@ -113,6 +114,7 @@ func (r *Repository) FindByPrefix(ctx context.Context, prefix string) (map[strin
 			"client_secret": secret,
 			"redirect_uris": uris,
 			"api_key_hash":  hash,
+			"status":        status,
 		}
 		return nil
 	})
@@ -129,6 +131,13 @@ func (r *Repository) FindByPrefix(ctx context.Context, prefix string) (map[strin
 func (r *Repository) DeleteConnector(ctx context.Context, id string) error {
 	return r.withConn(ctx, func(conn *pgxpool.Conn) error {
 		_, err := conn.Exec(ctx, "DELETE FROM connectors WHERE id = $1", id)
+		return err
+	})
+}
+
+func (r *Repository) UpdateStatus(ctx context.Context, id string, status string) error {
+	return r.withConn(ctx, func(conn *pgxpool.Conn) error {
+		_, err := conn.Exec(ctx, "UPDATE connectors SET status = $1, updated_at = NOW() WHERE id = $2", status, id)
 		return err
 	})
 }
