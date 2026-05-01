@@ -59,23 +59,53 @@ type TokenResponse struct {
 
 // Service handles business logic for the IAM service.
 type Service struct {
-	repo         Repository
-	pool         *AuthWorkerPool
-	keyring      []crypto.JWTKey
-	aesKeyring   []crypto.EncryptionKey
-	rdb          *redis.Client
-	redisBreaker *gobreaker.CircuitBreaker
-	webauthn     *webauthn.WebAuthn
+	userRepo      UserRepository
+	sessionRepo   SessionRepository
+	tokenRepo     TokenRepository
+	mfaRepo       MFARepository
+	connectorRepo ConnectorRepository
+	webauthnRepo  WebAuthnRepository
+	samlRepo      SAMLRepository
+	orgRepo       OrgRepository
+	outboxRepo    OutboxRepository
+	pool          *AuthWorkerPool
+	keyring       []crypto.JWTKey
+	aesKeyring    []crypto.EncryptionKey
+	rdb           *redis.Client
+	redisBreaker  *gobreaker.CircuitBreaker
+	webauthn      *webauthn.WebAuthn
 }
 
 // NewService creates a new service instance.
-func NewService(repo Repository, pool *AuthWorkerPool, keyring []crypto.JWTKey, aesKeyring []crypto.EncryptionKey, rdb *redis.Client) *Service {
+func NewService(
+	userRepo UserRepository,
+	sessionRepo SessionRepository,
+	tokenRepo TokenRepository,
+	mfaRepo MFARepository,
+	connectorRepo ConnectorRepository,
+	webauthnRepo WebAuthnRepository,
+	samlRepo SAMLRepository,
+	orgRepo OrgRepository,
+	outboxRepo OutboxRepository,
+	pool *AuthWorkerPool,
+	keyring []crypto.JWTKey,
+	aesKeyring []crypto.EncryptionKey,
+	rdb *redis.Client,
+) *Service {
 	return &Service{
-		repo:       repo,
-		pool:       pool,
-		keyring:    keyring,
-		aesKeyring: aesKeyring,
-		rdb:        rdb,
+		userRepo:      userRepo,
+		sessionRepo:   sessionRepo,
+		tokenRepo:     tokenRepo,
+		mfaRepo:       mfaRepo,
+		connectorRepo: connectorRepo,
+		webauthnRepo:  webauthnRepo,
+		samlRepo:      samlRepo,
+		orgRepo:       orgRepo,
+		outboxRepo:    outboxRepo,
+		pool:          pool,
+		keyring:       keyring,
+		aesKeyring:    aesKeyring,
+		rdb:           rdb,
 		redisBreaker: resilience.NewBreaker(resilience.BreakerConfig{
 			Name:             "iam-redis",
 			MaxRequests:      3,
