@@ -155,7 +155,7 @@ func main() {
 
 	// Initialize Repository, Service, Handler
 	repo := repository.NewRepository(pool)
-	svc := service.NewService(repo, authPool, keyring, aesKeyring, rdb)
+	svc := service.NewService(repo, repo, repo, repo, repo, repo, repo, repo, repo, authPool, keyring, aesKeyring, rdb)
 	h := handlers.NewHandler(svc)
 
 	// Setup Router

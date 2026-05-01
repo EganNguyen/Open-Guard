@@ -24,6 +24,7 @@ type UserRepository interface {
 	ResetFailedLogin(ctx context.Context, email string) error
 	LockAccount(ctx context.Context, email string, until time.Time) error
 	DeprovisionAllUsers(ctx context.Context, orgID string) error
+	BeginTx(ctx context.Context) (pgx.Tx, error)
 }
 
 // SessionRepository handles session-related operations.
@@ -98,5 +99,4 @@ type Repository interface {
 	SAMLRepository
 	OrgRepository
 	OutboxRepository
-	BeginTx(ctx context.Context) (pgx.Tx, error)
 }
