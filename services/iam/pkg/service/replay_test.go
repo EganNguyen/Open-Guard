@@ -30,7 +30,7 @@ func TestVerifyTOTP_ReplayProtection(t *testing.T) {
 	// Create a new service with AES keyring
 	pool := service.NewAuthWorkerPool(1, context.Background())
 	keyring := []crypto.JWTKey{{Kid: "k1", Secret: "test-secret-at-least-32-bytes!!", Algorithm: "HS256", Status: "active"}}
-	s = service.NewService(repo, pool, keyring, aesKeyring, s.Redis())
+	s = service.NewService(repo, repo, repo, repo, repo, repo, repo, repo, repo, pool, keyring, aesKeyring, s.Redis())
 
 	encrypted, _ := crypto.Encrypt([]byte(secret), aesKeyring)
 	repo.MFAConfigs[userID] = []iam_repo.MFAConfig{

@@ -32,19 +32,19 @@ func NewRouter(h *handlers.Handler, keyring []crypto.JWTKey, rdb *redis.Client, 
 	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/health", h.Health)
 
-		r.Route("/v1", func(r chi.Router) {
-			breaker := resilience.NewBreaker(resilience.BreakerConfig{
-				Name:             "policy-redis-blocklist",
-				MaxRequests:      5,
-				Interval:         10 * time.Second,
-				FailureThreshold: 3,
-				OpenDuration:     5 * time.Second,
-			}, nil)
-			
-			rateLimiter := shared_middleware.NewRateLimiter(rdb, rate.Limit(1000), 2000, stop)
+	r.Route("/v1", func(r chi.Router) {
+		breaker := resilience.NewBreaker(resilience.BreakerConfig{
+			Name:             "policy-redis-blocklist",
+			MaxRequests:      5,
+			Interval:         10 * time.Second,
+			FailureThreshold: 3,
+			OpenDuration:     5 * time.Second,
+		}, nil)
 
-			r.Use(rateLimiter.Limit)
-			r.Use(shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker))
+		rateLimiter := shared_middleware.NewRateLimiter(rdb, rate.Limit(1000), 2000, stop)
+
+		r.Use(rateLimiter.Limit)
+		r.Use(shared_middleware.AuthJWTWithBlocklist(keyring, rdb, breaker))
 		idemMiddleware := shared_middleware.IdempotencyMiddleware(rdb)
 		r.Route("/policies", func(r chi.Router) {
 			r.Get("/", h.ListPolicies)

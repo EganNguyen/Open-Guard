@@ -77,7 +77,7 @@ type evalLogEntry struct {
 
 // Service implements the policy engine business logic.
 type Service struct {
-	repo         *repository.Repository
+	repo         PolicyRepository
 	rdb          *redis.Client
 	outboxWriter *outbox.Writer
 	sfGroup      singleflight.Group
@@ -89,7 +89,7 @@ type Service struct {
 }
 
 // NewService creates a new policy service.
-func NewService(repo *repository.Repository, rdb *redis.Client, outboxWriter *outbox.Writer, logger *slog.Logger) *Service {
+func NewService(repo PolicyRepository, rdb *redis.Client, outboxWriter *outbox.Writer, logger *slog.Logger) *Service {
 	env, err := cel.NewEnv(
 		cel.Variable("subject", cel.StringType),
 		cel.Variable("action", cel.StringType),

@@ -9,6 +9,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	iam_repo "github.com/openguard/services/iam/pkg/repository"
 	"github.com/openguard/services/iam/pkg/service"
 	"github.com/openguard/shared/crypto"
@@ -141,6 +142,118 @@ func (m *MockRepository) GetSessionByUserID(ctx context.Context, userID string) 
 	return nil, nil
 }
 
+func (m *MockRepository) GetActiveJTIs(ctx context.Context, userID string) ([]string, error) {
+	return []string{}, nil
+}
+
+func (m *MockRepository) GetSessionTTL(ctx context.Context, jti string) time.Duration {
+	return 0
+}
+
+func (m *MockRepository) RevokeSessions(ctx context.Context, userID string) error {
+	return nil
+}
+
+func (m *MockRepository) CreateUser(ctx context.Context, orgID, email, passwordHash, displayName, role, status string) (string, error) {
+	return "", nil
+}
+
+func (m *MockRepository) GetUserByExternalID(ctx context.Context, orgID, externalID string) (*iam_repo.User, error) {
+	return nil, nil
+}
+
+func (m *MockRepository) ListUsers(ctx context.Context, orgID string, filter string) ([]iam_repo.User, error) {
+	return nil, nil
+}
+
+func (m *MockRepository) ListUsersPaginated(ctx context.Context, orgID string, filter string, offset, limit int) ([]iam_repo.User, int, error) {
+	return nil, 0, nil
+}
+
+func (m *MockRepository) UpdateUserStatus(ctx context.Context, userID, status string) error {
+	return nil
+}
+
+func (m *MockRepository) UpdateUserDisplayName(ctx context.Context, userID, displayName string) error {
+	return nil
+}
+
+func (m *MockRepository) UpdateUserSCIM(ctx context.Context, userID, externalID, status string) error {
+	return nil
+}
+
+func (m *MockRepository) DeprovisionAllUsers(ctx context.Context, orgID string) error {
+	return nil
+}
+
+func (m *MockRepository) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	return nil, nil
+}
+
+func (m *MockRepository) UpsertMFAConfig(ctx context.Context, orgID, userID, mfaType, secretEncrypted string) error {
+	return nil
+}
+
+func (m *MockRepository) EnableUserMFA(ctx context.Context, userID string, enabled bool, method string) error {
+	return nil
+}
+
+func (m *MockRepository) StoreBackupCodes(ctx context.Context, userID string, hashes []string) error {
+	return nil
+}
+
+func (m *MockRepository) ConsumeBackupCode(ctx context.Context, userID string, codeHash string) (bool, error) {
+	return false, nil
+}
+
+func (m *MockRepository) GetConnectorByID(ctx context.Context, id string) (*iam_repo.Connector, error) {
+	return nil, nil
+}
+
+func (m *MockRepository) ListConnectors(ctx context.Context) ([]iam_repo.Connector, error) {
+	return nil, nil
+}
+
+func (m *MockRepository) CreateConnector(ctx context.Context, id, name, secret string, uris []string) (string, error) {
+	return "", nil
+}
+
+func (m *MockRepository) UpdateConnector(ctx context.Context, id, name string, uris []string) error {
+	return nil
+}
+
+func (m *MockRepository) DeleteConnector(ctx context.Context, id string) error {
+	return nil
+}
+
+func (m *MockRepository) SaveWebAuthnCredential(ctx context.Context, orgID, userID string, cred iam_repo.WebAuthnCredential) error {
+	return nil
+}
+
+func (m *MockRepository) ListWebAuthnCredentials(ctx context.Context, userID string) ([]iam_repo.WebAuthnCredential, error) {
+	return nil, nil
+}
+
+func (m *MockRepository) UpsertSAMLProvider(ctx context.Context, orgID string, p *iam_repo.SAMLProvider) (*iam_repo.SAMLProvider, error) {
+	return nil, nil
+}
+
+func (m *MockRepository) GetSAMLProvider(ctx context.Context, orgID string) (*iam_repo.SAMLProvider, error) {
+	return nil, nil
+}
+
+func (m *MockRepository) ListSAMLProviders(ctx context.Context, orgID string) ([]*iam_repo.SAMLProvider, error) {
+	return nil, nil
+}
+
+func (m *MockRepository) CreateOrg(ctx context.Context, name string) (string, error) {
+	return "", nil
+}
+
+func (m *MockRepository) CreateOutboxEvent(ctx context.Context, tx pgx.Tx, orgID, topic, key string, payload []byte) error {
+	return nil
+}
+
 func setup(_ *testing.T) (*service.Service, *MockRepository, *miniredis.Miniredis) {
 	mr, _ := miniredis.Run()
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -154,7 +267,7 @@ func setup(_ *testing.T) (*service.Service, *MockRepository, *miniredis.Miniredi
 	}
 	pool := service.NewAuthWorkerPool(1, context.Background())
 	keyring := []crypto.JWTKey{{Kid: "k1", Secret: "test-secret-at-least-32-bytes!!", Algorithm: "HS256", Status: "active"}}
-	s := service.NewService(repo, pool, keyring, nil, rdb)
+	s := service.NewService(repo, repo, repo, repo, repo, repo, repo, repo, repo, pool, keyring, nil, rdb)
 	return s, repo, mr
 }
 
