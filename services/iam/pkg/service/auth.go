@@ -14,8 +14,8 @@ import (
 	"github.com/openguard/shared/resilience"
 )
 
-func (s *Service) Login(ctx context.Context, email, password, userAgent, ip string) (*iam_repo.User, string, error) {
-	user, userErr := s.repo.GetUserByEmail(ctx, email)
+func (s *Service) Login(ctx context.Context, email, password, userAgent, ip string) (*iam_repo.User, *TokenResponse, error) {
+	user, userErr := s.userRepo.GetUserByEmail(ctx, email)
 
 	// Rationale: constant-time comparison to prevent account enumeration.
 	// Use a pre-generated dummy hash for cost 12 to equalize timing.
@@ -28,32 +28,32 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 	bcryptErr := s.pool.Compare(ctx, password, hashToCompare)
 
 	if userErr != nil {
-		return nil, "", ErrInvalidCredentials
+		return nil, nil, ErrInvalidCredentials
 	}
 
 	// Status and lockout checks happen AFTER bcrypt to prevent state enumeration
 	if user.Status == "initializing" {
-		return nil, "", ErrAccountSetup
+		return nil, nil, ErrAccountSetup
 	}
 
 	if user.LockedUntil != nil {
 		if time.Now().Before(*user.LockedUntil) {
-			return nil, "", ErrInvalidCredentials
+			return nil, nil, ErrInvalidCredentials
 		}
 	}
 
 	if bcryptErr != nil {
-		count, _ := s.repo.IncrementFailedLogin(ctx, email)
+		count, _ := s.userRepo.IncrementFailedLogin(ctx, email)
 		if count >= 10 {
 			until := time.Now().Add(lockoutDuration(count))
-			_ = s.repo.LockAccount(ctx, email, until)
+			_ = s.userRepo.LockAccount(ctx, email, until)
 		}
-		return nil, "", ErrInvalidCredentials
+		return nil, nil, ErrInvalidCredentials
 	}
 
-	_ = s.repo.ResetFailedLogin(ctx, email)
+	_ = s.userRepo.ResetFailedLogin(ctx, email)
 
-	mfaConfigs, _ := s.repo.ListMFAConfigs(ctx, user.ID)
+	mfaConfigs, _ := s.mfaRepo.ListMFAConfigs(ctx, user.ID)
 	if len(mfaConfigs) > 0 {
 		challengeToken := uuid.New().String()
 		_, _ = resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
@@ -63,7 +63,7 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 		return &iam_repo.User{
 			ID:    user.ID,
 			OrgID: user.OrgID,
-		}, challengeToken, nil
+		}, &TokenResponse{AccessToken: challengeToken}, nil
 	}
 
 	res, err := s.IssueTokens(ctx, IssueTokensRequest{
@@ -74,10 +74,10 @@ func (s *Service) Login(ctx context.Context, email, password, userAgent, ip stri
 		FamilyID:  uuid.New(),
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
-	return user, res.AccessToken, nil
+	return user, res, nil
 }
 
 func (s *Service) IssueTokens(ctx context.Context, req IssueTokensRequest) (*TokenResponse, error) {
@@ -93,7 +93,7 @@ func (s *Service) IssueTokens(ctx context.Context, req IssueTokensRequest) (*Tok
 		return nil, err
 	}
 
-	err = s.repo.CreateSession(ctx, req.OrgID, req.UserID, jti, req.UserAgent, ip, time.Now().Add(ttl))
+	err = s.sessionRepo.CreateSession(ctx, req.OrgID, req.UserID, jti, req.UserAgent, ip, time.Now().Add(ttl))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
@@ -102,7 +102,7 @@ func (s *Service) IssueTokens(ctx context.Context, req IssueTokensRequest) (*Tok
 	rtHash := crypto.HashSHA256(refreshToken)
 	rtTTL := 7 * 24 * time.Hour
 
-	err = s.repo.CreateRefreshToken(ctx, req.OrgID, req.UserID, rtHash, req.FamilyID, time.Now().Add(rtTTL))
+	err = s.tokenRepo.CreateRefreshToken(ctx, req.OrgID, req.UserID, rtHash, req.FamilyID, time.Now().Add(rtTTL))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create refresh token: %w", err)
 	}
@@ -117,17 +117,17 @@ func (s *Service) IssueTokens(ctx context.Context, req IssueTokensRequest) (*Tok
 
 func (s *Service) RefreshToken(ctx context.Context, refreshToken, userAgent, ip string) (*TokenResponse, error) {
 	rtHash := crypto.HashSHA256(refreshToken)
-	rt, err := s.repo.ClaimRefreshToken(ctx, rtHash)
+	rt, err := s.tokenRepo.ClaimRefreshToken(ctx, rtHash)
 	if err != nil {
-		_ = s.repo.RevokeRefreshTokenFamilyByHash(ctx, rtHash)
+		_ = s.tokenRepo.RevokeRefreshTokenFamilyByHash(ctx, rtHash)
 		return nil, ErrSessionCompromised
 	}
 
-	session, err := s.repo.GetSessionByUserID(ctx, rt.UserID)
+	session, err := s.sessionRepo.GetSessionByUserID(ctx, rt.UserID)
 	if err == nil && session != nil {
 		score := calculateRiskScore(session.UserAgent, userAgent, session.IPAddress, ip)
 		if score >= riskThresholdRevoke {
-			_ = s.repo.RevokeRefreshTokenFamily(ctx, rt.FamilyID)
+			_ = s.tokenRepo.RevokeRefreshTokenFamily(ctx, rt.FamilyID)
 			return nil, ErrSessionRevokedRisk
 		}
 	}

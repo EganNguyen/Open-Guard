@@ -27,11 +27,11 @@ type BruteForceDetector struct {
 	reader      *kafka.Reader
 	logger      *slog.Logger
 	maxAttempts int64
-	store       *alert.Store
+	store       alert.Persister
 	pub         *sharedkafka.Publisher
 }
 
-func NewBruteForceDetector(redisAddr string, brokers string, groupID string, topic string, store *alert.Store, pub *sharedkafka.Publisher, logger *slog.Logger) (*BruteForceDetector, error) {
+func NewBruteForceDetector(redisAddr string, brokers string, groupID string, topic string, store alert.Persister, pub *sharedkafka.Publisher, logger *slog.Logger) (*BruteForceDetector, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr: redisAddr,
 	})

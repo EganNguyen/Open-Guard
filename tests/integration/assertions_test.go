@@ -26,7 +26,7 @@ func AssertPolicyRowExists(t *testing.T, query string, args ...interface{}) {
 func AssertMongoEventCaptured(t *testing.T, orgID, subject string) {
 	ctx := context.Background()
 	Eventually(t, func() bool {
-		collection := testMongo.Database("openguard_audit").Collection("events")
+		collection := testMongo.Database("openguard_audit").Collection("audit_events")
 		count, err := collection.CountDocuments(ctx, bson.M{"org_id": orgID, "subject": subject})
 		return err == nil && count > 0
 	}, 15*time.Second, 1*time.Second)

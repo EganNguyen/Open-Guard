@@ -24,6 +24,15 @@ type Alert struct {
 	Metadata   map[string]interface{} `bson:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
+type Persister interface {
+	CreateAlert(ctx context.Context, alert *Alert) error
+	GetAlert(ctx context.Context, id string) (*Alert, error)
+	ListAlerts(ctx context.Context, orgID string, status string, severity string, limit int64, cursor string) ([]Alert, string, error)
+	AcknowledgeAlert(ctx context.Context, id string) error
+	ResolveAlert(ctx context.Context, id string) error
+	GetStats(ctx context.Context, orgID string) (map[string]interface{}, error)
+}
+
 type Store struct {
 	db *mongo.Database
 }
@@ -84,7 +93,7 @@ func (s *Store) ListAlerts(ctx context.Context, orgID string, status string, sev
 	if err != nil {
 		return nil, "", err
 	}
-	defer cursorRes.Close(ctx)
+	defer func() { _ = cursorRes.Close(ctx) }()
 
 	var alerts []Alert
 	if err := cursorRes.All(ctx, &alerts); err != nil {
@@ -145,7 +154,7 @@ func (s *Store) GetStats(ctx context.Context, orgID string) (map[string]interfac
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var results []bson.M
 	if err := cursor.All(ctx, &results); err != nil {

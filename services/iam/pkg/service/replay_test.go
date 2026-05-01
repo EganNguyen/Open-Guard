@@ -9,15 +9,6 @@ import (
 	"github.com/openguard/shared/crypto"
 )
 
-func (m *MockRepository) GetMFAConfig(ctx context.Context, userID, mfaType string) (*iam_repo.MFAConfig, error) {
-	for _, config := range m.MFAConfigs[userID] {
-		if config.MFAType == mfaType {
-			return &config, nil
-		}
-	}
-	return nil, nil
-}
-
 func TestVerifyTOTP_ReplayProtection(t *testing.T) {
 	s, repo, _ := setup(t)
 
@@ -30,7 +21,7 @@ func TestVerifyTOTP_ReplayProtection(t *testing.T) {
 	// Create a new service with AES keyring
 	pool := service.NewAuthWorkerPool(1, context.Background())
 	keyring := []crypto.JWTKey{{Kid: "k1", Secret: "test-secret-at-least-32-bytes!!", Algorithm: "HS256", Status: "active"}}
-	s = service.NewService(repo, pool, keyring, aesKeyring, s.Redis())
+	s = service.NewService(repo, repo, repo, repo, repo, repo, repo, repo, repo, pool, keyring, aesKeyring, s.Redis())
 
 	encrypted, _ := crypto.Encrypt([]byte(secret), aesKeyring)
 	repo.MFAConfigs[userID] = []iam_repo.MFAConfig{

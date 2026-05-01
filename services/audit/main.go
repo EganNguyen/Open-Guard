@@ -20,6 +20,7 @@ import (
 	"github.com/openguard/services/audit/pkg/repository"
 	"github.com/openguard/services/audit/pkg/telemetry"
 	"github.com/openguard/shared/crypto"
+	"github.com/openguard/shared/kafka"
 	"github.com/openguard/shared/middleware"
 	"github.com/openguard/shared/resilience"
 	"github.com/openguard/shared/secrets"
@@ -57,7 +58,7 @@ func main() {
 		os.Exit(1)
 	}
 	rdb := redis.NewClient(rOptions)
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	breaker := resilience.NewBreaker(resilience.BreakerConfig{
 		Name:             "audit-redis-blocklist",
@@ -88,7 +89,7 @@ func main() {
 		logger.Error("failed to connect to primary mongodb", "error", err)
 		os.Exit(1)
 	}
-	defer writeClient.Disconnect(ctx)
+	defer func() { _ = writeClient.Disconnect(ctx) }()
 
 	// Connect Secondary (Reads)
 	rp := readpref.SecondaryPreferred()
@@ -98,7 +99,7 @@ func main() {
 		logger.Error("failed to connect to secondary mongodb", "error", err)
 		os.Exit(1)
 	}
-	defer readClient.Disconnect(ctx)
+	defer func() { _ = readClient.Disconnect(ctx) }()
 
 	writeRepo := repository.NewAuditWriteRepository(writeClient, "openguard_audit")
 	readRepo := repository.NewAuditReadRepository(readClient, "openguard_audit")
@@ -138,6 +139,13 @@ func main() {
 		}(topic, c)
 	}
 
+	// ── Kafka Publisher (Ingestion) ──────────────────────────────────────────
+	publisher := kafka.NewPublisher([]string{brokers})
+	defer func() { _ = publisher.Close() }()
+
+	dlpURL := os.Getenv("DLP_URL")
+	dlpMode := os.Getenv("DLP_MODE")
+
 	// ── Auth Configuration ───────────────────────────────────────────────────
 	secretProvider, err := secrets.GetProvider(ctx)
 	if err != nil {
@@ -170,6 +178,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	sseH := handlers.NewSseHandler(readRepo)
+	ingestH := handlers.NewIngestHandler(publisher, dlpURL, dlpMode)
 
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -191,8 +200,13 @@ func main() {
 					return
 				}
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]interface{}{"events": events})
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"events": events})
 			}))),
+		).ServeHTTP(w, r)
+	})
+	mux.HandleFunc("/v1/events/ingest", func(w http.ResponseWriter, r *http.Request) {
+		middleware.DeprecationHeaders("Fri, 01 Jan 2027 00:00:00 GMT")(
+			rateLimiter.Limit(authMiddleware(http.HandlerFunc(ingestH.Ingest))),
 		).ServeHTTP(w, r)
 	})
 
@@ -234,5 +248,5 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	srv.Shutdown(shutdownCtx)
+	_ = srv.Shutdown(shutdownCtx)
 }

@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/openguard/services/threat/pkg/alert"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 func TestHaversine(t *testing.T) {
@@ -24,24 +26,25 @@ func TestHaversine(t *testing.T) {
 	assert.Equal(t, 0.0, haversine(nycLat, nycLon, nycLat, nycLon))
 }
 
-func TestImpossibleTravel_Detection(t *testing.T) {
+func TestImpossibleTravel_DetectionLogic(t *testing.T) {
 	mr, _ := miniredis.Run()
 	defer mr.Close()
 
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	mockStore := new(MockAlertStore)
 
 	d := &ImpossibleTravelDetector{
 		rdb:        rdb,
 		threshold:  500.0,
 		windowSecs: 3600,
-		logger:     logger,
+		logger:     slog.New(slog.NewTextHandler(os.Stdout, nil)),
+		store:      mockStore,
 	}
 
 	ctx := context.Background()
-	_ = ctx
+	userID := "user123"
 
-	// 1. First login (New York)
+	// 1. Last login: NYC
 	last := LastLogin{
 		IP:        "1.1.1.1",
 		Lat:       40.7128,
@@ -49,7 +52,7 @@ func TestImpossibleTravel_Detection(t *testing.T) {
 		Timestamp: time.Now().Add(-10 * time.Minute),
 	}
 
-	// 2. Second login (London) - 10 minutes later
+	// 2. Current login: London (Impossible)
 	current := LastLogin{
 		IP:        "2.2.2.2",
 		Lat:       51.5074,
@@ -57,12 +60,16 @@ func TestImpossibleTravel_Detection(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 
-	// We need to verify if an alert would be generated. 
-	// Since detector uses a real Publisher/Store in New, we'll manually check the detect logic here.
-	
-	dist := haversine(last.Lat, last.Lon, current.Lat, current.Lon)
-	timeDelta := current.Timestamp.Sub(last.Timestamp).Seconds()
+	// Mock expectations
+	mockStore.On("CreateAlert", ctx, mock.MatchedBy(func(a *alert.Alert) bool {
+		return a.Detector == "impossible_travel" && a.Severity == "HIGH" && a.UserID == "user123"
+	})).Return(nil)
 
-	assert.True(t, dist > d.threshold, "Distance %f should exceed threshold %f", dist, d.threshold)
-	assert.True(t, timeDelta < float64(d.windowSecs), "Time delta %f should be within window %d", timeDelta, d.windowSecs)
+	d.detect(ctx, userID, last, current)
+
+	// Check if alert exists in Redis (for backward compatibility)
+	exists := mr.Exists("threat:travel:" + userID)
+	assert.True(t, exists, "alert should be triggered for impossible travel")
+
+	mockStore.AssertExpectations(t)
 }

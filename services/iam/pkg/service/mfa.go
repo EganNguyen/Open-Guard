@@ -39,7 +39,7 @@ func (s *Service) BeginWebAuthnRegistration(ctx context.Context, userID string) 
 		return "", nil, nil, fmt.Errorf("webauthn not configured")
 	}
 
-	user, err := s.repo.GetUserByID(ctx, userID)
+	user, err := s.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -78,7 +78,7 @@ func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID,
 	var session webauthn.SessionData
 	_ = json.Unmarshal([]byte(val), &session)
 
-	user, err := s.repo.GetUserByID(ctx, userID)
+	user, err := s.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -101,7 +101,7 @@ func (s *Service) FinishWebAuthnRegistration(ctx context.Context, orgID, userID,
 		SignCount:       int32(credential.Authenticator.SignCount),
 	}
 
-	if err := s.repo.SaveWebAuthnCredential(ctx, orgID, userID, cred); err != nil {
+	if err := s.webauthnRepo.SaveWebAuthnCredential(ctx, orgID, userID, cred); err != nil {
 		return err
 	}
 
@@ -114,13 +114,13 @@ func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (string,
 		return "", nil, nil, fmt.Errorf("webauthn not configured")
 	}
 
-	user, err := s.repo.GetUserByEmail(ctx, email)
+	user, err := s.userRepo.GetUserByEmail(ctx, email)
 	if err != nil {
 		return "", nil, nil, err
 	}
 
 	userID := user.ID
-	credentials, _ := s.repo.ListWebAuthnCredentials(ctx, userID)
+	credentials, _ := s.webauthnRepo.ListWebAuthnCredentials(ctx, userID)
 
 	wUser := &WebAuthnUser{
 		id:          []byte(userID),
@@ -155,26 +155,26 @@ func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (string,
 	return sessionID, session, options, nil
 }
 
-func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID string, userAgent, ip string, response *http.Request) (*iam_repo.User, string, error) {
+func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID string, userAgent, ip string, response *http.Request) (*iam_repo.User, *TokenResponse, error) {
 	if s.webauthn == nil {
-		return nil, "", fmt.Errorf("webauthn not configured")
+		return nil, nil, fmt.Errorf("webauthn not configured")
 	}
 
-	user, err := s.repo.GetUserByEmail(ctx, email)
+	user, err := s.userRepo.GetUserByEmail(ctx, email)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
 	userID := user.ID
 	sessionKey := fmt.Sprintf("webauthn:login:%s:%s", userID, sessionID)
 	val, err := s.rdb.GetDel(ctx, sessionKey).Result()
 	if err != nil {
-		return nil, "", fmt.Errorf("login session expired or invalid")
+		return nil, nil, fmt.Errorf("login session expired or invalid")
 	}
 	var session webauthn.SessionData
 	_ = json.Unmarshal([]byte(val), &session)
 
-	credentials, _ := s.repo.ListWebAuthnCredentials(ctx, userID)
+	credentials, _ := s.webauthnRepo.ListWebAuthnCredentials(ctx, userID)
 	wUser := &WebAuthnUser{
 		id:          []byte(userID),
 		displayName: user.DisplayName,
@@ -194,7 +194,7 @@ func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID stri
 
 	_, err = s.webauthn.FinishLogin(wUser, session, response)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
 	s.rdb.Del(ctx, "webauthn:login:"+userID)
@@ -207,10 +207,9 @@ func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID stri
 		FamilyID:  uuid.New(),
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-
-	return user, res.AccessToken, nil
+	return user, res, nil
 }
 
 func (s *Service) GenerateTOTPSetup(ctx context.Context, userID, email string) (string, string, error) {
@@ -234,11 +233,11 @@ func (s *Service) EnableTOTP(ctx context.Context, orgID, userID, code, secret st
 		return nil, fmt.Errorf("encrypt secret: %w", err)
 	}
 
-	if err := s.repo.UpsertMFAConfig(ctx, orgID, userID, "totp", encrypted); err != nil {
+	if err := s.mfaRepo.UpsertMFAConfig(ctx, orgID, userID, "totp", encrypted); err != nil {
 		return nil, err
 	}
 
-	if err := s.repo.EnableUserMFA(ctx, userID, true, "totp"); err != nil {
+	if err := s.mfaRepo.EnableUserMFA(ctx, userID, true, "totp"); err != nil {
 		return nil, err
 	}
 
@@ -259,7 +258,7 @@ func (s *Service) GenerateBackupCodes(ctx context.Context, orgID, userID string)
 		mac.Write([]byte(raw))
 		hashes[i] = hex.EncodeToString(mac.Sum(nil))
 	}
-	if err := s.repo.StoreBackupCodes(ctx, userID, hashes); err != nil {
+	if err := s.mfaRepo.StoreBackupCodes(ctx, userID, hashes); err != nil {
 		return nil, err
 	}
 	return codes, nil
@@ -273,7 +272,7 @@ func (s *Service) VerifyBackupCode(ctx context.Context, userID, code string) (bo
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(code))
 	codeHash := hex.EncodeToString(mac.Sum(nil))
-	return s.repo.ConsumeBackupCode(ctx, userID, codeHash)
+	return s.mfaRepo.ConsumeBackupCode(ctx, userID, codeHash)
 }
 
 func (s *Service) VerifyTOTP(ctx context.Context, userID, code string) (bool, error) {
@@ -286,7 +285,7 @@ func (s *Service) VerifyTOTP(ctx context.Context, userID, code string) (bool, er
 		return false, fmt.Errorf("totp code already used")
 	}
 
-	config, err := s.repo.GetMFAConfig(ctx, userID, "totp")
+	config, err := s.mfaRepo.GetMFAConfig(ctx, userID, "totp")
 	if err != nil {
 		return false, err
 	}
@@ -299,23 +298,23 @@ func (s *Service) VerifyTOTP(ctx context.Context, userID, code string) (bool, er
 	return totp.Validate(code, string(secretBytes)), nil
 }
 
-func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (*iam_repo.User, string, error) {
+func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (*iam_repo.User, *TokenResponse, error) {
 	res, err := resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
 		return s.rdb.GetDel(ctx, "mfa_challenge:"+challengeToken).Result()
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid or expired challenge")
+		return nil, nil, fmt.Errorf("invalid or expired challenge")
 	}
 	userID := res.(string)
 
 	ok, err := s.VerifyTOTP(ctx, userID, code)
 	if err != nil || !ok {
-		return nil, "", fmt.Errorf("invalid mfa code")
+		return nil, nil, fmt.Errorf("invalid mfa code")
 	}
 
-	user, err := s.repo.GetUserByID(ctx, userID)
+	user, err := s.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
 	resToken, err := s.IssueTokens(ctx, IssueTokensRequest{
@@ -326,29 +325,29 @@ func (s *Service) VerifyMFAAndLogin(ctx context.Context, challengeToken, code, u
 		FamilyID:  uuid.New(),
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
-	return user, resToken.AccessToken, nil
+	return user, resToken, nil
 }
 
-func (s *Service) VerifyBackupCodeAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (*iam_repo.User, string, error) {
+func (s *Service) VerifyBackupCodeAndLogin(ctx context.Context, challengeToken, code, userAgent, ip string) (*iam_repo.User, *TokenResponse, error) {
 	res, err := resilience.Call(ctx, s.redisBreaker, 100*time.Millisecond, func(ctx context.Context) (interface{}, error) {
 		return s.rdb.GetDel(ctx, "mfa_challenge:"+challengeToken).Result()
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid or expired challenge")
+		return nil, nil, fmt.Errorf("invalid or expired challenge")
 	}
 	userID := res.(string)
 
 	ok, err := s.VerifyBackupCode(ctx, userID, code)
 	if err != nil || !ok {
-		return nil, "", fmt.Errorf("invalid backup code")
+		return nil, nil, fmt.Errorf("invalid backup code")
 	}
 
-	user, err := s.repo.GetUserByID(ctx, userID)
+	user, err := s.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
 	resToken, err := s.IssueTokens(ctx, IssueTokensRequest{
@@ -359,8 +358,8 @@ func (s *Service) VerifyBackupCodeAndLogin(ctx context.Context, challengeToken, 
 		FamilyID:  uuid.New(),
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
-	return user, resToken.AccessToken, nil
+	return user, resToken, nil
 }

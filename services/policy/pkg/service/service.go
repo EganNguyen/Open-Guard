@@ -12,6 +12,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/openguard/services/policy/pkg/repository"
 	"github.com/openguard/services/policy/pkg/telemetry"
 	"github.com/openguard/shared/kafka/outbox"
@@ -75,9 +76,25 @@ type evalLogEntry struct {
 	resp *EvaluateResponse
 }
 
+// Repository defines the interface for the policy storage.
+type Repository interface {
+	GetMatchingPolicies(ctx context.Context, orgID string, subjectID string, userGroups []string) ([]repository.Policy, error)
+	WriteEvalLog(ctx context.Context, log repository.EvalLog) error
+	CreatePolicyTx(ctx context.Context, tx pgx.Tx, orgID, name, description string, logic json.RawMessage) (*repository.Policy, error)
+	UpdatePolicyTx(ctx context.Context, tx pgx.Tx, orgID, policyID, name, description string, logic json.RawMessage) (*repository.Policy, error)
+	DeletePolicyTx(ctx context.Context, tx pgx.Tx, orgID, policyID string) error
+	ListPolicies(ctx context.Context, orgID string) ([]repository.Policy, error)
+	GetPolicy(ctx context.Context, orgID, policyID string) (*repository.Policy, error)
+	ListEvalLogs(ctx context.Context, orgID string, limit int) ([]repository.EvalLog, error)
+	ListAssignments(ctx context.Context, orgID string) ([]repository.Assignment, error)
+	CreateAssignment(ctx context.Context, orgID, policyID, subjectID, subjectType string) (*repository.Assignment, error)
+	DeleteAssignment(ctx context.Context, orgID, assignmentID string) error
+	Pool() *pgxpool.Pool // Helper to access the pool
+}
+
 // Service implements the policy engine business logic.
 type Service struct {
-	repo         *repository.Repository
+	repo         Repository
 	rdb          *redis.Client
 	outboxWriter *outbox.Writer
 	sfGroup      singleflight.Group
@@ -89,7 +106,7 @@ type Service struct {
 }
 
 // NewService creates a new policy service.
-func NewService(repo *repository.Repository, rdb *redis.Client, outboxWriter *outbox.Writer, logger *slog.Logger) *Service {
+func NewService(repo Repository, rdb *redis.Client, outboxWriter *outbox.Writer, logger *slog.Logger) *Service {
 	env, err := cel.NewEnv(
 		cel.Variable("subject", cel.StringType),
 		cel.Variable("action", cel.StringType),
@@ -418,6 +435,10 @@ func (s *Service) CreatePolicy(ctx context.Context, orgID, name, description str
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := s.validatePolicyLogic(logic); err != nil {
+		return nil, fmt.Errorf("invalid policy logic: %w", err)
+	}
+
 	p, err := s.repo.CreatePolicyTx(ctx, tx, orgID, name, description, logic)
 	if err != nil {
 		return nil, err
@@ -441,6 +462,10 @@ func (s *Service) UpdatePolicy(ctx context.Context, orgID, policyID, name, descr
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.validatePolicyLogic(logic); err != nil {
+		return nil, fmt.Errorf("invalid policy logic: %w", err)
+	}
 
 	p, err := s.repo.UpdatePolicyTx(ctx, tx, orgID, policyID, name, description, logic)
 	if err != nil {
@@ -577,4 +602,25 @@ func (s *Service) ListEvalLogs(ctx context.Context, orgID string, limit int) ([]
 
 func (s *Service) ListAssignments(ctx context.Context, orgID string) ([]repository.Assignment, error) {
 	return s.repo.ListAssignments(ctx, orgID)
+}
+
+func (s *Service) validatePolicyLogic(logic json.RawMessage) error {
+	var l PolicyLogic
+	if err := json.Unmarshal(logic, &l); err != nil {
+		return err
+	}
+
+	if l.Type == "cel" {
+		if s.celEnv == nil {
+			return fmt.Errorf("CEL environment not initialized")
+		}
+		if l.Expression == "" {
+			return fmt.Errorf("CEL expression is required")
+		}
+		_, issues := s.celEnv.Compile(l.Expression)
+		if issues != nil && issues.Err() != nil {
+			return issues.Err()
+		}
+	}
+	return nil
 }
