@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   id-token: write
   contents: read
@@ -139,8 +143,9 @@ jobs:
           file: ${{ matrix.path }}
           push: false
           tags: openguard/${{ matrix.service }}:${{ github.sha }},openguard/${{ matrix.service }}:latest
-          cache-from: type=gha
+          cache-from: type=gha,mode=max
           cache-to: type=gha,mode=max
+          load: true
 
   slo-verification:
     name: "SLO Verification (k6)"
