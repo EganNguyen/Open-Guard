@@ -33,11 +33,11 @@ type ImpossibleTravelDetector struct {
 	threshold  float64 // THREAT_GEO_CHANGE_THRESHOLD_KM, default 500
 	windowSecs int     // 3600 (1 hour, hardcoded per spec)
 	logger     *slog.Logger
-	store      *alert.Store
+	store      alert.Persister
 	pub        *sharedkafka.Publisher
 }
 
-func NewImpossibleTravelDetector(dbPath string, redisAddr string, brokers string, groupID string, topic string, store *alert.Store, pub *sharedkafka.Publisher, logger *slog.Logger) (*ImpossibleTravelDetector, error) {
+func NewImpossibleTravelDetector(dbPath string, redisAddr string, brokers string, groupID string, topic string, store alert.Persister, pub *sharedkafka.Publisher, logger *slog.Logger) (*ImpossibleTravelDetector, error) {
 	db, err := geoip2.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open GeoLite2 DB: %w", err)

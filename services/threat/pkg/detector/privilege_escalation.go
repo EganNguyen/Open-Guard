@@ -18,11 +18,11 @@ type PrivilegeEscalationDetector struct {
 	authReader   *kafka.Reader // TopicAuthEvents
 	policyReader *kafka.Reader // TopicPolicyChanges
 	logger       *slog.Logger
-	store        *alert.Store
+	store        alert.Persister
 	pub          *sharedkafka.Publisher
 }
 
-func NewPrivilegeEscalationDetector(redisAddr string, brokers string, groupID string, authTopic, policyTopic string, store *alert.Store, pub *sharedkafka.Publisher, logger *slog.Logger) *PrivilegeEscalationDetector {
+func NewPrivilegeEscalationDetector(redisAddr string, brokers string, groupID string, authTopic, policyTopic string, store alert.Persister, pub *sharedkafka.Publisher, logger *slog.Logger) *PrivilegeEscalationDetector {
 	rdb := redis.NewClient(&redis.Options{
 		Addr: redisAddr,
 	})

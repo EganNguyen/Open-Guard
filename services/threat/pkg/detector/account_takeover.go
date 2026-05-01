@@ -19,11 +19,11 @@ type AccountTakeoverDetector struct {
 	rdb    *redis.Client
 	reader *kafka.Reader
 	logger *slog.Logger
-	store  *alert.Store
+	store  alert.Persister
 	pub    *sharedkafka.Publisher
 }
 
-func NewAccountTakeoverDetector(redisAddr string, brokers string, groupID string, topic string, store *alert.Store, pub *sharedkafka.Publisher, logger *slog.Logger) *AccountTakeoverDetector {
+func NewAccountTakeoverDetector(redisAddr string, brokers string, groupID string, topic string, store alert.Persister, pub *sharedkafka.Publisher, logger *slog.Logger) *AccountTakeoverDetector {
 	rdb := redis.NewClient(&redis.Options{
 		Addr: redisAddr,
 	})

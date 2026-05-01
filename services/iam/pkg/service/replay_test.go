@@ -9,14 +9,6 @@ import (
 	"github.com/openguard/shared/crypto"
 )
 
-func (m *MockRepository) GetMFAConfig(ctx context.Context, userID, mfaType string) (*iam_repo.MFAConfig, error) {
-	for _, config := range m.MFAConfigs[userID] {
-		if config.MFAType == mfaType {
-			return &config, nil
-		}
-	}
-	return nil, nil
-}
 
 func TestVerifyTOTP_ReplayProtection(t *testing.T) {
 	s, repo, _ := setup(t)

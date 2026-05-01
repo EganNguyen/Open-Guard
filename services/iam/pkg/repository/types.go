@@ -18,6 +18,8 @@ type User struct {
 	Status           string     `json:"status"`
 	FailedLoginCount int        `json:"failed_login_count"`
 	LockedUntil      *time.Time `json:"locked_until"`
+	MFAEnabled       bool       `json:"mfa_enabled"`
+	MFAMethod        string     `json:"mfa_method"`
 	SCIMExternalID   *string    `json:"scim_external_id"`
 	Version          int        `json:"version"`
 	CreatedAt        time.Time  `json:"created_at"`

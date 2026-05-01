@@ -232,3 +232,24 @@ func TestWithInsecureSkipVerify_SkipsVerification(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, allowed, "expected allowed")
 }
+
+func TestClient_Allow_CacheHit(t *testing.T) {
+	var count int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&count, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, `{"allowed": true}`)
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, "test-key", WithCacheTTL(1*time.Minute))
+	defer c.Close()
+
+	// First call: should hit server
+	_, _ = c.Allow(context.Background(), "u1", "a1", "r1")
+	require.Equal(t, int32(1), atomic.LoadInt32(&count))
+
+	// Second call: should hit cache, NOT server
+	_, _ = c.Allow(context.Background(), "u1", "a1", "r1")
+	require.Equal(t, int32(1), atomic.LoadInt32(&count), "expected no network call on cache hit")
+}

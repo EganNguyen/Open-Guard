@@ -75,11 +75,11 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle MFA requirement (R-11)
-	if token != "" && user.Email == "" && user.OrgID != "" {
+	if token != nil && user.Email == "" && user.OrgID != "" {
 		// This is the challenge token return path from our refactored Login
 		h.writeJSON(w, http.StatusAccepted, mfaChallengeResponse{
 			MFARequired:  true,
-			MFAChallenge: token,
+			MFAChallenge: token.AccessToken,
 		})
 		return
 	}
@@ -93,7 +93,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "openguard_session",
-		Value:    token,
+		Value:    token.AccessToken,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   secure,
@@ -102,8 +102,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 
 	h.writeJSON(w, http.StatusOK, loginResponse{
-		User:        user,
-		AccessToken: token,
+		User:         user,
+		AccessToken:  token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		ExpiresIn:    token.ExpiresIn,
 	})
 }
 
@@ -126,7 +128,7 @@ func (h *Handler) VerifyMFA(w http.ResponseWriter, r *http.Request) {
 	// Set session cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "openguard_session",
-		Value:    token,
+		Value:    token.AccessToken,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
@@ -135,8 +137,10 @@ func (h *Handler) VerifyMFA(w http.ResponseWriter, r *http.Request) {
 	})
 
 	h.writeJSON(w, http.StatusOK, loginResponse{
-		User:        user,
-		AccessToken: token,
+		User:         user,
+		AccessToken:  token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		ExpiresIn:    token.ExpiresIn,
 	})
 }
 
@@ -452,7 +456,7 @@ func (h *Handler) VerifyBackupCode(w http.ResponseWriter, r *http.Request) {
 	// Set session cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "openguard_session",
-		Value:    token,
+		Value:    token.AccessToken,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
@@ -461,8 +465,10 @@ func (h *Handler) VerifyBackupCode(w http.ResponseWriter, r *http.Request) {
 	})
 
 	h.writeJSON(w, http.StatusOK, loginResponse{
-		User:        user,
-		AccessToken: token,
+		User:         user,
+		AccessToken:  token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		ExpiresIn:    token.ExpiresIn,
 	})
 }
 
@@ -573,7 +579,7 @@ func (h *Handler) WebAuthnFinishLogin(w http.ResponseWriter, r *http.Request) {
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "openguard_session",
-		Value:    token,
+		Value:    token.AccessToken,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
@@ -582,7 +588,9 @@ func (h *Handler) WebAuthnFinishLogin(w http.ResponseWriter, r *http.Request) {
 	})
 
 	h.writeJSON(w, http.StatusOK, loginResponse{
-		User:        user,
-		AccessToken: token,
+		User:         user,
+		AccessToken:  token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		ExpiresIn:    token.ExpiresIn,
 	})
 }

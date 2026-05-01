@@ -24,6 +24,15 @@ type Alert struct {
 	Metadata   map[string]interface{} `bson:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
+type Persister interface {
+	CreateAlert(ctx context.Context, alert *Alert) error
+	GetAlert(ctx context.Context, id string) (*Alert, error)
+	ListAlerts(ctx context.Context, orgID string, status string, severity string, limit int64, cursor string) ([]Alert, string, error)
+	AcknowledgeAlert(ctx context.Context, id string) error
+	ResolveAlert(ctx context.Context, id string) error
+	GetStats(ctx context.Context, orgID string) (map[string]interface{}, error)
+}
+
 type Store struct {
 	db *mongo.Database
 }

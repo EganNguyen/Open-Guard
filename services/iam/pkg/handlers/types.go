@@ -3,8 +3,10 @@ package handlers
 import iam_repo "github.com/openguard/services/iam/pkg/repository"
 
 type loginResponse struct {
-	User        *iam_repo.User `json:"user"`
-	AccessToken string         `json:"access_token"`
+	User         *iam_repo.User `json:"user"`
+	AccessToken  string         `json:"access_token"`
+	RefreshToken string         `json:"refresh_token,omitempty"`
+	ExpiresIn    int            `json:"expires_in,omitempty"`
 }
 
 type mfaChallengeResponse struct {
