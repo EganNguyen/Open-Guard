@@ -144,8 +144,7 @@ jobs:
           push: false
           tags: openguard/${{ matrix.service }}:${{ github.sha }},openguard/${{ matrix.service }}:latest
           load: true
-          cache-from: type=local,src=/tmp/build-cache
-          cache-to: type=local,dest=/tmp/build-cache,mode=max
+          no-cache: true
 
   slo-verification:
     name: "SLO Verification (k6)"
