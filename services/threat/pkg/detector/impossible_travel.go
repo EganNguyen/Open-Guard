@@ -205,7 +205,9 @@ func (d *ImpossibleTravelDetector) publishThreatEvent(ctx context.Context, userI
 		}
 	}
 
-	d.rdb.Set(ctx, "threat:travel:"+userID, payload, 24*time.Hour)
+	if err := d.rdb.Set(ctx, "threat:travel:"+userID, payload, 24*time.Hour).Err(); err != nil {
+		d.logger.Error("failed to set threat cache", "error", err)
+	}
 }
 
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {
@@ -222,7 +224,7 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 }
 
 func (d *ImpossibleTravelDetector) Close() {
-	d.db.Close()
-	d.reader.Close()
-	d.rdb.Close()
+	_ = d.db.Close()
+	_ = d.reader.Close()
+	_ = d.rdb.Close()
 }

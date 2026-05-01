@@ -15,8 +15,8 @@ import (
 	"log/slog"
 
 	"github.com/openguard/services/audit/pkg/telemetry"
-	"github.com/segmentio/kafka-go"
 	sharedkafka "github.com/openguard/shared/kafka"
+	"github.com/segmentio/kafka-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"

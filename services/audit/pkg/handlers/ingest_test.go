@@ -19,14 +19,14 @@ func TestIngestHandler_DLPBlock(t *testing.T) {
 			Content string `json:"content"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
-		
+
 		if strings.Contains(req.Content, "4222-2222-2222-2222") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`[{"kind":"credit_card"}]`))
 			return
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`[]`))
@@ -39,12 +39,12 @@ func TestIngestHandler_DLPBlock(t *testing.T) {
 	// 3. Test Blocked Event
 	event := map[string]interface{}{
 		"event_id": "e1",
-		"data": "my card is 4222-2222-2222-2222",
+		"data":     "my card is 4222-2222-2222-2222",
 	}
 	body, _ := json.Marshal(event)
 	req := httptest.NewRequest("POST", "/v1/events/ingest", strings.NewReader(string(body)))
 	req = req.WithContext(context.WithValue(context.Background(), middleware.OrgIDKey, "org1"))
-	
+
 	rr := httptest.NewRecorder()
 	h.Ingest(rr, req)
 
@@ -57,12 +57,12 @@ func TestIngestHandler_DLPOutageFailClosed(t *testing.T) {
 
 	event := map[string]interface{}{
 		"event_id": "e1",
-		"data": "pii",
+		"data":     "pii",
 	}
 	body, _ := json.Marshal(event)
 	req := httptest.NewRequest("POST", "/v1/events/ingest", strings.NewReader(string(body)))
 	req = req.WithContext(context.WithValue(context.Background(), middleware.OrgIDKey, "org1"))
-	
+
 	rr := httptest.NewRecorder()
 	h.Ingest(rr, req)
 

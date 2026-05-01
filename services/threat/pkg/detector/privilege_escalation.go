@@ -177,11 +177,13 @@ func (d *PrivilegeEscalationDetector) publishThreatEvent(ctx context.Context, ac
 		}
 	}
 
-	d.rdb.Set(ctx, "threat:privesc:"+actorID, payload, 24*time.Hour)
+	if err := d.rdb.Set(ctx, "threat:privesc:"+actorID, payload, 24*time.Hour).Err(); err != nil {
+		d.logger.Error("failed to set threat cache", "error", err)
+	}
 }
 
 func (d *PrivilegeEscalationDetector) Close() {
-	d.authReader.Close()
-	d.policyReader.Close()
-	d.rdb.Close()
+	_ = d.authReader.Close()
+	_ = d.policyReader.Close()
+	_ = d.rdb.Close()
 }

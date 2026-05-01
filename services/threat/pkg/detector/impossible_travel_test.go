@@ -32,13 +32,13 @@ func TestImpossibleTravel_DetectionLogic(t *testing.T) {
 
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	mockStore := new(MockAlertStore)
-	
+
 	d := &ImpossibleTravelDetector{
-		rdb:       rdb,
-		threshold: 500.0,
+		rdb:        rdb,
+		threshold:  500.0,
 		windowSecs: 3600,
-		logger:    slog.New(slog.NewTextHandler(os.Stdout, nil)),
-		store:     mockStore,
+		logger:     slog.New(slog.NewTextHandler(os.Stdout, nil)),
+		store:      mockStore,
 	}
 
 	ctx := context.Background()
@@ -70,6 +70,6 @@ func TestImpossibleTravel_DetectionLogic(t *testing.T) {
 	// Check if alert exists in Redis (for backward compatibility)
 	exists := mr.Exists("threat:travel:" + userID)
 	assert.True(t, exists, "alert should be triggered for impossible travel")
-	
+
 	mockStore.AssertExpectations(t)
 }

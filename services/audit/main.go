@@ -58,7 +58,7 @@ func main() {
 		os.Exit(1)
 	}
 	rdb := redis.NewClient(rOptions)
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	breaker := resilience.NewBreaker(resilience.BreakerConfig{
 		Name:             "audit-redis-blocklist",
@@ -89,7 +89,7 @@ func main() {
 		logger.Error("failed to connect to primary mongodb", "error", err)
 		os.Exit(1)
 	}
-	defer writeClient.Disconnect(ctx)
+	defer func() { _ = writeClient.Disconnect(ctx) }()
 
 	// Connect Secondary (Reads)
 	rp := readpref.SecondaryPreferred()
@@ -99,7 +99,7 @@ func main() {
 		logger.Error("failed to connect to secondary mongodb", "error", err)
 		os.Exit(1)
 	}
-	defer readClient.Disconnect(ctx)
+	defer func() { _ = readClient.Disconnect(ctx) }()
 
 	writeRepo := repository.NewAuditWriteRepository(writeClient, "openguard_audit")
 	readRepo := repository.NewAuditReadRepository(readClient, "openguard_audit")
@@ -141,7 +141,7 @@ func main() {
 
 	// ── Kafka Publisher (Ingestion) ──────────────────────────────────────────
 	publisher := kafka.NewPublisher([]string{brokers})
-	defer publisher.Close()
+	defer func() { _ = publisher.Close() }()
 
 	dlpURL := os.Getenv("DLP_URL")
 	dlpMode := os.Getenv("DLP_MODE")
@@ -200,7 +200,7 @@ func main() {
 					return
 				}
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]interface{}{"events": events})
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"events": events})
 			}))),
 		).ServeHTTP(w, r)
 	})
@@ -248,5 +248,5 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	srv.Shutdown(shutdownCtx)
+	_ = srv.Shutdown(shutdownCtx)
 }

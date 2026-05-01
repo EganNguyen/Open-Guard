@@ -147,7 +147,7 @@ func TestFlush_HashChainIntegrity(t *testing.T) {
 	// 2. Mock expectations
 	// Initial state: sequence 10, prevHash "h0"
 	mockRepo.On("ReserveSequence", ctx, orgID, int64(2)).Return(int64(10), "h0", nil)
-	
+
 	// We capture the events passed to BulkWrite to verify hashes
 	var capturedEvents []interface{}
 	mockRepo.On("BulkWrite", ctx, mock.Anything).Run(func(args mock.Arguments) {
@@ -171,7 +171,7 @@ func TestFlush_HashChainIntegrity(t *testing.T) {
 
 	// Manual hash calculation to verify
 	secret := "test-secret"
-	
+
 	// Hash 1
 	mac1 := hmac.New(sha256.New, []byte(secret))
 	mac1.Write([]byte("e1|h0"))
@@ -211,7 +211,7 @@ func TestFlush_CASRetryOnConflict(t *testing.T) {
 	// Second attempt: Success
 	mockRepo.On("ReserveSequence", ctx, orgID, int64(1)).Return(int64(11), "h1", nil).Once()
 	mockRepo.On("UpdateHashChainCAS", ctx, orgID, "h1", mock.Anything).Return(true, nil).Once()
-	
+
 	mockRepo.On("BulkWrite", ctx, mock.Anything).Return(nil)
 	mockReader.On("CommitMessages", ctx, mock.Anything).Return(nil)
 

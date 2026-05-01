@@ -190,10 +190,12 @@ func (d *OffHoursDetector) publishThreatEvent(ctx context.Context, orgID, userID
 		}
 	}
 
-	d.rdb.Set(ctx, fmt.Sprintf("threat:offhours:%s:%s", orgID, userID), payload, 24*time.Hour)
+	if err := d.rdb.Set(ctx, fmt.Sprintf("threat:offhours:%s:%s", orgID, userID), payload, 24*time.Hour).Err(); err != nil {
+		d.logger.Error("failed to set threat cache", "error", err)
+	}
 }
 
 func (d *OffHoursDetector) Close() {
-	d.reader.Close()
-	d.rdb.Close()
+	_ = d.reader.Close()
+	_ = d.rdb.Close()
 }

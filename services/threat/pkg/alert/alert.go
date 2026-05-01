@@ -93,7 +93,7 @@ func (s *Store) ListAlerts(ctx context.Context, orgID string, status string, sev
 	if err != nil {
 		return nil, "", err
 	}
-	defer cursorRes.Close(ctx)
+	defer func() { _ = cursorRes.Close(ctx) }()
 
 	var alerts []Alert
 	if err := cursorRes.All(ctx, &alerts); err != nil {
@@ -154,7 +154,7 @@ func (s *Store) GetStats(ctx context.Context, orgID string) (map[string]interfac
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var results []bson.M
 	if err := cursor.All(ctx, &results); err != nil {

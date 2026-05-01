@@ -68,19 +68,19 @@ func (h *IngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 
 	eventID, _ := event["event_id"].(string)
 	if err := h.publisher.Publish(r.Context(), topic, eventID, payload); err != nil {
-		// @AI-INTENT: [Pattern: Fail-Closed] If we can't persist the audit event, 
+		// @AI-INTENT: [Pattern: Fail-Closed] If we can't persist the audit event,
 		// we must fail the request per high-assurance requirements.
 		http.Error(w, "Failed to ingest event: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{"status": "accepted", "event_id": eventID})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "accepted", "event_id": eventID})
 }
 
 func (h *IngestHandler) checkDLP(ctx context.Context, orgID string, event map[string]interface{}) bool {
 	b, _ := json.Marshal(event)
-	
+
 	reqBody, _ := json.Marshal(map[string]string{"content": string(b)})
 	req, _ := http.NewRequestWithContext(ctx, "POST", h.dlpURL+"/v1/scan", bytes.NewBuffer(reqBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -92,7 +92,7 @@ func (h *IngestHandler) checkDLP(ctx context.Context, orgID string, event map[st
 		fmt.Fprintf(os.Stderr, "DLP service outage in block mode: %v\n", err)
 		return true // Block on outage
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return true // Block on error
