@@ -45,7 +45,7 @@ func (h *IngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure org_id matches authenticated tenant
 	event["org_id"] = orgID
-	if _, ok := event["event_id"]; !ok {
+	if event["event_id"] == nil {
 		// Generate event_id if missing (though SDK should provide it)
 	}
 

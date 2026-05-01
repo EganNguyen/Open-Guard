@@ -139,7 +139,7 @@ func (s *Service) SuspendConnector(ctx context.Context, id string) error {
 	if err == nil {
 		prefix := connector["api_key_prefix"].(string)
 		if s.rdb != nil {
-			// Instead of deleting, we could cache a 'suspended' sentinel, 
+			// Instead of deleting, we could cache a 'suspended' sentinel,
 			// but for now deleting and letting next call fetch from DB is fine.
 			pipe := s.rdb.Pipeline()
 			pipe.Del(ctx, "apikey:hash:"+prefix)
@@ -154,6 +154,12 @@ func (s *Service) SuspendConnector(ctx context.Context, id string) error {
 
 func (s *Service) generateAPIKey() string {
 	b := make([]byte, 24)
-	rand.Read(b)
+	_, err := rand.Read(b)
+	if err != nil {
+		// Fallback to a less secure but non-failing method if CSPRNG fails,
+		// though in practice rand.Read should not fail on modern systems.
+		// For high-assurance, we could panic, but returning a semi-random string is safer for availability.
+		return "ogk_err_" + crypto.GenerateRandomString(32)
+	}
 	return "ogk_" + base64.URLEncoding.EncodeToString(b)
 }

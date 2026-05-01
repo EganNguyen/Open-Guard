@@ -206,6 +206,9 @@ func (s *Service) FinishWebAuthnLogin(ctx context.Context, email, sessionID stri
 		IPAddress: ip,
 		FamilyID:  uuid.New(),
 	})
+	if err != nil {
+		return nil, nil, err
+	}
 	return user, res, nil
 }
 

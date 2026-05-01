@@ -102,7 +102,7 @@ func (r *AuditReadRepository) FindEvents(ctx context.Context, filter bson.M, lim
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var events []map[string]interface{}
 	if err = cursor.All(ctx, &events); err != nil {

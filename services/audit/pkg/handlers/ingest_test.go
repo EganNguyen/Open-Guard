@@ -18,18 +18,18 @@ func TestIngestHandler_DLPBlock(t *testing.T) {
 		var req struct {
 			Content string `json:"content"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 
 		if strings.Contains(req.Content, "4222-2222-2222-2222") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`[{"kind":"credit_card"}]`))
+			_, _ = w.Write([]byte(`[{"kind":"credit_card"}]`))
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`[]`))
+		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer dlpServer.Close()
 

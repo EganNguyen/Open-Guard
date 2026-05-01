@@ -148,9 +148,6 @@ func (m *MockRepository) RevokeRefreshTokenFamilyByHash(ctx context.Context, tok
 	}
 	if rt, ok := m.RefreshTokens[tokenHash]; ok {
 		m.RevokedFamilies[rt.FamilyID] = true
-	} else {
-		// Even if not found in tokens map, we should still handle the case if we have family info
-		// For the mock, we assume the test will provide it if needed.
 	}
 	return nil
 }
@@ -212,7 +209,6 @@ func (m *MockRepository) UpdateUserSCIM(ctx context.Context, userID, externalID,
 func (m *MockRepository) GetUserByExternalID(ctx context.Context, orgID, externalID string) (*iam_repo.User, error) {
 	return nil, nil
 }
-
 
 func (m *MockRepository) StoreBackupCodes(ctx context.Context, userID string, hashes []string) error {
 	return nil
@@ -452,7 +448,7 @@ func TestRefreshToken_RiskBasedRevocation(t *testing.T) {
 	// 1. Refresh with significant UA and IP change (threshold = 80)
 	// UA Family change = 60, IP Subnet change = 40. Total = 100.
 	_, err := s.RefreshToken(context.Background(), token, "Chrome/100", "2.2.2.2")
-	
+
 	if err == nil || !strings.Contains(err.Error(), "SESSION_REVOKED_RISK") {
 		t.Errorf("expected SESSION_REVOKED_RISK error, got %v", err)
 	}
@@ -563,7 +559,7 @@ func TestTOTP_Verify_InvalidCode(t *testing.T) {
 
 	// 1. Setup TOTP
 	secret, _, _ := s.GenerateTOTPSetup(context.Background(), "1", "test@example.com")
-	
+
 	// 2. Enable TOTP with wrong code
 	_, err := s.EnableTOTP(context.Background(), "org1", "1", "000000", secret)
 	if err == nil {
@@ -600,7 +596,7 @@ func TestVerifyTOTP_InvalidCode(t *testing.T) {
 func TestSCIM_Deprovisioning_RevokesSessions(t *testing.T) {
 	s, repo, mr := setup(t)
 	repo.Users["user1"] = &iam_repo.User{ID: "user1", OrgID: "org1", Email: "user1@test.io", Status: "active"}
-	
+
 	// Create active sessions
 	repo.Sessions["jti-1"] = &MockSession{UserID: "user1", Session: iam_repo.Session{JTI: "jti-1"}}
 	repo.Sessions["jti-2"] = &MockSession{UserID: "user1", Session: iam_repo.Session{JTI: "jti-2"}}

@@ -9,7 +9,6 @@ import (
 	"github.com/openguard/shared/crypto"
 )
 
-
 func TestVerifyTOTP_ReplayProtection(t *testing.T) {
 	s, repo, _ := setup(t)
 
