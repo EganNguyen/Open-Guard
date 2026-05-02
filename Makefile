@@ -179,7 +179,14 @@ public-url:
 
 
 
-.PHONY: index
+.PHONY: index install-gitnexus
 index:
 	@echo "Generating ctags for AI fast navigation..."
 	@ctags -R --exclude=.git --exclude=node_modules --exclude=web/dist .
+
+GITNEXUS_VERSION := latest
+
+install-gitnexus:
+	@echo "Installing GitNexus..."
+	@npm install -g gitnexus@$(GITNEXUS_VERSION)
+	@gitnexus --version
