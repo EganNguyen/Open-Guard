@@ -19,12 +19,18 @@ index:
 detectors:
   - name: context-usage
     pattern: "context\\.(Context|TODO)"
-    description: "Detect context.Context usage in Go code"
+    description: "Detect context.Context usage for RLS enforcement"
+    severity: warning
 
-  - name: rls-violation
-    pattern: "db\\.(Exec|Query).*WithoutOrgID"
-    description: "Detect potential RLS violations"
+  - name: rls-call-chain
+    pattern: "(db|pgx|sqlx)\\.(Exec|Query).*"
+    description: "Track database calls for RLS validation"
+    context: requires-org-id
 
-  - name: kafka-topics
-    pattern: "kafka\\.(Produce|Consume).*topic:"
-    description: "Detect Kafka topic relationships"
+  - name: kafka-producer
+    pattern: "kafka\\.(Produce|ProduceAsync)\\("
+    description: "Track Kafka producers"
+
+  - name: kafka-consumer
+    pattern: "kafka\\.(Consume|Subscribe)\\("
+    description: "Track Kafka consumers"
