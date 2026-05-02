@@ -69,4 +69,5 @@ Desktop.ini
 # Worktrees
 .worktrees/
 
-
+# GitNexus
+.gitnexus/

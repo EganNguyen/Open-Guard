@@ -190,3 +190,10 @@ install-gitnexus:
 	@echo "Installing GitNexus..."
 	@npm install -g gitnexus@$(GITNEXUS_VERSION)
 	@gitnexus --version
+
+## GitNexus Analysis
+.PHONY: gitnexus-analyze
+
+gitnexus-analyze: install-gitnexus
+	@echo "Running GitNexus analysis..."
+	gitnexus analyze .
