@@ -1,0 +1,30 @@
+index:
+  paths:
+    - services/
+    - packages/
+    - web/
+    - apps/
+    - examples/
+    - shared/
+    - sdk/
+
+  languages:
+    - go
+    - typescript
+    - javascript
+    - sql
+
+  include_tests: true
+
+detectors:
+  - name: context-usage
+    pattern: "context\\.(Context|TODO)"
+    description: "Detect context.Context usage in Go code"
+
+  - name: rls-violation
+    pattern: "db\\.(Exec|Query).*WithoutOrgID"
+    description: "Detect potential RLS violations"
+
+  - name: kafka-topics
+    pattern: "kafka\\.(Produce|Consume).*topic:"
+    description: "Detect Kafka topic relationships"
