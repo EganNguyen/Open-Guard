@@ -1,0 +1,9 @@
+# Lefthook configuration
+# https://lefthook.dev/configuration/
+
+post-commit:
+  commands:
+    gitnexus:
+      run: gitnexus analyze .
+      skip:
+        - "*.md"
