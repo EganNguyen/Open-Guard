@@ -25,18 +25,13 @@ dev: check-env
 	# This keeps the Makefile small and allows reuse in CI.
 	@echo "[dev] Running prepull script (infra/scripts/prepull-images.sh)"
 	@./infra/scripts/prepull-images.sh || true
-	# Now run docker compose with a lower parallel download limit
-	# If SKIP_LOCALSTACK=1 is set, compute the service list excluding
-	# localstack and start only those services. This allows faster
-	# startup when localstack is not required (e.g., to avoid extra
-	# build steps or network access).
-	@if [ "$$SKIP_LOCALSTACK" = "1" ]; then \
-		echo "[dev] SKIP_LOCALSTACK=1 detected — starting without localstack"; \
-		SERVICES=$$(docker compose -f infra/docker/docker-compose.yml --env-file ../../.env config --services | grep -v '^localstack$$' | tr '\n' ' '); \
-		COMPOSE_PARALLEL_LIMIT=2 cd infra/docker && docker compose --env-file ../../.env up -d --build $$SERVICES; \
-	else \
-		COMPOSE_PARALLEL_LIMIT=2 cd infra/docker && docker compose --env-file ../../.env up -d --build; \
-	fi
+	# Now run docker compose with a lower parallel download limit.
+	# For a quick local start we always skip localstack to save RAM and
+	# reduce startup time. Compute the service list excluding localstack
+	# and start only those services.
+	@echo "[dev] Quick start — excluding localstack to save RAM";
+	@SERVICES=$$(docker compose -f infra/docker/docker-compose.yml --env-file ../../.env config --services | grep -v '^localstack$$' | tr '\n' ' '); \
+	COMPOSE_PARALLEL_LIMIT=2 cd infra/docker && docker compose --env-file ../../.env up -d --build $$SERVICES
 
 
 test:
