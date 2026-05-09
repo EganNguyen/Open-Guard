@@ -30,8 +30,10 @@ dev: check-env
 	# reduce startup time. Compute the service list excluding localstack
 	# and start only those services.
 	@echo "[dev] Quick start — excluding localstack to save RAM";
-	@SERVICES=$$(docker compose -f infra/docker/docker-compose.yml --env-file ../../.env config --services | grep -v '^localstack$$' | tr '\n' ' '); \
-	COMPOSE_PARALLEL_LIMIT=2 cd infra/docker && docker compose --env-file ../../.env up -d --build $$SERVICES
+	# Compute services from the compose file and exclude localstack. Run
+	# docker compose from the repo root and point --env-file at ./.env
+	@SERVICES=$$(docker compose -f infra/docker/docker-compose.yml --env-file .env config --services | grep -v '^localstack$$' | tr '\n' ' '); \
+	COMPOSE_PARALLEL_LIMIT=2 docker compose -f infra/docker/docker-compose.yml --env-file .env up -d --build $$SERVICES
 
 
 test:
