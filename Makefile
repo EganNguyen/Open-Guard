@@ -26,7 +26,7 @@ dev: check-env
 	# parallel by docker compose. This improves reliability on flaky
 	# networks. Add or remove images as needed.
 	@echo "[dev] Pre-pulling common large images (sequential, retries)..."
-	@IMAGES="grafana/loki:2.8.2 prom/prometheus:v2.44.0 confluentinc/cp-kafka:7.4.0 jaegertracing/all-in-one:1.45 mongo:6.0"; \
+@IMAGES="grafana/loki:2.8.2 prom/prometheus:v2.44.0 confluentinc/cp-kafka:7.4.0 jaegertracing/all-in-one:1.45 mongo:6.0 clickhouse/clickhouse-server:23.3-alpine"; \
 	for img in $$IMAGES; do \
 		tries=0; \
 		until [ $$tries -ge 3 ]; do \
