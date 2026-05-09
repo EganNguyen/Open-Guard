@@ -21,7 +21,10 @@ check-env:
 	@grep -q "JWT_KEYS=$$" .env && echo "ERROR: JWT_KEYS not set in .env" && exit 1 || true
 
 dev: check-env
-	cd infra/docker && docker compose up -d --build
+	# Tell docker compose to read the repository root .env so variable
+	# interpolation (eg. ${IAM_DATABASE_URL:?...}) works when running
+	# from infra/docker. This avoids requiring a separate infra/docker/.env.
+	cd infra/docker && docker compose --env-file ../../.env up -d --build
 
 
 test:
