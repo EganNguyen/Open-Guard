@@ -1,0 +1,13 @@
+# Dev override: replaces localstack with a tiny alpine placeholder.
+# This avoids pulling the ~600MB localstack image during `make dev`.
+# The healthcheck passes instantly, satisfying depends_on in iam/policy/etc.
+services:
+  localstack:
+    image: alpine:3.19
+    entrypoint: ["sleep", "infinity"]
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 1s
+      timeout: 1s
+      retries: 1
+      start_period: 0s

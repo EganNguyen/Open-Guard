@@ -33,7 +33,7 @@ dev: check-env
 	# Compute services from the compose file and exclude localstack. Run
 	# docker compose from the repo root and point --env-file at ./.env
 	@SERVICES=$$(docker compose -f infra/docker/docker-compose.yml --env-file .env config --services | grep -v '^localstack$$' | tr '\n' ' '); \
-	COMPOSE_PARALLEL_LIMIT=2 docker compose -f infra/docker/docker-compose.yml --env-file .env up -d --build $$SERVICES
+	COMPOSE_PARALLEL_LIMIT=1 docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.dev.yml --env-file .env up -d --build $$SERVICES
 
 
 test:

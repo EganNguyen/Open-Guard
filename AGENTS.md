@@ -134,5 +134,7 @@ This project is indexed by GitNexus as **Open-Guard** (7410 symbols, 11901 relat
 | Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
 | Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| Create Workflow Design for system | `.claude/skills/workflow-design/SKILL.md` |
+
 
 <!-- gitnexus:end -->

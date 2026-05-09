@@ -2,9 +2,26 @@
   "project_name": "Open-Guard",
   "root_dir": "/Users/nguyenhoangtuan/Documents/GitHub/Open-Guard",
   "tech_stack": {
-    "backend": ["Go 1.25", "Chi", "Kafka", "PostgreSQL", "Redis", "MongoDB", "ClickHouse", "CEL"],
-    "frontend": ["Angular 19", "Tailwind CSS", "Chart.js"],
-    "infrastructure": ["Docker", "Kubernetes", "mTLS"]
+    "backend": [
+      "Go 1.25",
+      "Chi",
+      "Kafka",
+      "PostgreSQL",
+      "Redis",
+      "MongoDB",
+      "ClickHouse",
+      "CEL"
+    ],
+    "frontend": [
+      "Angular 19",
+      "Tailwind CSS",
+      "Chart.js"
+    ],
+    "infrastructure": [
+      "Docker",
+      "Kubernetes",
+      "mTLS"
+    ]
   },
   "conventions": {
     "backend": "Strict context propagation, RLS session handling for multi-tenancy, outbox pattern for reliable events.",
@@ -23,5 +40,8 @@
     "sdk": "sdk/",
     "frontend": "web/"
   },
-  "instructions": "AGENTS.md"
+  "instructions": "AGENTS.md",
+  "plugin": [
+    "superpowers@git+https://github.com/obra/superpowers.git"
+  ]
 }
