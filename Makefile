@@ -21,10 +21,24 @@ check-env:
 	@grep -q "JWT_KEYS=$$" .env && echo "ERROR: JWT_KEYS not set in .env" && exit 1 || true
 
 dev: check-env
-	# Tell docker compose to read the repository root .env so variable
-	# interpolation (eg. ${IAM_DATABASE_URL:?...}) works when running
-	# from infra/docker. This avoids requiring a separate infra/docker/.env.
-	cd infra/docker && docker compose --env-file ../../.env up -d --build
+	# Pre-pull a small list of large images sequentially (with retries)
+	# to reduce TLS handshake timeouts when many images are pulled in
+	# parallel by docker compose. This improves reliability on flaky
+	# networks. Add or remove images as needed.
+	@echo "[dev] Pre-pulling common large images (sequential, retries)..."
+	@IMAGES="grafana/loki:2.8.2 prom/prometheus:v2.44.0 confluentinc/cp-kafka:7.4.0 jaegertracing/all-in-one:1.45 mongo:6.0"; \
+	for img in $$IMAGES; do \
+		tries=0; \
+		until [ $$tries -ge 3 ]; do \
+			echo "[dev] pulling $$img (attempt $$((tries+1)))"; \
+			if docker pull $$img; then break; fi; \
+			tries=$$((tries+1)); \
+			echo "[dev] pull failed for $$img, retrying in $$((tries*2))s..."; \
+			sleep $$((tries*2)); \
+		done; \
+	done; \
+	# Now run docker compose with a lower parallel download limit
+	COMPOSE_PARALLEL_LIMIT=2 cd infra/docker && docker compose --env-file ../../.env up -d --build
 
 
 test:
