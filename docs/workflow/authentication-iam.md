@@ -156,7 +156,7 @@
   IssueTokens(userID, orgID, userAgent, ip)
     │
     ├── 1. Generate JTI (UUID v4)
-    ├── 2. Sign JWT access token (HS256, active key from keyring)
+    ├── 2. Sign JWT access token (HS256, active key from keyring → see §Level 2E)
     │      Claims: { org_id, user_id, jti, iat, exp(1hr) }
     │
     ├── 3. Create DB session (sessions table)
@@ -286,6 +286,106 @@
     │                          │                                           │
     │  <── 200 OK ─────────────│                                           │
 ```
+
+## Level 2E: JWT Key Rotation Flow
+
+The IAM service uses a multi-key keyring (`kid`-based) for zero-downtime JWT signing key rotation. Multiple keys coexist during the rotation window: one `active` key signs new tokens, while `verify_only` keys still validate existing tokens.
+
+```
+                          ZERO-DOWNTIME KEY ROTATION
+
+  Operator                  IAM Services              Secret Store
+     │                         │                        │
+     │  PHASE 1 — Introduce                              │
+     │  Generate new key                                 │
+     │  (unique kid)          │                        │
+     │<───────────────────────── kid, secret             │
+     │                         │                        │
+     │  Update IAM_JWT_KEYS:   │                        │
+     │  [{kid:"k-2025",       │                        │
+     │    status:"verify_only"},│                        │
+     │   {kid:"k-2026",       │                        │
+     │    status:"active"}]   │                        │
+     │─────────────────────────────────────────────────>│
+     │                         │                        │
+     │  Rolling deploy         │                        │
+     │─────────────────────────> Load keyring           │
+     │                         │───────────────────────>│
+     │                         │<── keyring JSON ───────│
+     │                         │                        │
+     │                         │  Sign  → picks "k-2026"│
+     │                         │  Verify → matches by   │
+     │                         │    kid (old or new)    │
+     │                         │                        │
+     │  PHASE 2 — Finalize                              │
+     │  Wait ≥ max JWT TTL    │                        │
+     │  (default 1 hour)       │                        │
+     │                         │                        │
+     │  Remove old key from    │                        │
+     │  IAM_JWT_KEYS           │                        │
+     │─────────────────────────────────────────────────>│
+     │                         │                        │
+     │  Rolling deploy         │                        │
+     │─────────────────────────> Reload keyring         │
+     │                         │ (only active key)     │
+     │                         │                        │
+     │                         │  Old tokens now        │
+     │                         │  rejected (kid gone)   │
+```
+
+### Key Lifecycle States
+
+```
+                 ┌──────────┐
+                 │  ACTIVE   │  Signs new tokens + verifies all
+                 │           │  Sign() selects first active key
+                 └────┬──────┘
+                      │
+                 ┌────▼──────┐
+                 │VERIFY_ONLY│  Only verifies existing tokens
+                 │           │  Covers the rotation overlap
+                 └────┬──────┘
+                      │
+                 ┌────▼──────┐
+                 │  REMOVED   │  Fully rotated out
+                 │           │  Tokens with this kid → 401
+                 └───────────┘
+```
+
+### Keyring Routing
+
+| Operation | Logic | Key Status Matched |
+|-----------|-------|-------------------|
+| `Sign(claims, keyring)` | Iterates keyring, returns first key where `Status == "active"` | `active` only |
+| `Verify(token, keyring, claims)` | Extracts `kid` from JWT header, finds key by `Kid` (any status) | `active` or `verify_only` |
+
+### Impact on Token Flows
+
+- **Token Issuance:** New JWTs signed with the `active` key. The `kid` header is embedded in the token.
+- **Token Refresh:** Refresh tokens are opaque (64-char random, SHA-256 hashed) — not JWT-signed. Rotation does not affect them. The re-issued access token uses the new `active` key.
+- **Token Verification:** All services verify by extracting `kid` from the JWT header and looking up the matching key in the keyring. Both `active` and `verify_only` keys are accepted.
+
+### Operational Procedure
+
+| Phase | Step | Action | Impact |
+|-------|------|--------|--------|
+| 1 | 1 | Generate new key with unique `kid` | None |
+| 1 | 2 | Add new key as `active`, demote old to `verify_only` in `IAM_JWT_KEYS` | None (not loaded) |
+| 1 | 3 | Rolling deploy IAM + all services loading the keyring | Brief restart |
+| 1 | 4 | New JWTs use new key; old tokens still verify | Zero-downtime |
+| 2 | 5 | Wait ≥ `IAM_JWT_EXPIRY_SECONDS` (default 3600s) | All old-key tokens expired |
+| 2 | 6 | Remove old key from `IAM_JWT_KEYS` | None (not loaded) |
+| 2 | 7 | Rolling deploy all services | Old tokens rejected (401) |
+
+### Failure Scenarios
+
+| Failure | Layer | Behavior |
+|---------|-------|----------|
+| **No active key in keyring** | IAM | `Sign()` returns `ErrKeyNotFound` → token issuance fails (500) |
+| **kid in JWT not found in keyring** | All | `Verify()` returns `ErrKeyNotFound` → request rejected (401) |
+| **Keyring JSON malformed** | IAM | `LoadKeyring()` fails → service fails to start |
+| **Old key removed before token expiry** | All | Valid tokens rejected (401); user must re-authenticate |
+| **Duplicate kid in keyring** | IAM | `Verify()` matches first occurrence — startup validation recommended |
 
 ---
 
@@ -434,6 +534,7 @@
 | `openguard_auth_refresh_total` | Counter | `status` | IAM Service |
 | `openguard_mfa_verifications_total` | Counter | `type`, `status` | IAM Service |
 | `openguard_account_lockouts_total` | Counter | (none) | IAM Service |
+| `openguard_auth_keyring_keys_total` | Gauge | `status` | IAM Service |
 
 ### Key Traces (Jaeger)
 
