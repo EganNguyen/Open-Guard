@@ -389,41 +389,135 @@ The IAM service uses a multi-key keyring (`kid`-based) for zero-downtime JWT sig
 
 ---
 
+## Level 2F: JWT Revocation Flow
+
+JWTs are revoked by writing the JTI to a Redis blocklist key. Every service checks this blocklist on each request before accepting a token. Revocation is not cryptographic — the token's signature remains valid — but the blocklist entry prevents its use for the token's remaining lifetime.
+
+> **Immediate revocation via per-request blocklist check.** The blocklist write (SET) and the next API request's blocklist check (EXISTS) execute in the same Redis round-trip window — typically sub-millisecond. There is no polling, TTL sweep, or background job. **Trade-off:** every API request across all services pays one Redis EXISTS call (~0.5–2ms) to verify the token is not revoked. At Open-Guard's scale (1000s of requests/s), this is acceptable because blocklist keys are TTL-bound (max 1h) and Redis EXISTS is O(1) with negligible memory overhead (~40 bytes per active revocation).
+
+```
+                         JWT REVOCATION — TRIGGERS
+
+  Client              IAM Service                        Redis              Downstream Svc
+    │                     │                               │                     │
+    │  ── Revocation Triggers ──                          │                     │
+    │                     │                               │                     │
+    │  POST /auth/logout  │                               │                     │
+    │────────────────────>│                               │                     │
+    │                     │  Logout():                     │                     │
+    │                     │  SET blocklist:{jti}           │                     │
+    │                     │  (TTL = remaining lifetime)    │                     │
+    │                     │──────────────────────────────>│                     │
+    │                     │                               │                     │
+    │  Admin deletes user │                               │                     │
+    │────────────────────>│  DeleteUser():                 │                     │
+    │                     │  pipeline SET blocklist:{jti}  │                     │
+    │                     │  for all active JTIs           │                     │
+    │                     │──────────────────────────────>│                     │
+    │                     │                               │                     │
+    │  Refresh token reuse│                               │                     │
+    │  (compromise)       │  RevokeFamily():               │                     │
+    │                     │  pipeline SET blocklist:{jti}  │                     │
+    │                     │  for all JTIs in family        │                     │
+    │                     │──────────────────────────────>│                     │
+    │                     │                               │                     │
+    │  ── Verification ── │                               │                     │
+    │                     │                               │                     │
+    │  API request        │                               │                     │
+    │  (Bearer token)     │                               │                     │
+    │─────────────────────────────────────────────────────────────────────────>│
+    │                     │                               │                     │
+    │                     │          Auth middleware:       │                     │
+    │                     │          EXISTS blocklist:{jti}│                     │
+    │                     │──────────────────────────────>│                     │
+    │                     │          <── 0 or 1 ──────────│                     │
+    │                     │                               │                     │
+    │                     │  ┌─ Found → 401 UNAUTHORIZED  │                     │
+    │                     │  └─ Not found → allow request │                     │
+```
+
+### Blocklist Mechanics
+
+| Property | Detail |
+|----------|--------|
+| **Key format** | `blocklist:{jti}` where `jti` is UUID v4 from JWT claims |
+| **Value** | `"revoked"` (opaque, existence check only) |
+| **TTL** | `time.Until(expiresAt)` — auto-expires when the token would have expired |
+| **Cleanup** | None needed — Redis TTL handles expiry |
+| **Memory** | ~40 bytes per entry × active revocations within 1h window |
+
+### Verification Behavior by Service
+
+| Service | Middleware | Fail Mode | Behavior on Redis Down |
+|---------|-----------|-----------|----------------------|
+| **IAM** | `iam/middleware/auth.go` | **Fail-closed** | Returns 401 — cannot verify revocation status |
+| **Policy** | `shared/middleware/jwt_auth.go` | **Fail-open** | Logs warning, allows request through |
+| **Threat** | `shared/middleware/jwt_auth.go` | **Fail-open** | Logs warning, allows request through |
+| **Audit** | `shared/middleware/jwt_auth.go` | **Fail-open** | Logs warning, allows request through |
+| **Alerting** | `shared/middleware/jwt_auth.go` | **Fail-open** | Logs warning, allows request through |
+| **Compliance** | `shared/middleware/jwt_auth.go` | **Fail-open** | Logs warning, allows request through |
+| **DLP** | `shared/middleware/jwt_auth.go` | **Fail-open** | Logs warning, allows request through |
+| **Connector Registry** | `shared/middleware/jwt_auth.go` | **Fail-open** | Logs warning, allows request through |
+
+### Revocation Triggers
+
+| Trigger | Scope | Mechanism | Source |
+|---------|-------|-----------|--------|
+| **User logout** | Single JTI | `Logout()` → `SET blocklist:{jti}` | `auth.go:149` |
+| **Password change** | All user sessions | Pipeline `SET blocklist:{jti}` for all active JTIs | `users.go` |
+| **User deletion** | All user sessions | Pipeline `SET blocklist:{jti}` + DB session revoke | `users.go:115` |
+| **Org offboarding** | All users in org | Pipeline `SET blocklist:{jti}` per user | `users.go:250` |
+| **Refresh token reuse** | Entire token family | Pipeline `SET blocklist:{jti}` for all JTIs in family | Token refresh handler |
+| **High-risk refresh** | Single token family | Same mechanism, triggered by risk score ≥80 | Token refresh handler |
+| **Token expiry** | Single JTI | Passive — blocklist entry auto-expires or JWT `exp` claim | N/A (built-in) |
+
+### Failure Scenarios
+
+| Failure | Layer | Behavior |
+|---------|-------|----------|
+| **Redis down (IAM middleware)** | IAM | Fail-closed — all requests return 401 |
+| **Redis down (shared middleware)** | All other services | Fail-open — revoked tokens temporarily accepted |
+| **Circuit breaker open (Redis)** | All | Shared middleware skips blocklist check with warning |
+| **Blocklist key TTL too short** | IAM | Token usable again before natural expiry |
+| **JTI collision** | IAM | Extremely unlikely (UUID v4), but would block a valid token |
+
+---
+
 ## Level 3: State Transitions
 
 ### Account Lockout State
 
 ```
-                        ┌──────────┐
-                        │  ACTIVE  │  (failed_login_count = 0)
-                        └────┬─────┘
-                             │
-                     ┌───────┴────────┐
-                     │  Failed login  │  (count increments 1..9)
-                     │  (count: N)    │
-                     └───────┬────────┘
-                             │
-                     ┌───────┴────────┐
-                     │ count >= 10    │
-                     ▼                ▼
-              ┌────────────┐   ┌──────────┐
-              │  LOCKED    │   │  ACTIVE  │
-              │  (15 min)  │   │ (reset=0)│
-              └──────┬─────┘   └──────────┘
-                     │
-          ┌──────────┴──────────┐
-          │                     │
-     ┌────▼────┐          ┌────▼────┐
-     │  Wait   │          │  More   │
-     │  expires│          │ fails   │
-     └────┬────┘          └────┬────┘
-          │                    │
-     ┌────▼────┐         ┌────▼───────┐
-     │  ACTIVE  │         │  LOCKED    │
-     │ (retry)  │         │ (escalated)│
-     └──────────┘         │ 30min→1hr  │
-                          │ →...→24hr  │
-                          └────────────┘
+                         ┌──────────┐
+                         │  ACTIVE  │  (failed_login_count = 0)
+                         └────┬─────┘
+                              │
+                      ┌───────┴────────┐
+                      │  Failed login  │  (count increments 1..9)
+                      │  (count: N)    │
+                      └───────┬────────┘
+                              │
+                      ┌───────┴────────┐
+                      │ count >= 10    │
+                      ▼                ▼
+               ┌────────────┐   ┌──────────┐
+               │  LOCKED    │   │  ACTIVE  │
+               │  (15 min)  │   │ (reset=0)│
+               └──────┬─────┘   └──────────┘
+                      │
+           ┌──────────┴──────────┐
+           │                     │
+      ┌────▼────┐          ┌────▼────┐
+      │  Wait   │          │  More   │
+      │  expires│          │ fails   │
+      └────┬────┘          └────┬────┘
+           │                    │
+      ┌────▼────┐         ┌────▼───────┐
+      │  ACTIVE  │         │  LOCKED    │
+      │ (retry)  │         │ (escalated)│
+      └──────────┘         │ 30min→1hr  │
+                           │ →...→24hr  │
+                           └────────────┘
 
   Lockout formula: 15 min * 2^(failCount/10 - 1), capped at 24 hours
 ```
