@@ -106,87 +106,179 @@ type Repository struct {
 
 ## 2. Channels
 
-Go's concurrency mantra: *"Do not communicate by sharing memory; share memory by communicating."*
+Channels are Go's **communication and synchronization primitives**. They act as conduits through which goroutines send and receive values.
 
-### 2.1 Core Use Cases
+### 2.1 The Rendezvous (Blocking Behavior)
+By default, sending or receiving from a channel is a **blocking operation**:
+- **Send blocks** until a receiver is ready to take the value.
+- **Receive blocks** until a sender provides a value.
 
-**Worker Pool / Task Distribution**
+This behavior enables synchronization without explicit locks: the act of sending data also acts as a signal that the sender has reached a certain state.
 
-A fixed number of goroutines pulls jobs from a shared channel, preventing unbounded goroutine spawning.
+### 2.2 Core Use Cases & Patterns (Real-World Examples)
+
+**Worker Pool / Task Distribution (`AuthWorkerPool`)**
+
+Used in the IAM service to manage CPU-intensive bcrypt operations without unbounded goroutine growth.
 
 ```go
-type bcryptCompareJob struct {
-    hash   []byte
-    plain  []byte
-    result chan error // one-shot result channel (buffered!)
+// services/iam/pkg/service/auth_pool.go
+type AuthWorkerPool struct {
+    compareJobs chan bcryptCompareJob
 }
 
 func (p *AuthWorkerPool) worker(ctx context.Context) {
     for {
         select {
-        case <-ctx.Done():
-            return
+        case <-ctx.Done(): return
         case job, ok := <-p.compareJobs:
             if !ok { return }
-            job.result <- bcrypt.CompareHashAndPassword(job.hash, []byte(job.plain))
+            // Heavy computation happens here, isolated to 10 workers
+            job.result <- bcrypt.CompareHashAndPassword([]byte(job.hash), []byte(job.password))
         }
     }
 }
 ```
 
-**Bounded Concurrency (Semaphore)**
+**Bounded Concurrency (Semaphore Pattern)**
 
-A buffered channel limits how many goroutines perform an operation simultaneously.
+Used in the Policy service to limit background cache refreshes to 100 concurrent operations.
 
 ```go
+// services/policy/pkg/service/service.go
 refreshSem := make(chan struct{}, 100) // max 100 concurrent refreshes
 
-// Acquire
-refreshSem <- struct{}{}
-go func() {
-    defer func() { <-refreshSem }() // Release
-    doRefresh(ctx)
-}()
-```
-
-**Graceful Shutdown (Signal Handling)**
-
-```go
-sigCh := make(chan os.Signal, 1)
-signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-<-sigCh
-cancel() // propagate shutdown to all goroutines
+func (s *Service) backgroundRefresh(req EvaluateRequest, key string) {
+    select {
+    case s.refreshSem <- struct{}{}: // Acquire slot
+        go func() {
+            defer func() { <-s.refreshSem }() // Release slot
+            s.evaluateFromDB(context.Background(), req, key)
+        }()
+    default:
+        s.logger.Debug("background refresh skipped, semaphore full")
+    }
+}
 ```
 
 **Async Result (Future Pattern)**
 
-Embed a reply channel inside the job struct so the caller blocks only on its own result.
+Embedding a result channel inside a job struct so the caller blocks only on its own result.
 
 ```go
-job := bcryptCompareJob{
-    hash:   storedHash,
-    plain:  password,
-    result: make(chan error, 1), // buffered: worker never blocks
+// services/iam/pkg/service/auth_pool.go
+type bcryptCompareJob struct {
+    password string
+    hash     string
+    result   chan error // One-shot result channel (buffered!)
 }
-p.compareJobs <- job
-err := <-job.result
+
+func (p *AuthWorkerPool) Compare(ctx context.Context, password, hash string) error {
+    result := make(chan error, 1) // Buffer of 1 prevents worker leak if caller cancels
+    p.compareJobs <- bcryptCompareJob{password, hash, result}
+    return <-result
+}
 ```
 
-**Wakeup Signaling (Event Multiplexing)**
+**Signaling (Graceful Shutdown)**
 
-Combine a ticker with a notification channel for low-latency, non-polling event handling.
+Used across Open-Guard to stop background daemons and cleanup loops.
 
 ```go
-for {
-    select {
-    case <-ctx.Done():
-        return
-    case <-ticker.C:
-        relay.publishPending(ctx)
-    case <-notifications: // triggered by Postgres NOTIFY
-        relay.publishPending(ctx)
+// shared/middleware/ratelimit.go
+func NewRateLimiter(rdb *redis.Client, r rate.Limit, b int, stop <-chan struct{}) *RateLimiter {
+    go func() {
+        ticker := time.NewTicker(5 * time.Minute)
+        for {
+            select {
+            case <-ticker.C:
+                l.cleanup()
+            case <-stop: // Triggered by close(stopCh) in main.go
+                return
+            }
+        }
+    }()
+    return l
+}
+```
+
+**Non-blocking Send with Drop (Telemetry/Logs)**
+
+Used for evaluation logs where dropping an entry is preferable to blocking the critical path.
+
+```go
+// services/policy/pkg/service/service.go
+select {
+case s.logCh <- evalLogEntry{req, resp}:
+default:
+    // Channel is full, drop entry to preserve low latency for the user
+    s.logger.Warn("eval log channel full, dropping entry")
+}
+```
+
+**Replacing Locks (The Monitor/State-Machine Pattern)**
+
+Instead of a `sync.Mutex`, a dedicated goroutine owns the state, and other goroutines interact with it by sending "command" structs. This ensures that the state is only ever modified by a single goroutine, eliminating race conditions.
+
+```go
+type counterOp struct {
+    resp chan int
+}
+
+func counterMonitor() chan<- counterOp {
+    ops := make(chan counterOp)
+    go func() {
+        var count int // Private state: no Mutex required!
+        for op := range ops {
+            count++
+            op.resp <- count
+        }
+    }()
+    return ops
+}
+
+**Pipelines (Audit Ingestion Flow)**
+
+A pipeline coordinates data through multiple processing stages. In Open-Guard, the Audit service uses this to ingest, enrich, and secure logs.
+
+```go
+// services/audit/pkg/consumer/consumer.go
+func (c *AuditConsumer) Start(ctx context.Context) {
+    for {
+        // Stage 1: Fetch from Kafka (Source)
+        msg, _ := c.reader.FetchMessage(ctx)
+        
+        // Stage 2: Enrich & Unmarshal (Processing)
+        event := enrich(msg)
+        
+        // Stage 3: Integrity Hashing (Security)
+        event["integrity_hash"] = c.computeChain(event)
+        
+        // Stage 4: MongoDB BulkWrite (Sink)
+        c.repo.BulkWrite(ctx, event)
     }
 }
+```
+
+**Fan-out / Fan-in (Multi-Topic Consumers)**
+
+Open-Guard scales ingestion by "fanning out" processing across multiple goroutines, each handling a different security event stream.
+
+```go
+// services/audit/main.go
+topics := []string{"auth.events", "policy.changes", "threat.alerts"}
+
+for _, topic := range topics {
+    // Fan-out: One goroutine per topic
+    go func(t string) {
+        consumer := NewAuditConsumer(t)
+        consumer.Start(ctx)
+    }(topic)
+}
+
+// Fan-in: All consumers implicitly "fan-in" to the 
+// same MongoDB repository for centralized auditing.
+```
 ```
 
 ### 2.2 Buffered vs. Unbuffered
