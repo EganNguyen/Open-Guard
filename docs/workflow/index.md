@@ -10,3 +10,4 @@
 | [Compliance & Reporting](compliance-reporting.md) | ClickHouse Ingestion, Report Generation | Compliance Scoring |
 | [DLP Scanning](dlp-scanning.md) | Sync DLP (Block), Async DLP (Monitor) | Scanner Internals |
 | [Notifications & Webhooks](webhooks-notifications.md) | Webhook Delivery Sequence | State Transitions |
+| [Connector Registry](connector-registry.md) | Registration, API Key Validation, Suspend/Delete | Cache Internals, Lifecycle State Machine |
