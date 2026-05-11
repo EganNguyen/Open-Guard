@@ -5,6 +5,7 @@
 | [Control Plane Gateway](control-plane-gateway.md) | Request Lifecycle | State Transitions |
 | [Authentication & IAM](authentication-iam.md) | Login, MFA, Token Refresh, Logout, JWT Key Rotation | State Transitions |
 | [Policy Engine](policies-engine.md) | Policy Evaluation, Policy CRUD | State Transitions |
+| [Saga Orchestration](saga-orchestration.md) | User Provisioning, Timeout/Failure, Org Offboarding | State Machine, Lua Script, Redis ZSET |
 | [Threat Detection](threat-detection.md) | Detection Pipeline, Alert Saga | State Transitions |
 | [Audit & Event Pipeline](audit-event-pipeline.md) | Event Ingest, Hash Chain, SSE Streaming | State Transitions |
 | [Compliance & Reporting](compliance-reporting.md) | ClickHouse Ingestion, Report Generation | Compliance Scoring |
