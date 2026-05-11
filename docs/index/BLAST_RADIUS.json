@@ -1,4 +1,226 @@
 {
+  "services": [
+    {
+      "id": "iam",
+      "name": "IAM",
+      "description": "Identity & Access Management",
+      "group": "Identity & Auth",
+      "port": "8080/8443",
+      "port_ext": 8082,
+      "data_stores": ["pg", "redis"],
+      "router": "chi/v5",
+      "kafka_produces": ["auth.events", "saga.orchestration", "connector.events"],
+      "kafka_consumes": ["saga.orchestration"],
+      "health_route": "/health",
+      "metrics_route": "/metrics"
+    },
+    {
+      "id": "policy",
+      "name": "Policy",
+      "description": "Policy Engine & RBAC",
+      "group": "Policy & DLP",
+      "port": "8080",
+      "port_ext": 8083,
+      "data_stores": ["pg", "redis"],
+      "router": "chi/v5",
+      "kafka_produces": ["policy.changes"],
+      "kafka_consumes": [],
+      "health_route": "/health",
+      "metrics_route": "/metrics"
+    },
+    {
+      "id": "dlp",
+      "name": "DLP",
+      "description": "Data Loss Prevention",
+      "group": "Policy & DLP",
+      "port": "8080",
+      "port_ext": 8089,
+      "data_stores": ["pg", "redis"],
+      "router": "gorilla/mux",
+      "kafka_produces": ["dlp.dlq"],
+      "kafka_consumes": ["control.plane.events"],
+      "health_route": "/health",
+      "metrics_route": "/metrics"
+    },
+    {
+      "id": "threat",
+      "name": "Threat",
+      "description": "Threat Detection",
+      "group": "Detection & Alerting",
+      "port": "8080",
+      "port_ext": 8084,
+      "data_stores": ["mongo", "redis"],
+      "router": "chi/v5",
+      "kafka_produces": ["threat.alerts"],
+      "kafka_consumes": ["auth.events", "policy.changes", "data.access"],
+      "health_route": "/health",
+      "metrics_route": "/metrics"
+    },
+    {
+      "id": "alerting",
+      "name": "Alerting",
+      "description": "Alert Management & SIEM Delivery",
+      "group": "Detection & Alerting",
+      "port": "8080",
+      "port_ext": 8086,
+      "data_stores": ["mongo", "redis"],
+      "router": "gorilla/mux",
+      "kafka_produces": ["notifications.outbound", "webhook.delivery"],
+      "kafka_consumes": ["threat.alerts"],
+      "health_route": "/health",
+      "metrics_route": "/metrics"
+    },
+    {
+      "id": "audit",
+      "name": "Audit",
+      "description": "Audit Logging & CQRS",
+      "group": "Audit & Compliance",
+      "port": "8080",
+      "port_ext": 8085,
+      "data_stores": ["mongo", "redis"],
+      "router": "std ServeMux",
+      "kafka_produces": ["audit.trail"],
+      "kafka_consumes": ["auth.events", "policy.changes", "data.access", "threat.alerts", "connector.events", "saga.orchestration", "audit.trail"],
+      "health_route": "/health",
+      "metrics_route": "/metrics"
+    },
+    {
+      "id": "compliance",
+      "name": "Compliance",
+      "description": "Compliance Reporting & Analytics",
+      "group": "Audit & Compliance",
+      "port": "8080",
+      "port_ext": 8088,
+      "data_stores": ["pg", "clickhouse", "s3", "redis"],
+      "router": "gorilla/mux",
+      "kafka_produces": [],
+      "kafka_consumes": ["audit.trail"],
+      "health_route": "/health",
+      "metrics_route": "/metrics"
+    },
+    {
+      "id": "webhook-delivery",
+      "name": "Webhook-Delivery",
+      "description": "Webhook Dispatch with Retry & DLQ",
+      "group": "Integration Layer",
+      "port": "8080",
+      "port_ext": 8087,
+      "data_stores": ["pg"],
+      "router": "gorilla/mux",
+      "kafka_produces": ["webhook.dlq"],
+      "kafka_consumes": ["webhook.delivery"],
+      "health_route": "/health",
+      "metrics_route": "/metrics"
+    },
+    {
+      "id": "connector-registry",
+      "name": "Connector-Registry",
+      "description": "Third-Party Connector Management",
+      "group": "Integration Layer",
+      "port": "8080",
+      "port_ext": 8090,
+      "data_stores": ["pg", "redis"],
+      "router": "chi/v5",
+      "kafka_produces": [],
+      "kafka_consumes": [],
+      "health_route": "/health",
+      "metrics_route": "/metrics"
+    },
+    {
+      "id": "control-plane",
+      "name": "Control-Plane",
+      "description": "API Gateway with Circuit Breakers",
+      "group": "Gateway",
+      "port": "8080",
+      "port_ext": 8081,
+      "data_stores": [],
+      "router": "chi/v5",
+      "kafka_produces": ["control.plane.events"],
+      "kafka_consumes": [],
+      "health_route": "/health",
+      "metrics_route": "/metrics"
+    }
+  ],
+  "event_flow": {
+    "auth.events": {
+      "partitions": 12,
+      "producer": "iam",
+      "consumers": ["threat", "audit"],
+      "description": "Authentication, login, MFA events"
+    },
+    "policy.changes": {
+      "partitions": 6,
+      "producer": "policy",
+      "consumers": ["threat", "audit"],
+      "description": "Policy CRUD and assignment changes"
+    },
+    "data.access": {
+      "partitions": 24,
+      "producer": "control-plane",
+      "consumers": ["threat", "audit", "compliance"],
+      "description": "Data access events from protected apps"
+    },
+    "threat.alerts": {
+      "partitions": 12,
+      "producer": "threat",
+      "consumers": ["alerting", "audit"],
+      "description": "Detected threat alerts"
+    },
+    "audit.trail": {
+      "partitions": 24,
+      "producer": "audit",
+      "consumers": ["audit", "compliance"],
+      "description": "Canonical audit trail"
+    },
+    "notifications.outbound": {
+      "partitions": 6,
+      "producer": "alerting",
+      "consumers": [],
+      "description": "User notifications"
+    },
+    "saga.orchestration": {
+      "partitions": 12,
+      "producer": "iam",
+      "consumers": ["iam", "audit"],
+      "description": "Provisioning saga coordination"
+    },
+    "connector.events": {
+      "partitions": 24,
+      "producer": "iam",
+      "consumers": ["audit"],
+      "description": "Connector lifecycle events"
+    },
+    "webhook.delivery": {
+      "partitions": 12,
+      "producer": "alerting",
+      "consumers": ["webhook-delivery"],
+      "description": "Webhook dispatch queue"
+    },
+    "control.plane.events": {
+      "partitions": 3,
+      "producer": "control-plane",
+      "consumers": ["dlp"],
+      "description": "Events for DLP content scanning"
+    },
+    "outbox.dlq": {
+      "partitions": 3,
+      "producer": "outbox-relay",
+      "consumers": [],
+      "description": "Dead letters: outbox publish failures"
+    },
+    "webhook.dlq": {
+      "partitions": 3,
+      "producer": "webhook-delivery",
+      "consumers": [],
+      "description": "Dead letters: webhook delivery failures"
+    },
+    "dlp.dlq": {
+      "partitions": 1,
+      "producer": "dlp",
+      "consumers": [],
+      "description": "Dead letters: DLP scan failures"
+    }
+  },
   "shared_packages": {
     "shared/crypto": {
       "consumers": ["iam", "control-plane", "policy", "audit", "compliance"],
@@ -7,7 +229,7 @@
       "rationale": "Heart of the mTLS and JWT security model."
     },
     "shared/resilience": {
-      "consumers": ["iam", "policy", "threat", "audit", "compliance", "dlp"],
+      "consumers": ["iam", "policy", "threat", "audit", "compliance", "dlp", "alerting", "webhook-delivery", "connector-registry", "control-plane"],
       "critical_tests": ["shared/resilience/...", "services/control-plane/..."],
       "risk_level": "medium",
       "rationale": "Governs circuit-breaking and retry logic for the entire mesh."
@@ -29,24 +251,18 @@
       "critical_tests": ["shared/telemetry/..."],
       "risk_level": "low",
       "rationale": "Prometheus and logging standards."
-    }
-  },
-  "event_flow": {
-    "auth.events": {
-      "producer": "iam",
-      "consumers": ["threat", "audit"]
     },
-    "policy.changes": {
-      "producer": "policy",
-      "consumers": ["control-plane", "audit"]
+    "shared/kafka": {
+      "consumers": ["iam", "policy", "audit", "alerting", "threat", "control-plane", "dlp", "webhook-delivery"],
+      "critical_tests": ["shared/kafka/..."],
+      "risk_level": "high",
+      "rationale": "Kafka publisher and outbox relay. Failures cause event loss."
     },
-    "data.access": {
-      "producer": "control-plane",
-      "consumers": ["threat", "audit", "compliance"]
-    },
-    "threat.alerts": {
-      "producer": "threat",
-      "consumers": ["alerting", "audit"]
+    "shared/secrets": {
+      "consumers": ["iam", "policy", "audit", "alerting", "connector-registry"],
+      "critical_tests": ["shared/secrets/..."],
+      "risk_level": "critical",
+      "rationale": "Secret provider for JWT keys, AES keys. Failures break auth."
     }
   }
 }
