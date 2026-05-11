@@ -60,9 +60,10 @@
                                     │  │  ┌─────────────────────────────────────────────────────┐                │ │
                                     │  │  │              Alert Pipeline                        │                │ │
                                     │  │  │  ┌──────────┐   ┌──────────┐   ┌────────────────┐ │                │ │
-                                    │  │  │  │ Scorer   │──>│Persister │──>│Kafka Publisher │ │                │ │
-                                    │  │  │  │ (compos. │   │ (MongoDB │   │ (threat.alerts │ │                │ │
-                                    │  │  │  │  score)  │   │  alerts) │   │   topic)       │ │                │ │
+                                    │  │  │  │ Scorer   │   │Persister │──>│Kafka Publisher │ │                │ │
+                                    │  │  │  │ (UNUSED  │   │ (MongoDB │   │ (threat.alerts │ │                │ │
+                                    │  │  │  │  — dead  │   │  alerts) │   │   topic)       │ │                │ │
+                                    │  │  │  │  code)   │   │          │   │                │ │                │ │
                                     │  │  │  └──────────┘   └──────────┘   └───────┬────────┘ │                │ │
                                     │  │  └──────────────────────────────────────────┼────────┘                │ │
                                     │  │                                             │                          │ │
@@ -184,16 +185,17 @@
 │  │    │        ├─ Score (0.0 - 1.0)                                           │
 │  │    │        ├─ Severity (MEDIUM/HIGH/CRITICAL)                             │
 │  │    │        └─ Metadata (IP, device, location, etc.)                       │
-│  │    │     └─ Compute composite score (time-decayed max)                     │
+│  │    │     └─ (scorer.CompositeScore exists but NEVER called — dead code)    │
 │  │    │     └─ Persist to MongoDB threats.alerts                              │
 │  │    │     └─ Publish to threat.alerts Kafka topic                           │
 │  │    │     └─ Cache in Redis with 24h TTL                                    │
 │  │    │                                                                        │
 │  │    │  5. Commit Kafka offset                                                │
 │  │    │                                                                        │
-│  │    │  6. Emit metrics:                                                      │
+│  │    │  6. Would emit metrics (NOT IMPLEMENTED):                              │
 │  │    │     └─ openguard_threat_detections_total{detector,severity}           │
 │  │    │     └─ processing_latency_seconds{detector}                           │
+│  │    │     (metrics declared in telemetry/metrics.go, never .Inc()/.Observe())│
 │  │    └────────────────────────────────────────────────────────────────────────┘
 │  └────┘
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -339,20 +341,63 @@
 ## Consumer Group Mapping
 
 ```
-┌──────────────────────┬──────────────────┬────────────┬──────────────────┐
-│       Detector       │   Kafka Topic    │ Group ID   │ Partition Assign │
-├──────────────────────┼──────────────────┼────────────┼──────────────────┤
-│ BruteForce           │ auth.events      │ threat-bf  │ Round-robin      │
-│ ImpossibleTravel     │ auth.events      │ threat-it  │ Round-robin      │
-│ OffHoursAccess       │ auth.events      │ threat-oh  │ Round-robin      │
-│ AccountTakeover      │ auth.events      │ threat-ato │ Round-robin      │
-│ PrivilegeEscalation  │ auth.events      │ threat-pe  │ Round-robin      │
-│ PrivilegeEscalation  │ policy.changes   │ threat-pe  │ Round-robin      │
-│ DataExfiltration     │ data.access      │ threat-de  │ Round-robin      │
-├──────────────────────┼──────────────────┼────────────┼──────────────────┤
-│ Alerting Saga        │ threat.alerts    │ alert-saga │ Round-robin      │
-└──────────────────────┴──────────────────┴────────────┴──────────────────┘
+┌──────────────────────┬──────────────────┬──────────────────────────┬──────────────────┐
+│       Detector       │   Kafka Topic    │ Group ID (actual)       │ Partition Assign │
+├──────────────────────┼──────────────────┼──────────────────────────┼──────────────────┤
+│ BruteForce           │ auth.events      │ threat-detector         │ Round-robin      │
+│ ImpossibleTravel     │ auth.events      │ threat-detector         │ Round-robin      │
+│ OffHoursAccess       │ auth.events      │ threat-detector         │ Round-robin      │
+│ AccountTakeover      │ auth.events      │ threat-detector         │ Round-robin      │
+│ DataExfiltration     │ data.access      │ threat-detector         │ Round-robin      │
+│ PrivilegeEscalation  │ auth.events      │ threat-detector-auth    │ Round-robin      │
+│ PrivilegeEscalation  │ policy.changes   │ threat-detector-policy  │ Round-robin      │
+├──────────────────────┼──────────────────┼──────────────────────────┼──────────────────┤
+│ Alerting Saga        │ threat.alerts    │ alert-saga              │ Round-robin      │
+└──────────────────────┴──────────────────┴──────────────────────────┴──────────────────┘
 ```
+
+**⚠️ Bug:** 5 detectors (BF, IT, OH, DE, ATO) share the same consumer group `threat-detector`, making them competing consumers — each partition message is delivered to only one detector. This is likely unintentional; each detector should have a unique group ID to receive all events. Configurable via env var `KAFKA_GROUP_ID` in `services/threat/main.go:63`.
+
+```
+Source: services/threat/main.go:63-66          (base groupID = "threat-detector")
+       services/threat/pkg/detector/privilege_escalation.go:34,40  (+ "-auth" / "-policy")
+```
+
+---
+
+## Code Anomalies
+
+The following discrepancies between documented design and actual code were found during code exploration:
+
+### 1. Scorer Package — Dead Code
+
+**Location:** `services/threat/pkg/scorer/scorer.go` (47 lines + 73 lines of tests)
+
+A `scorer` package exists defining:
+- `Score` struct (`Value float64`, `Source string`, `OccurredAt time.Time`)
+- `CompositeScore([]Score) float64` — recency-decayed max: `value * exp(-0.05 * minutes_ago)`
+- `Severity(float64) string` — `≥0.95 → CRITICAL`, `≥0.8 → HIGH`, `≥0.5 → MEDIUM`, else `LOW`
+
+**Problem:** This package is **never imported or used anywhere** in the codebase. All 6 detectors assign hardcoded inline scores:
+- BruteForce: `Score: 0.9`
+- ImpossibleTravel: `Score: 0.9`
+- OffHours: `Score: 0.5`
+- DataExfiltration: `Score: 0.7`
+- AccountTakeover: `Score: 0.7`
+- PrivilegeEscalation: `Score: 0.9`
+
+There is no central aggregation step. No code calls `CompositeScore()` or `Severity()`. The scorer was written and tested but never wired into the detection pipeline.
+
+### 2. Prometheus Metrics — Declared but Never Instrumented
+
+**Location:** `services/threat/pkg/telemetry/metrics.go`
+
+| Go Variable | Prometheus Metric | Type | Labels | Status |
+|---|---|---|---|---|
+| `ThreatsDetected` | `openguard_threat_detections_total` | CounterVec | `type`, `severity` | Never `.Inc()` or `.Add()` |
+| `ProcessingLatency` | `openguard_threat_processing_duration_seconds` | HistogramVec | `type` | Never `.Observe()` |
+
+Both metrics are `promauto`-registered (appear on `/metrics` endpoint) but have **zero `.Inc()` / `.Observe()` calls** anywhere in the codebase. They will always report zero values.
 
 ---
 
@@ -709,14 +754,14 @@ After seeding, you can log in via the Angular dashboard to generate real auth ev
 
 ### Key Metrics (Prometheus)
 
-| Metric | Type | Labels | Source |
-|--------|------|--------|--------|
-| `openguard_threat_detections_total` | Counter | `detector`, `severity` | Threat Service |
-| `detector_processing_latency_seconds` | Histogram | `detector` | Threat Service |
-| `openguard_events_consumed_total` | Counter | `topic`, `consumer_group` | Threat Service |
-| `openguard_saga_step_duration_seconds` | Histogram | `step` | Alerting Service |
-| `openguard_saga_step_total` | Counter | `step`, `status` | Alerting Service |
-| `openguard_alerts_total` | Counter | `severity`, `status` | Alerting Service |
+| Metric | Type | Labels | Source | Status |
+|--------|------|--------|--------|--------|
+| `openguard_threat_detections_total` | Counter | `detector`, `severity` | Threat Service | Declared, never `.Inc()` |
+| `openguard_threat_processing_duration_seconds` | Histogram | `detector` | Threat Service | Declared, never `.Observe()` |
+| `openguard_events_consumed_total` | Counter | `topic`, `consumer_group` | Threat Service | Unknown — not in codebase |
+| `openguard_saga_step_duration_seconds` | Histogram | `step` | Alerting Service | Active |
+| `openguard_saga_step_total` | Counter | `step`, `status` | Alerting Service | Active |
+| `openguard_alerts_total` | Counter | `severity`, `status` | Alerting Service | Active |
 
 ### Key Traces (Jaeger)
 
