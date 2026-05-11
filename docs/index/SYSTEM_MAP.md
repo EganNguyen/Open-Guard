@@ -183,6 +183,7 @@ graph LR
     subgraph Producers
         alerting[alerting]
         audit[audit]
+        connector_registry[connector-registry]
         control_plane[control-plane]
         dlp[dlp]
         iam[iam]
@@ -221,14 +222,16 @@ graph LR
     audit ==> audit.trail
     iam ==> auth.events
     iam ==> connector.events
+    connector_registry ==> connector.events
+    connector_registry -.-> webhook.delivery
     control_plane ==> control.plane.events
     control_plane ==> data.access
     dlp ==> dlp.dlq
     alerting ==> notifications.outbound
+    alerting -.-> webhook.delivery
     policy ==> policy.changes
     iam ==> saga.orchestration
     threat ==> threat.alerts
-    alerting ==> webhook.delivery
     webhook_delivery ==> webhook.dlq
 
     %% Topics to Consumers
@@ -272,7 +275,7 @@ graph LR
 | `policy.changes` | 6 | policy | threat, audit | Policy CRUD and assignment changes |
 | `saga.orchestration` | 12 | iam | iam, audit | Provisioning saga coordination |
 | `threat.alerts` | 12 | threat | alerting, audit | Detected threat alerts |
-| `webhook.delivery` | 12 | alerting | webhook-delivery | Webhook dispatch queue |
+| `webhook.delivery` | 12 | alerting, connector-registry, any service | webhook-delivery | Webhook dispatch queue |
 | `webhook.dlq` | 3 | webhook-delivery | — | Dead letters: webhook delivery failures |
 
 ---
@@ -374,7 +377,7 @@ graph BT
 | 6 | **Audit** | 8085 | mongo, redis | audit.trail | auth.events, policy.changes, data.access, threat.alerts, connector.events, saga.orchestration, audit.trail | std ServeMux |
 | 7 | **Compliance** | 8088 | pg, clickhouse, s3, redis | — | audit.trail | gorilla/mux |
 | 8 | **Webhook-Delivery** | 8087 | pg | webhook.dlq | webhook.delivery | gorilla/mux |
-| 9 | **Connector-Registry** | 8090 | pg, redis | — | — | chi/v5 |
+| 9 | **Connector-Registry** | 8090 | pg, redis | connector.events | — | chi/v5 |
 | 10 | **Control-Plane** | 8081 | — | control.plane.events | — | chi/v5 |
 
 ---
@@ -424,6 +427,7 @@ graph BT
 | **SSE (Server-Sent Events)** | HTTP/Streaming | Audit SSE → Dashboard | Real-time audit log streaming to frontend |
 | **SDK Inline** | gRPC/HTTP | Example App → Policy (SDK) | Synchronous policy evaluation with 60s TTL caching |
 | **SIEM Outbound** | HTTPS POST (HMAC-SHA256) | Alerting → Splunk/Datadog/Sentinel | Signed payloads with replay protection |
+| **Webhook Delivery** | HTTPS POST (HMAC-SHA256) | Webhook-Delivery → Customer Endpoint | Signed payloads, 5× retry (1s-16s backoff), SSRF-protected, DLQ on exhaustion |
 
 ---
 
@@ -454,6 +458,114 @@ graph BT
 | DataExfiltrationDetector | `data.access` | Anomalous data volume/patterns | Publish `threat.alerts` |
 | AccountTakeoverDetector | `auth.events` | Behavioral anomaly (device/IP/geo) | Publish `threat.alerts` |
 | PrivilegeEscalationDetector | `auth.events` + `policy.changes` | Suspicious role/privilege changes | Publish `threat.alerts` |
+
+---
+
+---
+
+## 9. Webhook Event Flow — Open Guard → Connected App
+
+### Design
+
+Any service can publish `WebhookDeliveryRequest` messages to Kafka `webhook.delivery`. The webhook-delivery service consumes these, HMAC-signs the payload, and POSTs to the customer's registered webhook URL with retry and DLQ on exhaustion.
+
+### Event Producers → `webhook.delivery`
+
+```mermaid
+graph LR
+
+    subgraph Producers["Producer Services (via outbox or direct Kafka publish)"]
+        alerting["Alerting Saga<br/>(threat alerts)"]
+        connector_registry["Connector-Registry<br/>(connector lifecycle)"]
+        iam["IAM<br/>(user events for connectors)"]
+        policy["Policy<br/>(policy changes affecting connectors)"]
+        any_svc["Any Service<br/>(custom events via SDK)"]
+    end
+
+    subgraph Delivery["Webhook Delivery Pipeline"]
+        K[("Kafka: webhook.delivery")]
+        WH[Webhook-Delivery Service]
+    end
+
+    subgraph Customer["Customer / Connected App"]
+        WEBHOOK["Customer Webhook Endpoint<br/>POST https://customer.com/webhook"]
+    end
+
+    alerting --> K
+    connector_registry --> K
+    iam --> K
+    policy --> K
+    any_svc --> K
+    K --> WH
+    WH --> WEBHOOK
+
+```
+
+### Webhook Delivery Sequence
+
+```mermaid
+sequenceDiagram
+    participant Producer as Any Service
+    participant PG as PostgreSQL Outbox
+    participant Relay as Outbox Relay
+    participant K as Kafka webhook.delivery
+    participant WH as Webhook Delivery Svc
+    participant DB as PostgreSQL webhook_deliveries
+    participant Customer as Customer Endpoint
+
+    Producer->>PG: Insert outbox record (tx)
+    PG-->>Relay: pg_notify
+
+    Relay->>PG: Select FOR UPDATE SKIP LOCKED
+    Relay->>K: Publish WebhookDeliveryRequest
+
+    K->>WH: Consume message
+    WH->>DB: Insert status=pending
+
+    loop Retry (max 5 attempts)
+        WH->>WH: Compute HMAC signature
+
+        WH->>Customer: POST /webhook (signed request)
+
+        alt Success (2xx/3xx)
+            Customer-->>WH: OK
+            WH->>DB: Update status=delivered
+        else Failure (4xx/5xx/timeout)
+            Customer-->>WH: Error
+            WH->>DB: Update status=failed + schedule retry
+        end
+    end
+
+    WH->>DB: Final status=dlq (after retries)
+    WH->>K: Publish webhook.dlq event
+```
+
+### Payload Envelope
+
+Events sent to customer webhooks include the `event_type` field for routing. The full set of event types that may be delivered:
+
+| Namespace | Event Types | Example |
+|-----------|-------------|---------|
+| **Auth** | `auth.login.success`, `auth.login.failure`, `password.changed` | `{"event_type":"auth.login.success","user_id":"...","org_id":"...","timestamp":"..."}` |
+| **Data Access** | `resource.read`, `resource.write`, `resource.delete`, `data.bulk.read`, `access.denied` | `{"event_type":"access.denied","user_id":"...","action":"task:list"}` |
+| **Policy** | `policy.created`, `policy.updated`, `policy.deleted`, `role.grant` | `{"event_type":"policy.created","policy_id":"...","org_id":"..."}` |
+| **User / Org** | `user.created`, `user.updated`, `user.deleted`, `user.reprovision`, `user.scim.provisioned`, `user.provisioning.failed`, `org.iam.offboarded`, `org.offboard` | `{"event":"user.created","user_id":"...","status":"initializing"}` |
+| **Threats** | `threat.alert.created` | `{"type":"threat.alert.created","alert_id":"...","severity":"high"}` |
+| **Connector** | Connector lifecycle events (created, suspended, deleted) | `{"event_type":"connector.created","connector_id":"..."}` |
+
+### SSRF Protection
+
+Outbound webhook requests are protected by `shared/middleware/security.go` — the `NewSafeHTTPClient` resolves the hostname once, validates all IPs against a blocked CIDR list, and pins the connection to prevent DNS rebinding:
+
+- RFC-1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`)
+- Loopback (`127.0.0.0/8`, `::1/128`)
+- Link-local / cloud metadata (`169.254.0.0/16`, `fe80::/10`)
+- GCP metadata (`fd00::/8`)
+- Unspecified / CGNAT (`0.0.0.0/8`, `100.64.0.0/10`)
+
+### Status
+
+> **Current implementation status:** The `webhook-delivery` service is fully built (consumer loop, HMAC signing, SSRF guard, retry with exponential backoff, PostgreSQL state persistence, DLQ routing) but **no producer service currently publishes to `webhook.delivery`**. The SIEM webhook path in the alerting saga is also unwired (`siemURL = ""` at `services/alerting/pkg/saga/saga.go:108`). Connecting producers to this topic is the remaining step.
 
 ---
 
