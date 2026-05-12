@@ -63,115 +63,37 @@ Targets verified by k6 load tests. A release does not ship unless every SLO is g
 
 ## 🏗 System Topology
 
-OpenGuard uses two communication planes: **synchronous REST** for request/response operations and **asynchronous events** over Kafka for audit, detection, and integration.
-
-### Sync (REST) Flow
-
 ```mermaid
-graph TB
-    subgraph Clients["Clients"]
-        DA[Admin Dashboard<br/><i>Angular</i>]
-        SDK[SDK-Protected Apps<br/><i>Go SDK / mTLS</i>]
-    end
-
-    subgraph Gateway["Gateway Layer"]
-        NX[Nginx Reverse Proxy]
-        CP[Control Plane]
-    end
-
-    subgraph Services["Microservices (10)"]
-        IAM[IAM]
-        PE[Policy]
-        DLP[DLP]
-        AU[Audit]
-        CM[Compliance]
-        CR[Connector Registry]
-    end
-
-    subgraph Data["Data Stores"]
-        PG[("PostgreSQL")]
-        MG[("MongoDB")]
-        CH[("ClickHouse")]
-    end
-
-    DA --> NX
-    SDK --> CP
-
-    NX --> IAM
-    NX --> CP
-    CP --> PE
-    CP --> AU
-    NX --> CR
-
-    IAM --> PG
-    PE --> PG
-    DLP --> PG
-    CM --> PG
-    CM --> CH
-    CR --> PG
-    AU --> MG
-
-    IAM -.->|content scan| DLP
-    PE -.->|content scan| DLP
-    AU -.->|content scan| DLP
-    CR -.->|content scan| DLP
+graph TD
+    App[Connected Apps / SDK] -->|HTTPS + mTLS| CP[Control Plane Proxy]
+    CP --> IAM[IAM Service]
+    CP --> PE[Policy Engine]
+    CP --> CR[Connector Registry]
+    
+    IAM & PE & CR -->|Outbox| Kafka[(Kafka Event Bus)]
+    
+    Kafka --> TD[Threat Detection]
+    Kafka --> AL[Audit Log / MongoDB]
+    Kafka --> WD[Webhook Delivery]
+    Kafka --> COMP[Compliance / ClickHouse]
 ```
-
-### Async (Event) Flow
-
-```mermaid
-graph LR
-    subgraph Producers["Producers (Transactional Outbox)"]
-        IAM[IAM]
-        PE[Policy]
-        CP[Control Plane]
-        TD[Threat]
-        AL[Alerting]
-    end
-
-    K[Kafka<br/><i>13 topics</i>]
-
-    subgraph Consumers["Consumers"]
-        TD_C[Threat Detectors]
-        AU_C[Audit Service]
-        AL_C[Alerting Engine]
-        CM_C[Compliance]
-        WD_C[Webhook Delivery]
-        DLP_C[DLP Scanner]
-    end
-
-    IAM ==>|auth.events, connector.events| K
-    PE ==>|policy.changes| K
-    CP ==>|data.access, control.plane.events| K
-    TD ==>|threat.alerts| K
-    AL ==>|webhook.delivery| K
-
-    K ==>|auth.events, data.access, policy.changes| TD_C
-    K ==>|auth.events, policy.changes, data.access, threat.alerts| AU_C
-    K ==>|threat.alerts| AL_C
-    K ==>|audit.trail| CM_C
-    K ==>|webhook.delivery| WD_C
-    K ==>|control.plane.events| DLP_C
-```
-
-> 📖 **Full reference:** [`docs/index/SYSTEM_MAP.md`](docs/index/SYSTEM_MAP.md) — layered stack, topic-level trace, port map, threat detectors.
 
 ---
 
 ## 📦 Services Inventory
 
-| Service | Ext. Port | Data Store | Responsibility |
-|---------|:---------:|------------|----------------|
-| `control-plane` | 8081 | — | API gateway, circuit breakers, request proxying |
-| `iam` | 8082 | PG, Redis | OIDC, SCIM 2.0, MFA (TOTP/WebAuthn), JWT lifecycle |
-| `policy` | 8083 | PG, Redis | RBAC, CEL evaluation, Redis cache-aside |
-| `threat` | 8084 | Mongo, Redis | Streaming anomaly detection (6 detectors) |
-| `audit` | 8085 | Mongo | Hash-chained, HMAC-verified immutable log, SSE stream |
-| `alerting` | 8086 | Mongo, Redis | Alert lifecycle, SIEM delivery (Splunk/Datadog) |
-| `webhook-delivery` | 8087 | PG | HMAC-signed webhook delivery with backoff + DLQ |
-| `compliance` | 8088 | ClickHouse, PG, S3 | Compliance posture, RSA-PSS signed PDF reports |
-| `dlp` | 8089 | PG, Redis | Real-time PII/credential scanning and redaction |
-| `connector-registry` | 8090 | PG, Redis | App registration, connector validation, PBKDF2 keys |
+| Service | Port | Responsibility |
+|---|---|---|
+| `control-plane` | 8080 | Reverse proxy, rate limiting, circuit breakers. |
+| `iam` | 8081 | OIDC, SCIM 2.0, MFA (TOTP/WebAuthn), JWT Lifecycle. |
+| `policy` | 8082 | RBAC/CEL evaluation, Redis cache-aside. |
+| `threat` | 8083 | Streaming anomaly scoring (Impossible Travel, Brute Force). |
+| `audit` | 8084 | Hash-chained, HMAC-verified immutable log (MongoDB). |
+| `alerting` | 8085 | Alert lifecycle, SIEM templates (Splunk, Datadog). |
+| `connector-registry`| 8090 | App registration, PBKDF2 API key management. |
+| `webhook-delivery` | 8091 | HMAC-signed delivery with retry/DLQ logic. |
+| `compliance` | 8092 | ClickHouse analytics, **RSA-PSS signed PDF reports**. |
+| `dlp` | 8093 | Real-time PII/Credential scanning and redaction. |
 
 ---
 
